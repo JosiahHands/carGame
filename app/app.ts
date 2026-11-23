@@ -15,12 +15,14 @@ import { TimeTrial, formatTime } from '../game/timeTrial';
 import { Weapons } from '../game/weapons';
 import { venue } from '../game/venues';
 import { World } from '../game/world';
-import { CHASSIS, careerCar, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
+import { CHASSIS, awaitingChoice, careerCar, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
 import { EventRun, type EventSpec } from '../game/event';
 import { MenuUI } from '../game/menuUI';
 import { el } from '../libs/dom';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 steps per second
+const MAX_FRAME = 0.25; // seconds: the longest frame the game catches up on
+const MAX_STEPS = Math.ceil(MAX_FRAME / STEP); // physics steps for that frame
 const SLOW_MOTION = 0.3; // speed of time in slow motion
 
 const settings = loadSettings();
@@ -627,7 +629,7 @@ function bankDrift(): void {
 function drive(dt: number, controls: ReturnType<Input['read']>): void {
   accumulator += dt;
   let steps = 0;
-  while (accumulator >= STEP && steps < 10) {
+  while (accumulator >= STEP && steps < MAX_STEPS) {
     const wasAirborne = physics.airborne;
     const ev = physics.step(STEP, controls, world);
     accumulator -= STEP;
@@ -680,7 +682,11 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     driftTimer -= dt;
     if (driftTimer <= 0) bankDrift();
   }
-  if (event) event.unbankedDrift = driftScore >= 50 ? Math.round(driftScore) : 0;
+  if (event) {
+    // Still sliding or flying when the time runs out? It counts.
+    event.unbankedDrift = driftScore >= 50 ? Math.round(driftScore) : 0;
+    event.unbankedAir = physics.airborne && airTime > 0.5 ? airTime : 0;
+  }
   // The nitro bottle also slowly refills on its own.
   if (!physics.boosting) physics.nitro = Math.min(1, physics.nitro + dt * 0.03);
 }
@@ -779,6 +785,19 @@ const menu = new MenuUI(career, config, {
   resume: resumeEvent,
   restart: () => again?.(),
   quit: quitEvent,
+  chooseSandbox() {
+    career.mode = 'sandbox';
+    career.finished = true;
+    saveCareer(career);
+    if (event) quitEvent();
+    menu.showCareer('Levels', 11);
+  },
+  chooseReset() {
+    career = resetCareer(career, true);
+    menu.save = career;
+    if (event) quitEvent();
+    menu.showCareer('Levels', 1);
+  },
   units: () => settings.units,
 });
 document.body.append(menu.root);
@@ -916,26 +935,14 @@ function showResults(e: EventRun): void {
     return;
   }
   const level = playing;
-  const payout = level.number === 0 ? payDaily(career, level, r.stars) : payLevel(career, level, r.stars, r.scoreText, r.position);
+  const payout = level.number === 0 ? payDaily(career, level, r.stars) : payLevel(career, level, { ...r, lowerIsBetter: e.lowerIsBetter });
   let next: Level | null = null;
   if (level.number > 0 && r.passed) {
-    if (level.number === LEVELS && !career.finished) {
-      career.finished = true;
-      saveCareer(career);
-      menu.showCareerComplete(
-        () => {
-          career.mode = 'sandbox';
-          saveCareer(career);
-          quitEvent();
-          menu.showCareer('Levels', 11);
-        },
-        () => {
-          career = resetCareer(career, true);
-          menu.save = career;
-          quitEvent();
-          menu.showCareer('Levels', 1);
-        },
-      );
+    // Level 100 beaten: offer Sandbox or Reset. Nothing is saved as chosen
+    // until the player picks one, so closing the game here keeps the choice
+    // waiting on the main menu.
+    if (level.number === LEVELS && awaitingChoice(career)) {
+      menu.showCareerComplete();
       return;
     }
     const n = level.number >= LEVELS ? (career.mode === 'sandbox' ? career.sandboxLevel : 0) : level.number + 1;
@@ -965,8 +972,10 @@ function frame(now: number): void {
   }
   const elapsed = Math.max(0, (now - lastTime) / 1000);
   lastTime = now;
-  // Game updates are capped at 50 ms, so a long pause doesn't make the car jump.
-  const realDt = Math.min(0.05, elapsed);
+  // Game updates are capped at a quarter of a second, so a long pause doesn't
+  // make the car jump. Below that the game keeps up with real time, even at
+  // 4 FPS, so race clocks and time limits run at the right speed.
+  const realDt = Math.min(MAX_FRAME, elapsed);
 
   // Count frames for the FPS counter, updating it twice a second. This uses
   // the real time between frames, not the capped time, so slow frames show

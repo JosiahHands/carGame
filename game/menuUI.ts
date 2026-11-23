@@ -4,7 +4,7 @@
 import { button, el } from '../libs/dom';
 import {
   BOSS_STARS, CHAPTERS, CHASSIS, DIFFICULTIES, LEVELS, UPGRADES,
-  careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
+  awaitingChoice, careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
   quickRaceSpec, resetCareer, today, totalStars, upgradeCap, upgradeCost,
   type CareerSave, type Level, type Payout, type UpgradeId,
 } from './career';
@@ -25,6 +25,9 @@ export interface MenuEvents {
   resume(): void;
   restart(): void;
   quit(): void;
+  /** After beating level 100: carry on into the sandbox, or reset the career. */
+  chooseSandbox(): void;
+  chooseReset(): void;
   /** 'mph' or 'kmh', for showing speeds. */
   units(): 'mph' | 'kmh';
 }
@@ -79,6 +82,13 @@ export class MenuUI {
     career.classList.add('primary');
     const daily = s.daily === today() ? 'Daily challenge done ✓' : '🎁 A new daily challenge is waiting';
     const list = el('div', 'menu-list');
+    // Level 100 beaten but no choice made yet (say the game was closed on the results).
+    if (awaitingChoice(s)) {
+      const choose = this.bigButton('🏆 Career complete!', 'Choose what happens next: Sandbox or Reset', () => this.showCareerComplete());
+      choose.classList.add('primary');
+      list.append(choose);
+      career.classList.remove('primary');
+    }
     list.append(
       career,
       this.bigButton('🏁 Quick race', 'Any car, any track, any difficulty', () => this.showQuick()),
@@ -371,7 +381,7 @@ export class MenuUI {
     body.append(el('h3', undefined, 'Start again'), el('p', 'muted', 'Resetting wipes your coins, cars, upgrades and stars. If you have finished the career, it counts as a completion: coins pay 25% more for each one.'));
     const reset = button('Reset career…', 'btn danger', () => {
       if (!window.confirm('Reset your career? Coins, cars, upgrades and stars will be lost.')) return;
-      this.save = resetCareer(s, s.finished);
+      this.save = resetCareer(s, s.stars[LEVELS - 1] > 0); // counts as a completion once level 100 is beaten
       this.showCareer('Levels', 1);
     });
     body.append(reset);
@@ -523,7 +533,7 @@ export class MenuUI {
   }
 
   /** Shown once level 100 is beaten: carry on into the sandbox, or start again. */
-  showCareerComplete(onSandbox: () => void, onReset: () => void): void {
+  showCareerComplete(): void {
     const box = el('div', 'overlay-box results');
     box.append(
       el('h2', 'gold', '🏆 CAREER COMPLETE! 🏆'),
@@ -531,9 +541,9 @@ export class MenuUI {
       el('p', 'muted', 'What now?'),
     );
     const choices = el('div', 'end-choices');
-    const sandbox = this.bigButton('∞ Sandbox', 'Keep your car, coins and upgrades. Endless levels that get harder every time. Upgrades go up to 20.', onSandbox);
+    const sandbox = this.bigButton('∞ Sandbox', 'Keep your car, coins and upgrades. Endless levels that get harder every time. Upgrades go up to 20.', () => this.events.chooseSandbox());
     sandbox.classList.add('primary');
-    const reset = this.bigButton('↺ Reset', `Start again from level 1 with nothing, but every coin pays ${Math.round((prestige(this.save) + 0.25 - 1) * 100)}% more.`, onReset);
+    const reset = this.bigButton('↺ Reset', `Start again from level 1 with nothing, but every coin pays ${Math.round((prestige(this.save) + 0.25 - 1) * 100)}% more.`, () => this.events.chooseReset());
     choices.append(sandbox, reset);
     box.append(choices);
     this.open('overlay', box);
