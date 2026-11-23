@@ -219,8 +219,9 @@ export class Weapons {
   }
 
   /**
-   * Which way to shoot from `from`. Straight ahead, unless a parked car, lamp
-   * or tree is almost in line (within about 7°): then aim right at it, so
+   * Which way to shoot from `from`. Straight ahead, unless a parked car, lamp,
+   * tree or rival car is almost in line (within about 7°, 10° for rivals):
+   * then aim right at it, so
    * small things are easy to hit. Bullets also dip slightly so they hit the
    * road about 60 m ahead instead of flying over everything low.
    */
@@ -237,6 +238,17 @@ export class Weapons {
       const flatToTarget = new THREE.Vector3(toTarget.x, 0, toTarget.z).normalize();
       const inLine = flatToTarget.dot(flatForward) > 0.992; // cos(7°)
       if (inLine && distance > 3 && distance < bestDistance) {
+        bestDistance = distance;
+        best = toTarget.normalize();
+      }
+    }
+    // Rival cars in a battle, aimed at the middle of their body.
+    for (const h of this.world.hitBoxes) {
+      if (!h.alive) continue;
+      const toTarget = new THREE.Vector3(h.x - from.x, h.y + h.height / 2 - from.y, h.z - from.z);
+      const distance = toTarget.length();
+      const flatToTarget = new THREE.Vector3(toTarget.x, 0, toTarget.z).normalize();
+      if (flatToTarget.dot(flatForward) > 0.985 && distance > 3 && distance < bestDistance) {
         bestDistance = distance;
         best = toTarget.normalize();
       }

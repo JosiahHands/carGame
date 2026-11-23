@@ -17,6 +17,26 @@ export function grassTexture(): THREE.CanvasTexture {
   }, true);
 }
 
+/** The ground at a venue: grass, desert sand, snow, or dark city dirt. */
+export function groundTexture(kind: 'grass' | 'sand' | 'snow' | 'dirt'): THREE.CanvasTexture {
+  if (kind === 'grass') return grassTexture();
+  // Base colour, then lots of small specks of two other shades.
+  const looks = {
+    sand: ['#d8b47a', 'rgba(170,120,70,0.35)', 'rgba(250,225,180,0.4)'],
+    snow: ['#eef3f7', 'rgba(170,190,210,0.35)', 'rgba(255,255,255,0.6)'],
+    dirt: ['#2a2b30', 'rgba(60,60,70,0.45)', 'rgba(15,15,20,0.5)'],
+  }[kind];
+  const rand = seededRandom(kind.length * 13);
+  return canvasTexture(256, 256, (ctx) => {
+    ctx.fillStyle = looks[0];
+    ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2400; i++) {
+      ctx.fillStyle = looks[1 + (i % 2)];
+      ctx.fillRect(rand() * 256, rand() * 256, 1 + rand() * 3, 1 + rand() * 2);
+    }
+  }, true);
+}
+
 /** Road running along the texture's V axis, with edge lines and a dashed centre line. */
 export function roadTexture(): THREE.CanvasTexture {
   const rand = seededRandom(11);

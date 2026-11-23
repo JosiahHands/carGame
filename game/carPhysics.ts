@@ -29,11 +29,14 @@ const EARTH_GRAVITY = 16; // a bit more than real gravity, so jumps feel snappy
 const MAX_REVERSE = 12;
 const MPH = 0.44704; // metres per second
 /**
- * Most sideways acceleration the tyres can give, in m/s², at normal grip.
- * Far more than a real car, but it stops cars at hundreds of mph from spinning
- * on the spot; normal driving never reaches it.
+ * Most sideways acceleration the tyres can give, in m/s², at normal grip on
+ * dry tarmac: about 2.2 g, like a race car. Take a corner faster than that
+ * and the car runs wide (understeer), so you brake for the tight ones. More
+ * grip and downforce raise it; rain, snow and grass lower it.
  */
-const CORNERING_LIMIT = 250;
+export const TYRE_GRIP = 22;
+/** With the handbrake on, the car can swing round this many times faster than its grip allows, and slides. */
+const DRIFT_TURN = 3;
 /** A car this tall (metres) or taller flattens anything up to twice its height. */
 const GIANT_HEIGHT = 3;
 /**
@@ -78,11 +81,14 @@ export class CarPhysics {
   limiter = false;
 
   // Set from the car's tuning by configure().
-  private accel = 9; // m/s² at full throttle from a standstill
-  private topSpeed = 50; // m/s
+  /** m/s² at full throttle from a standstill. */
+  accel = 9;
+  /** Top speed in m/s. */
+  topSpeed = 50;
   private gripMultiplier = 1;
   private grip = 7; // how quickly sideways sliding dies away
-  private brakeDecel = 20;
+  /** How hard the brakes slow the car, in m/s². */
+  brakeDecel = 20;
   private maxSteer = 0.5; // radians
   private driftGrip = 0.25;
   private downforce = 0;
@@ -95,9 +101,17 @@ export class CarPhysics {
   private bounce = 0.35;
   // Set from the car's size by configure().
   private wheelBase = 2.6;
-  private length = 4.4;
-  private width = 1.9;
-  private height = 1.3;
+  // The car's size in metres (from its model).
+  length = 4.4;
+  width = 1.9;
+  height = 1.3;
+  /** Grip of the surface under the car, from the world: 1 on dry tarmac. */
+  surfaceGrip = 1;
+  /**
+   * All-terrain tyres (the rally truck in the career): grass slows the car
+   * half as much, and rain and snow take away less grip.
+   */
+  allTerrain = false;
   private lastForward = 0;
   private jumpHeld = false;
 
@@ -171,6 +185,30 @@ export class CarPhysics {
 
   get speed(): number {
     return Math.hypot(this.vx, this.vz);
+  }
+
+  /** Most sideways acceleration the tyres can give at this speed (m/s²), with downforce and the surface. */
+  cornerGrip(speed: number): number {
+    return TYRE_GRIP * this.gripMultiplier * this.surfaceGrip * (1 + (this.downforce / 10) * (speed / (100 * MPH)) ** 2);
+  }
+
+  /**
+   * The fastest the car can take a bend of this curvature (1 / radius) in
+   * m/s, on a surface this grippy. Infinity if downforce means it can take it
+   * at any speed.
+   */
+  cornerSpeed(curve: number, surfaceGrip = this.surfaceGrip): number {
+    // Solve v² × curve = grip × (1 + k v²), where k is the downforce part.
+    const g = TYRE_GRIP * this.gripMultiplier * surfaceGrip;
+    const k = (this.downforce / 10) / (100 * MPH) ** 2;
+    const room = Math.abs(curve) - g * k;
+    return room <= 0 ? Infinity : Math.sqrt(g / room);
+  }
+
+  /** The steering input (-1..1) that turns along a bend of this curvature at the current speed. */
+  steerFor(curve: number): number {
+    const lock = this.maxSteer / (1 + Math.abs(this.forwardSpeed) / 28);
+    return Math.max(-1, Math.min(1, Math.atan(curve * this.wheelBase) / lock));
   }
 
   /** 0..1, how close to top speed. */
@@ -255,23 +293,27 @@ export class CarPhysics {
     this.onGrass = !this.airborne && world.offRoad(this.x, this.z);
     if (this.onGrass) {
       const s = Math.sign(vf);
-      vf -= s * Math.min(Math.abs(vf), (0.5 + Math.abs(vf) * 0.08) * dt);
+      const drag = (0.5 + Math.abs(vf) * 0.08) * (this.allTerrain ? 0.5 : 1);
+      vf -= s * Math.min(Math.abs(vf), drag * dt);
     }
 
     // Downforce presses the car onto the road harder the faster it goes,
     // adding grip: none at a standstill, double the grip at 10/10 and 100 mph.
     const downforceGrip = 1 + (this.downforce / 10) * (vf / (100 * MPH)) ** 2;
+    this.surfaceGrip = world.gripAt(this.x, this.z);
+    if (this.allTerrain) this.surfaceGrip = 1 - (1 - this.surfaceGrip) * 0.4;
 
     // Sideways grip: low grip with the handbrake lets the car slide.
     if (!this.airborne) {
-      const g = (input.handbrake ? this.grip * this.driftGrip : this.grip) * downforceGrip;
+      const g = (input.handbrake ? this.grip * this.driftGrip : this.grip) * downforceGrip * this.surfaceGrip;
       vl *= Math.exp(-g * dt);
     }
 
-    // Turning, limited to what the tyres can hold (only matters at extreme speed).
+    // Turning, limited to what the tyres can hold: too fast for a corner and
+    // the car runs wide. The handbrake lets it swing round further and slide.
     let yawRate = (vf / this.wheelBase) * Math.tan(this.steerAngle) * control;
     if (input.handbrake && Math.abs(vf) > 3) yawRate *= 1.5;
-    const maxYaw = (CORNERING_LIMIT * this.gripMultiplier * downforceGrip) / Math.max(1, Math.abs(vf));
+    const maxYaw = (this.cornerGrip(vf) * (input.handbrake ? DRIFT_TURN : 1)) / Math.max(1, Math.abs(vf));
     yawRate = Math.max(-maxYaw, Math.min(maxYaw, yawRate));
     const dYaw = yawRate * dt;
     this.heading += dYaw;
@@ -389,6 +431,8 @@ export class CarPhysics {
     const acrossCount = acrossRoom > 0.01 ? Math.max(3, Math.ceil(this.width / (2 * r)) + 1) : 1;
     const giant = this.height >= GIANT_HEIGHT;
     const direction = new THREE.Vector3(this.vx, 0, this.vz).normalize();
+    // Only the posts and walls near the car (the grid lists them by area).
+    const near = world.nearby(this.x, this.z, Math.max(this.length, this.width) / 2 + 1);
     let impact = 0;
     const hit = (lost: number, target: Target | undefined) => {
       if (lost > impact) {
@@ -421,7 +465,7 @@ export class CarPhysics {
       // Race track barriers and grandstands: straight walls at any angle. A
       // giant car steps over any wall less than half its height.
       const reach = r + WALL_THICKNESS / 2;
-      for (const w of world.walls) {
+      for (const w of near.walls) {
         if (this.y > w.top || (giant && w.top - this.y < this.height / 2)) continue;
         if (cx + reach < w.minX || cx - reach > w.maxX || cz + reach < w.minZ || cz - reach > w.maxZ) continue;
         // The closest point on the wall's middle line.
@@ -433,7 +477,7 @@ export class CarPhysics {
         if ((cx - px) ** 2 + (cz - pz) ** 2 >= reach * reach) continue;
         hit(this.resolve(cx, cz, px, pz, reach), undefined);
       }
-      for (const c of world.circles) {
+      for (const c of near.circles) {
         if (!c.solid) continue;
         // Flying over a lamp post or tree misses it.
         if (this.y > c.height) continue;

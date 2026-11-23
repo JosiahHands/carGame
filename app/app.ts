@@ -13,7 +13,12 @@ import { Minimap } from '../game/minimap';
 import { EFFECTS_AMOUNT, SHADOW_SIZES, loadSettings, saveSettings } from '../game/settings';
 import { TimeTrial, formatTime } from '../game/timeTrial';
 import { Weapons } from '../game/weapons';
-import { MAPS, World } from '../game/world';
+import { venue } from '../game/venues';
+import { World } from '../game/world';
+import { CHASSIS, careerCar, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
+import { EventRun, type EventSpec } from '../game/event';
+import { MenuUI } from '../game/menuUI';
+import { el } from '../libs/dom';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 steps per second
 const SLOW_MOTION = 0.3; // speed of time in slow motion
@@ -50,9 +55,12 @@ const minimap = new Minimap();
 document.body.append(minimap.canvas);
 
 // ---------- the player's car ----------
+/** The garage build: what you drive in free roam, and the paint and parts on career cars. */
 const config: CarConfig = loadConfig();
+/** The car being driven now: the garage build, or the car for the event. */
+let driveConfig: CarConfig = config;
 let night = false;
-let car: CarRig = buildCar(config, night);
+let car: CarRig = buildCar(driveConfig, night);
 scene.add(car.root);
 physics.reset(world.spawn.x, world.spawn.z, world.spawn.heading);
 physics.y = world.heightAt(physics.x, physics.z);
@@ -61,7 +69,7 @@ fitToCar();
 /** Rebuilds the car after a change. Returns true if its size changed a lot. */
 function rebuildCar(): boolean {
   car.dispose();
-  car = buildCar(config, night);
+  car = buildCar(driveConfig, night);
   scene.add(car.root);
   const resized = fitToCar();
   syncCar(0);
@@ -73,13 +81,13 @@ function rebuildCar(): boolean {
  * built. Returns true if the car's size changed by more than 10%.
  */
 function fitToCar(): boolean {
-  physics.configure(config, car);
+  physics.configure(driveConfig, car);
   cameraRig.eyeHeight = car.eyeHeight;
   // How much bigger than a normal car (about 4.5 m long and 1.4 m tall) it is.
   const size = Math.max(car.length / 4.5, car.height / 1.4);
   const resized = Math.abs(Math.log(size / cameraRig.size)) > 0.1;
   cameraRig.size = size;
-  audio.setEngine(config.engineSound);
+  audio.setEngine(driveConfig.engineSound);
   applyShadows();
   applyViewDistance();
   return resized;
@@ -141,6 +149,13 @@ const countdownEl = $('countdown');
 const slowMotionEl = $('slowmo');
 const boostGlow = $('boostfx');
 const photoBar = $('photo-bar');
+const raceEl = $('race');
+const raceStatsEl = $('race-stats');
+const raceStarsEl = $('race-stars');
+const standingsEl = $('standings');
+const healthEl = $('health');
+const healthFill = $('health-fill');
+const warningEl = $('warning');
 let toastTimer = 0;
 
 function toast(text: string, ms = 1600): void {
@@ -170,6 +185,7 @@ let damage = 0;
 
 world.onDestroyed = (target) => {
   damage += target.value;
+  event?.addDamage(target.value);
   scoreEl.textContent = `$${damage.toLocaleString()} damage`;
   const distance = Math.hypot(target.x - physics.x, target.z - physics.z);
   if (target.kind === 'building') {
@@ -201,12 +217,13 @@ function applySettings(): void {
   updateHud();
 }
 
-// ---------- garage, driving and photo modes ----------
-let mode: 'garage' | 'drive' | 'photo' = 'garage';
+// ---------- menu, garage, driving and photo modes ----------
+let mode: 'menu' | 'garage' | 'drive' | 'photo' = 'menu';
 let slowMotion = false;
 
 const garage = new GarageUI(config, settings, {
   carChanged(change) {
+    driveConfig = config;
     // A much bigger or smaller car needs the garage camera moved to fit it.
     const resized = change === 'look' ? rebuildCar() : fitToCar();
     if (resized && mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
@@ -228,6 +245,10 @@ const garage = new GarageUI(config, settings, {
     loadMap();
   },
   drive: () => setMode('drive'),
+  menu() {
+    setMode('menu');
+    menu.showMain();
+  },
   honk() {
     audio.unlock();
     audio.horn(config.horn);
@@ -254,22 +275,27 @@ function carPosition(): THREE.Vector3 {
 function updateHud(): void {
   const driving = mode === 'drive';
   hud.classList.toggle('hidden', !driving);
-  hintEl.classList.toggle('hidden', !driving);
-  scoreEl.classList.toggle('hidden', !driving);
-  weaponPanel.classList.toggle('hidden', !driving || !settings.weapons);
+  hintEl.classList.toggle('hidden', !driving || event !== null);
+  scoreEl.classList.toggle('hidden', !driving || (event !== null && event.spec.kind !== 'destruction'));
+  weaponPanel.classList.toggle('hidden', !driving || !weaponsOn());
   minimap.setVisible(driving && settings.minimap);
   trialEl.classList.toggle('hidden', !driving || !trial.active);
   countdownEl.classList.toggle('hidden', !driving || !trial.active);
+  raceEl.classList.toggle('hidden', !driving || !event);
+  standingsEl.classList.toggle('hidden', !driving || !event?.isRace);
+  healthEl.classList.toggle('hidden', !driving || !event?.spec.weapons || !event.track);
+  warningEl.classList.toggle('hidden', !driving || !event);
   slowMotionEl.classList.toggle('hidden', !driving || !slowMotion);
   photoBar.classList.toggle('hidden', mode !== 'photo');
   fpsEl.classList.toggle('hidden', !settings.showFps);
   if (!driving) helpEl.classList.add('hidden');
 }
 
-function setMode(next: 'garage' | 'drive' | 'photo'): void {
+function setMode(next: 'menu' | 'garage' | 'drive' | 'photo'): void {
   const previous = mode;
   mode = next;
-  if (next === 'garage') {
+  if (next !== 'menu') menu.hide();
+  if (next === 'garage' || next === 'menu') {
     // Park the car where it is, and give up any time trial.
     physics.vx = physics.vz = physics.vy = 0;
     physics.y = world.heightAt(physics.x, physics.z);
@@ -277,8 +303,8 @@ function setMode(next: 'garage' | 'drive' | 'photo'): void {
     trial.stop();
   }
   garage.setVisible(next === 'garage');
-  // The garage and photo mode both use the orbit camera; driving follows the car.
-  if (next === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
+  // The menu, garage and photo mode all use the orbit camera; driving follows the car.
+  if (next === 'garage' || next === 'menu') cameraRig.setGarage(true, carPosition(), physics.heading);
   if (next === 'photo') cameraRig.setGarage(true, carPosition(), physics.heading, true);
   if (next === 'drive' && previous !== 'drive') cameraRig.setGarage(false, carPosition(), physics.heading);
   updateViewOffset();
@@ -290,7 +316,7 @@ function setMode(next: 'garage' | 'drive' | 'photo'): void {
 function updateViewOffset(): void {
   const w = window.innerWidth;
   const h = window.innerHeight;
-  if (mode === 'garage' && w > 820) camera.setViewOffset(w, h, Math.min(380, w * 0.3) / 2, 0, w, h);
+  if ((mode === 'garage' || mode === 'menu') && w > 820) camera.setViewOffset(w, h, Math.min(380, w * 0.3) / 2, 0, w, h);
   else camera.clearViewOffset();
 }
 
@@ -323,7 +349,7 @@ function loadMap(): void {
   if (mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
   showBest();
   updateHud();
-  toast(MAPS.find((m) => m.value === world.map)!.label);
+  toast(venue(world.map).label);
 }
 
 /** Puts the car at a spot, standing still, with the camera behind it. */
@@ -375,11 +401,17 @@ function updateGhost(): void {
 }
 
 function handleAction(action: Action): void {
+  // In the menus, only the keys for sound and fullscreen do anything.
+  if (mode === 'menu' && action !== 'mute' && action !== 'fullscreen') return;
+  // Paused or on the results screen: only Esc (resume) works.
+  if (event && menu.visible && action !== 'mute' && action !== 'fullscreen') {
+    if (action === 'settings' && paused) resumeEvent();
+    return;
+  }
   // Keys that work in every mode.
-  if (action === 'night') {
+  if (action === 'night' && !event) {
     night = !night;
-    world.setNight(night);
-    scene.environmentIntensity = night ? 0.2 : 1;
+    applyNight();
     toast(night ? 'Night' : 'Day');
   } else if (action === 'mute') {
     toast(audio.toggleMute() ? 'Sound off' : 'Sound on');
@@ -399,6 +431,22 @@ function handleAction(action: Action): void {
     if (action === 'snapshot') savePhoto();
     if (action === 'photo' || action === 'settings') setMode('drive');
     return;
+  }
+
+  // Driving in an event: some keys do other things, and some are off.
+  if (event) {
+    if (action === 'settings') {
+      pauseEvent();
+      return;
+    }
+    if (action === 'reset') {
+      if (event.state === 'running' && event.playerWrecked <= 0) event.recover();
+      return;
+    }
+    if (action === 'garage' || action === 'trial' || action === 'slowmo') {
+      toast('Not during an event · Esc to pause');
+      return;
+    }
   }
 
   // Driving.
@@ -455,7 +503,7 @@ function handleAction(action: Action): void {
     case 'weapon1':
     case 'weapon2':
     case 'weapon3':
-      if (!settings.weapons) break;
+      if (!weaponsOn()) break;
       if (action === 'nextWeapon') weapons.select(weapons.selected + 1);
       else weapons.select(Number(action.slice(-1)) - 1); // 'weapon2' -> 1
       weaponName.textContent = `${weapons.selected + 1} · ${weapons.name}`;
@@ -476,7 +524,8 @@ function syncCar(dt: number): void {
     w.spin.rotation.x += (physics.forwardSpeed / w.radius) * dt;
     if (w.front) w.steer.rotation.y = physics.steerAngle;
   }
-  car.setLights({ night, braking: physics.braking && mode === 'drive' });
+  car.setLights({ night: world.isNight, braking: physics.braking && mode === 'drive' });
+  car.setWrecked(event !== null && event.playerWrecked > 0);
   car.setNitro(physics.boosting && mode === 'drive');
   car.animate(performance.now() / 1000);
 }
@@ -559,6 +608,7 @@ function bankDrift(): void {
   const points = Math.round(driftScore);
   driftScore = 0;
   if (points < 50) return;
+  event?.addDrift(points);
   if (points > bestDrift) {
     bestDrift = points;
     try {
@@ -584,6 +634,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     steps++;
     if (physics.airborne) airTime += STEP;
     else if (wasAirborne) {
+      if (airTime > 0.5) event?.addAir(airTime);
       if (airTime > 0.7) {
         toast(`Air time ${airTime.toFixed(1)} s`);
         physics.nitro = Math.min(1, physics.nitro + airTime * 0.08); // jumps fill the nitro
@@ -606,6 +657,14 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     if (physics.onGrass && physics.speed > 10) shake = Math.max(shake, 0.04); // bumpy
     if (ev.cones > 0) audio.crash(5);
     if (ev.landed > 6) audio.crash(ev.landed * 0.6);
+    // The rivals, and bumping into them.
+    if (event) {
+      const bump = event.step(STEP);
+      if (bump > 3) {
+        audio.crash(bump);
+        shake = Math.max(shake, Math.min(0.5, bump * 0.03));
+      }
+    }
   }
   if (accumulator > STEP) accumulator = 0; // fell behind: drop the backlog
 
@@ -621,6 +680,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     driftTimer -= dt;
     if (driftTimer <= 0) bankDrift();
   }
+  if (event) event.unbankedDrift = driftScore >= 50 ? Math.round(driftScore) : 0;
   // The nitro bottle also slowly refills on its own.
   if (!physics.boosting) physics.nitro = Math.min(1, physics.nitro + dt * 0.03);
 }
@@ -663,6 +723,227 @@ function updateTimeTrial(dt: number): void {
   countdownEl.textContent = trial.active && trial.countdown > 0 ? String(Math.ceil(trial.countdown)) : '';
 }
 
+// ---------- events: career levels, quick races and the daily challenge ----------
+let career = loadCareer();
+let event: EventRun | null = null;
+let paused = false;
+/** Starts the current event again, for Restart and Retry. */
+let again: (() => void) | null = null;
+/** The career level (or daily challenge) being played; null in a quick race. */
+let playing: Level | null = null;
+/** Seconds since the event ended: the results come up after a moment. */
+let endedFor = 0;
+let resultsShown = false;
+let eventHudTimer = 0;
+/** No controls pressed: for holding the car still. */
+const STOPPED = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, jump: false, fire: false };
+
+/** Weapons are on in free roam if the setting says so, and in events that have them. */
+function weaponsOn(): boolean {
+  return event ? event.spec.weapons : settings.weapons;
+}
+
+/** Lights and sky for day or night (some venues are always at night). */
+function applyNight(): void {
+  world.setNight(night);
+  scene.environmentIntensity = world.isNight ? 0.2 : 1;
+}
+
+const menu = new MenuUI(career, config, {
+  playLevel,
+  playQuick(spec, drivenCar) {
+    again = () => startEvent(spec, drivenCar, null, false);
+    again();
+  },
+  freeRoam() {
+    leaveEvents();
+    setMode('drive');
+  },
+  garage() {
+    leaveEvents();
+    setMode('garage');
+  },
+  carChanged() {
+    career = menu.save;
+    saveCareer(career);
+    // Show off the career car behind the menu (rebuilt only when it looks different).
+    if (mode === 'menu' && !event) {
+      const next = careerCar(config, career.car, career.upgrades);
+      if (JSON.stringify(next) !== JSON.stringify(driveConfig)) {
+        driveConfig = next;
+        rebuildCar();
+        cameraRig.setGarage(true, carPosition(), physics.heading);
+      }
+    }
+  },
+  resume: resumeEvent,
+  restart: () => again?.(),
+  quit: quitEvent,
+  units: () => settings.units,
+});
+document.body.append(menu.root);
+
+/** Plays a career level or the daily challenge (level number 0), if it's unlocked. */
+function playLevel(level: Level): void {
+  const reason = level.number > 0 && level.number <= LEVELS ? lockedReason(career, level.number) : '';
+  if (reason) {
+    toast(reason);
+    return;
+  }
+  level.spec.armour = armourFor(career.upgrades.armour);
+  const drivenCar = careerCar(config, career.car, career.upgrades);
+  // A fresh copy of the level each time: the targets are worked out as it starts.
+  again = () => playLevel(level.number === 0 ? dailyLevel(career) : makeLevel(level.number));
+  startEvent(level.spec, drivenCar, level, CHASSIS[career.car].allTerrain ?? false);
+}
+
+/** Loads the venue, puts everyone on the grid and starts the countdown. */
+function startEvent(spec: EventSpec, drivenCar: CarConfig, level: Level | null, allTerrain: boolean): void {
+  event?.dispose();
+  playing = level;
+  trial.stop();
+  ghost?.dispose();
+  ghost = null;
+  weapons.clear();
+  effects.clear();
+  night = spec.night;
+  if (world.map !== spec.map || world.layout !== spec.layout) world.load(spec.map, spec.layout);
+  else world.rebuildAll(1e6, 1e6, 0); // put back anything destroyed last time
+  applyNight();
+  driveConfig = drivenCar;
+  rebuildCar();
+  physics.allTerrain = allTerrain;
+  damage = 0;
+  scoreEl.textContent = '';
+  driftScore = 0;
+  airTime = 0;
+  slowMotion = false;
+  paused = false;
+  endedFor = 0;
+  resultsShown = false;
+  event = new EventRun(spec, scene, world, effects, audio, physics, world.isNight);
+  syncCar(0);
+  setMode('drive');
+  cameraRig.setGarage(false, carPosition(), physics.heading);
+  cameraRig.snap(carPosition(), physics.heading);
+  updateHud();
+}
+
+function pauseEvent(): void {
+  if (!event || event.state === 'done') return;
+  paused = true;
+  menu.showPause(event.spec.title);
+}
+
+function resumeEvent(): void {
+  paused = false;
+  menu.hide();
+}
+
+/** Ends any event and goes back to the garage build, on the map chosen in the settings. */
+function leaveEvents(): void {
+  event?.dispose();
+  event = null;
+  playing = null;
+  paused = false;
+  physics.allTerrain = false;
+  if (driveConfig !== config) {
+    driveConfig = config;
+    rebuildCar();
+  }
+  if (night) {
+    night = false;
+    applyNight();
+  }
+  if (world.map !== settings.map || world.layout !== 0) loadMap();
+  else placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+}
+
+/** Quits an event (or finishes with one) and goes to the main menu. */
+function quitEvent(): void {
+  event?.dispose();
+  event = null;
+  paused = false;
+  physics.allTerrain = false;
+  placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+  setMode('menu');
+  menu.showMain();
+}
+
+/** Each frame of an event: messages, the HUD, and the results at the end. */
+function updateEvent(dt: number): void {
+  const e = event!;
+  for (const note of e.notes.splice(0)) toast(note, note === 'GO!' ? 900 : 1800);
+  eventHudTimer -= dt;
+  if (eventHudTimer <= 0) {
+    eventHudTimer = 0.1;
+    drawEventHud(e);
+  }
+  if (e.state === 'done' && !resultsShown) {
+    endedFor += dt;
+    if (endedFor > 1.5) showResults(e);
+  }
+}
+
+function drawEventHud(e: EventRun): void {
+  const h = e.hud();
+  raceStatsEl.replaceChildren(...h.stats.map((s) => {
+    const box = el('div', 'race-stat');
+    box.append(el('span', 'label', s.label), el('span', 'value', s.value));
+    return box;
+  }));
+  raceStarsEl.textContent = '★'.repeat(h.stars) + '☆'.repeat(3 - h.stars);
+  standingsEl.replaceChildren(...h.standings.map((r, i) => {
+    const row = el('li', r.me ? 'me' : r.out ? 'out' : undefined);
+    row.append(el('span', 'pos', String(i + 1)), el('span', 'name', r.name), el('span', 'gap', r.gap));
+    return row;
+  }));
+  warningEl.textContent = h.warning;
+  warningEl.classList.toggle('count', e.state === 'countdown');
+  if (h.health !== null) {
+    healthFill.style.width = `${Math.round(h.health * 100)}%`;
+    healthFill.classList.toggle('low', h.health < 0.3);
+  }
+}
+
+/** Pays out and shows the results (or, after level 100, the end of the career). */
+function showResults(e: EventRun): void {
+  resultsShown = true;
+  const r = e.result!;
+  if (r.stars > 0) audio.chime(true);
+  if (!playing) {
+    menu.showResults(e.spec, r, null, null);
+    return;
+  }
+  const level = playing;
+  const payout = level.number === 0 ? payDaily(career, level, r.stars) : payLevel(career, level, r.stars, r.scoreText, r.position);
+  let next: Level | null = null;
+  if (level.number > 0 && r.passed) {
+    if (level.number === LEVELS && !career.finished) {
+      career.finished = true;
+      saveCareer(career);
+      menu.showCareerComplete(
+        () => {
+          career.mode = 'sandbox';
+          saveCareer(career);
+          quitEvent();
+          menu.showCareer('Levels', 11);
+        },
+        () => {
+          career = resetCareer(career, true);
+          menu.save = career;
+          quitEvent();
+          menu.showCareer('Levels', 1);
+        },
+      );
+      return;
+    }
+    const n = level.number >= LEVELS ? (career.mode === 'sandbox' ? career.sandboxLevel : 0) : level.number + 1;
+    if (n > LEVELS || (n > 0 && lockedReason(career, n) === '')) next = makeLevel(n);
+  }
+  menu.showResults(e.spec, r, payout, next);
+}
+
 let accumulator = 0;
 let lastTime = performance.now();
 let nextFrameDue = 0; // for the frame rate limit: when the next frame should be drawn
@@ -701,10 +982,19 @@ function frame(now: number): void {
   for (const action of input.takeActions()) handleAction(action);
   const controls = input.read();
 
-  // Game time stops in the garage and photo mode, and runs slowly in slow motion.
-  const driving = mode === 'drive';
+  // Game time stops in the menus, the garage, photo mode and when paused,
+  // and runs slowly in slow motion.
+  const driving = mode === 'drive' && !paused;
   const dt = !driving ? 0 : slowMotion ? realDt * SLOW_MOTION : realDt;
-  if (driving) {
+  if (driving && event) {
+    // In an event the car is held still for the countdown, while wrecked and after the finish.
+    const held = event.state !== 'running' || event.playerWrecked > 0;
+    if (event.spec.noNitro) controls.boost = false;
+    drive(dt, held ? STOPPED : controls);
+    if (weaponsOn() && !held) useWeapons(dt, controls.fire);
+    event.update(realDt);
+    updateEvent(realDt);
+  } else if (driving) {
     const waitingToStart = trial.active && trial.countdown > 0;
     if (!waitingToStart) drive(dt, controls);
     if (settings.weapons && !waitingToStart) useWeapons(dt, controls.fire);
@@ -714,8 +1004,9 @@ function frame(now: number): void {
   }
 
   syncCar(dt);
+  event?.sync(dt, world.isNight);
   updateGhost();
-  world.setStartLights(trial.startLights);
+  world.setStartLights(event ? event.startLights : trial.startLights);
   if (driving) carEffects(dt, controls.throttle);
   effects.update(dt);
   world.update(dt, physics.x, physics.z, carRadius());
@@ -744,7 +1035,7 @@ function frame(now: number): void {
   boostGlow.classList.toggle('on', driving && physics.boosting);
   weaponBar.style.width = `${Math.round(weapons.readiness * 100)}%`;
   weaponBar.classList.toggle('hot', weapons.overheated);
-  if (driving && settings.minimap) minimap.update(realDt, world, physics.x, physics.z, physics.heading, trial.mapMarkers());
+  if (driving && settings.minimap) minimap.update(realDt, world, physics.x, physics.z, physics.heading, event ? event.mapMarkers() : trial.mapMarkers());
 
   renderer.render(scene, camera);
 }
@@ -761,6 +1052,8 @@ for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(
 
 weaponName.textContent = `1 · ${weapons.name}`;
 applySettings();
+applyNight();
 syncCar(0);
-setMode('garage');
+setMode('menu');
+menu.showMain();
 requestAnimationFrame(frame);
