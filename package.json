@@ -1,5 +1,6 @@
 {
   "name": "car-game",
+  "productName": "Car Game",
   "version": "1.0.0",
   "private": true,
   "description": "A 3D driving game where you drive around a small city and customize your car.",
@@ -7,12 +8,14 @@
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json && vite build && tsc -p tsconfig.electron.json",
     "start": "npm run build && electron .",
+    "package": "npm run build && node scripts/package.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },
   "dependencies": {
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@types/three": "^0.187.0",
     "electron": "^45.2.3",
     "typescript": "^5.9.3",

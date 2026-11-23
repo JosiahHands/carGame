@@ -11,8 +11,9 @@ grip, brakes, steering and drift. Your car is saved between sessions.
 
 Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
 [Node.js](https://nodejs.org) 22.12 or newer. On Windows, run the commands in Git Bash.
-The game installs into `~/carGame`. Play it with `cd ~/carGame && npm start`,
-and press H in the game to see the controls.
+Installing adds Car Game to your apps: open it from Launchpad or Spotlight on macOS,
+the Start Menu or Desktop on Windows, or the app menu on Linux. Press H in the game
+to see the controls.
 
 Install:
 

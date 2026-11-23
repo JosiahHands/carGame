@@ -10,6 +10,8 @@ function createWindow(): void {
     title: 'Car Game',
     backgroundColor: '#0b0f17',
     autoHideMenuBar: true,
+    // Window and taskbar icon on Linux; macOS and Windows use the app's own icon.
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

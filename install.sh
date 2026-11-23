@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Installs Car Game (or updates it if it is already installed).
+# Installs Car Game (or updates it if it is already installed) and adds it to
+# your apps: Applications on macOS, the Start Menu on Windows, the app menu on Linux.
 #
 #   curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
 #
-# The game goes in ~/carGame. Set CAR_GAME_DIR to use another folder.
+# The game's files go in ~/carGame. Set CAR_GAME_DIR to use another folder.
 # Run from a folder that is already a copy of the game, it installs that copy.
 # Works on macOS, Linux and Windows (Git Bash or WSL).
 set -euo pipefail
@@ -47,17 +48,7 @@ main() {
     git clone "$REPO_URL" "$dir"
   fi
 
-  cd "$dir"
-  echo "==> Installing packages"
-  npm ci --no-audit --no-fund
-  echo "==> Downloading Electron"
-  node node_modules/electron/install.js
-  echo "==> Building the game"
-  npm run build --silent
-
-  echo
-  echo "Car Game is ready in $dir"
-  echo "Play it with:  cd \"$dir\" && npm start"
+  bash "$dir/scripts/setup.sh"
 }
 
 main "$@"

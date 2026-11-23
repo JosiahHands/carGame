@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Updates an installed copy of Car Game to the latest version.
+# Updates an installed copy of Car Game to the latest version, app shortcut included.
 #
 #   curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
 #
@@ -35,19 +35,9 @@ main() {
     *) fail "$dir is not a Car Game folder. Set CAR_GAME_DIR to where the game is installed." ;;
   esac
 
-  cd "$dir"
   echo "==> Getting the latest version"
-  git pull --ff-only
-  echo "==> Installing packages"
-  npm ci --no-audit --no-fund
-  echo "==> Downloading Electron (if a new version arrived)"
-  node node_modules/electron/install.js
-  echo "==> Building the game"
-  npm run build --silent
-
-  echo
-  echo "Car Game is up to date in $dir"
-  echo "Play it with:  cd \"$dir\" && npm start"
+  git -C "$dir" pull --ff-only
+  bash "$dir/scripts/setup.sh"
 }
 
 main "$@"
