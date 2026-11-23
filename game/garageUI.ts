@@ -33,9 +33,10 @@ import {
   type Option,
   type Tuning,
 } from './carConfig';
+import { button, el } from '../libs/dom';
 import { PRESETS, type Settings } from './settings';
 import { bestLapFor, formatTime } from './timeTrial';
-import { MAPS, type MapName } from './world';
+import { VENUES, type MapName } from './venues';
 
 /** 'look' changes need the car rebuilt; 'tuning' changes (driving, sound) don't. */
 type Change = 'look' | 'tuning';
@@ -47,20 +48,6 @@ const ON_OFF: Option<'on' | 'off'>[] = [
   { value: 'on', label: 'On' },
   { value: 'off', label: 'Off' },
 ];
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
-
-function button(text: string, cls: string, onClick: () => void): HTMLButtonElement {
-  const b = el('button', cls, text);
-  b.type = 'button';
-  b.addEventListener('click', onClick);
-  return b;
-}
 
 /** 2.5 -> "2.5×", 12 -> "12×". */
 function times(v: number): string {
@@ -75,6 +62,8 @@ export interface GarageEvents {
   /** Switch to another map (already saved in the settings). */
   mapChanged(map: MapName): void;
   drive(): void;
+  /** Back to the main menu. */
+  menu(): void;
   /** Plays the car's horn, to try it out. */
   honk(): void;
   /** A line about the car: its size and speed. */
@@ -96,7 +85,7 @@ export class GarageUI {
     this.root = el('div', 'garage');
     const head = el('header');
     this.stats = el('p', 'stats');
-    head.append(el('h1', undefined, 'Garage'), el('p', undefined, 'Build anything, then hit Drive.'), this.stats);
+    head.append(el('h1', undefined, 'Garage'), el('p', undefined, 'Build anything, then hit Drive. Your paint and parts go on your career cars too.'), this.stats);
     const nav = el('nav', 'tabs');
     for (const t of TABS) {
       const b = button(t, 'tab', () => this.show(t));
@@ -106,6 +95,7 @@ export class GarageUI {
     this.body = el('div', 'garage-body');
     const foot = el('footer');
     foot.append(
+      button('◀ Menu', 'btn', () => this.events.menu()),
       button('Randomize', 'btn', () => this.replace(randomConfig(this.config))),
       button('Reset', 'btn', () => this.replace(cloneConfig(DEFAULT_CONFIG))),
       button('Drive ▶', 'btn primary', () => this.events.drive()),
@@ -406,7 +396,7 @@ export class GarageUI {
   /** A card for each map, with its best lap. Picking one switches to it straight away. */
   private showMaps(): void {
     const grid = el('div', 'build-grid maps');
-    for (const m of MAPS) {
+    for (const m of VENUES) {
       const best = bestLapFor(m.value);
       const card = button('', 'build', () => {
         if (this.settings.map === m.value) return;

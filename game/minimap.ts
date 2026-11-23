@@ -3,8 +3,6 @@
 import { HALF_SIZE, ROAD_LINES, ROAD_WIDTH, type World } from './world';
 
 const SIZE = 180; // CSS pixels
-/** Metres from the centre to the edge: the race tracks are bigger and faster, so they show more. */
-const RANGE = { city: 130, circuit: 220, oval: 300 };
 
 export interface MapMarker {
   x: number;
@@ -41,7 +39,8 @@ export class Minimap {
     this.timer = 1 / 30;
 
     const ctx = this.ctx;
-    const range = RANGE[world.map];
+    // Metres from the centre to the edge: bigger, faster tracks show more.
+    const range = world.track ? Math.min(300, Math.max(120, world.track.length / 10)) : 130;
     const pixelsPerMetre = SIZE / 2 / range;
     ctx.save();
     ctx.clearRect(0, 0, SIZE, SIZE);

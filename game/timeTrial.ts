@@ -2,7 +2,8 @@
 // its own lap (see Course in world.ts) and its own best lap. The best lap is
 // also recorded, so next time a see-through "ghost" car races you round it.
 import * as THREE from 'three';
-import type { Course, MapName } from './world';
+import type { MapName } from './venues';
+import type { Course } from './world';
 
 const COUNTDOWN = 3; // seconds
 const GHOST_RATE = 20; // ghost positions recorded per second

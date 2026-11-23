@@ -1,4 +1,4 @@
-// A closed race track, used by the Grand Prix circuit and the speedway maps.
+// A closed race track, used by every map except the city.
 //
 // The track is a centre line sampled every few metres. Each sample knows which
 // way the road runs, how sharply it turns and how much it is banked. From
@@ -8,6 +8,10 @@
 //
 // Positions across the road are given as an offset from the centre line, in
 // metres, with positive offsets to the left (as seen driving round the track).
+//
+// Tracks are drawn like a turtle drawing: straights and corners in turn (see
+// drawTrack). generateLayout makes new ones from a seed number, so there can be
+// as many different tracks as the career and sandbox need.
 import * as THREE from 'three';
 import { canvasTexture } from '../libs/canvasTexture';
 import { seededRandom } from '../libs/random';
@@ -41,6 +45,8 @@ export interface TrackStyle {
   outsideRunoff: number;
   /** Grass on the inside; null means no barrier on the inside at all. */
   insideRunoff: number | null;
+  /** No barriers at all, just grass and trees (a rally stage). */
+  noWalls?: boolean;
   /** A flat paved strip along the inside edge, like a speedway's apron (metres). */
   apron: number;
   wallHeight: number;
@@ -157,8 +163,8 @@ export class RaceTrack {
     }
 
     const edge = style.width / 2;
-    const insideWall = style.insideRunoff === null ? null : edge + style.insideRunoff;
-    const outsideWall = edge + style.outsideRunoff;
+    const insideWall = style.insideRunoff === null || style.noWalls ? null : edge + style.insideRunoff;
+    const outsideWall = style.noWalls ? null : edge + style.outsideRunoff;
     this.leftWall = this.inside > 0 ? insideWall : outsideWall;
     this.rightWall = this.inside > 0 ? outsideWall : insideWall;
 
@@ -253,6 +259,22 @@ export class RaceTrack {
     const outsidePaved = s.width / 2 + (s.fence > 0 ? s.outsideRunoff : kerb);
     const towardsInside = this.inside * near.offset;
     return towardsInside <= insidePaved && -towardsInside <= outsidePaved;
+  }
+
+  /**
+   * Where (x, z) is along the track (metres from the start line) and how far
+   * to the left of the centre line, or null if it's nowhere near the track.
+   */
+  locate(x: number, z: number): { along: number; offset: number } | null {
+    const near = this.nearest(x, z);
+    return near ? { along: near.along, offset: near.offset } : null;
+  }
+
+  /** The sample at `along` metres from the start line (wrapping round the lap). */
+  pointAt(along: number): TrackPoint {
+    const n = this.points.length;
+    const i = Math.floor((((along % this.length) + this.length) % this.length) / this.length * n) % n;
+    return this.points[i];
   }
 
   /** How far (x, z) is from the middle of the road, or Infinity if it's nowhere near the track. */
@@ -489,7 +511,7 @@ export class RaceTrack {
  * starting at (0, 0) heading along +x. The corners should add up to 360°; any
  * small gap left where the loop should join up is spread along the whole lap.
  */
-export function drawTrack(steps: ([number] | [number, number])[]): { x: number; z: number }[] {
+export function drawTrack(steps: TrackStep[]): { x: number; z: number }[] {
   let x = 0;
   let z = 0;
   let heading = Math.PI / 2; // +x
@@ -523,6 +545,156 @@ export function drawTrack(steps: ([number] | [number, number])[]): { x: number; 
   const gapZ = z;
   points.pop();
   return points.map((p, i) => ({ x: p.x - (gapX * i) / points.length, z: p.z - (gapZ * i) / points.length }));
+}
+
+/** A straight ([metres]) or a corner ([degrees, radius], positive degrees turning left). */
+export type TrackStep = [number] | [number, number];
+
+/** What kind of track generateLayout should make. */
+export interface LayoutOptions {
+  /** Roughly how long a lap should be, in metres. */
+  length: number;
+  /** The tightest and the widest corner radius, in metres. */
+  radius: [number, number];
+  /** How many corners: fewest and most. */
+  corners: [number, number];
+  /** Only left turns, like a speedway. */
+  leftOnly?: boolean;
+  /** How close two different parts of the track may come, centre to centre, in metres. */
+  clearance: number;
+}
+
+/**
+ * Makes a new closed track from a seed number: the same seed always gives the
+ * same track. It starts and ends on a long main straight (for the starting
+ * grid), with a random mix of corners and straights in between.
+ *
+ * Random corners and straights hardly ever join up by themselves, so two of
+ * the straights are then lengthened or shortened by just the right amount to
+ * close the loop. Layouts where that doesn't work, or where the track would
+ * cross or come too close to itself, are thrown away and another is tried.
+ */
+export function generateLayout(seed: number, o: LayoutOptions): TrackStep[] {
+  const rand = seededRandom(seed * 7919 + 13);
+  const between = (min: number, max: number) => min + (max - min) * rand();
+  for (let attempt = 0; attempt < 600; attempt++) {
+    const count = Math.round(between(o.corners[0], o.corners[1]));
+    // Corner angles that add up to one full turn (360°).
+    let angles: number[];
+    if (o.leftOnly) {
+      const weights = Array.from({ length: count }, () => between(0.6, 1.4));
+      const total = weights.reduce((a, b) => a + b, 0);
+      angles = weights.map((w) => (w / total) * 360);
+    } else {
+      angles = Array.from({ length: count }, () => (rand() < 0.62 ? 1 : -1) * between(30, 150));
+      // Share what's missing (or extra) out over the left turns.
+      const missing = 360 - angles.reduce((a, b) => a + b, 0);
+      const lefts = angles.filter((a) => a > 0);
+      if (lefts.length === 0) continue;
+      angles = angles.map((a) => (a > 0 ? a + missing / lefts.length : a));
+    }
+    if (angles.some((a) => Math.abs(a) < 20 || Math.abs(a) > 180)) continue;
+    // Tighter corners are more common than wide sweepers.
+    const radii = angles.map(() => o.radius[0] + (o.radius[1] - o.radius[0]) * rand() ** 1.6);
+
+    // Share the rest of the lap out as straights between the corners.
+    const main = Math.min(380, Math.max(110, o.length * between(0.12, 0.18))); // the start/finish straight, split in two halves
+    const arcs = angles.reduce((sum, a, i) => sum + (Math.abs(a) * Math.PI * radii[i]) / 180, 0);
+    const spare = Math.max(count * 30, o.length - main - arcs);
+    const weights = Array.from({ length: count - 1 }, () => between(0.2, 1.8));
+    const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
+    const straights = weights.map((w) => Math.max(20, (w / weightSum) * spare));
+
+    // Where the loop ends up: it should be back at the start.
+    const steps = (): TrackStep[] => {
+      const out: TrackStep[] = [[main / 2]];
+      angles.forEach((a, i) => {
+        out.push([a, radii[i]]);
+        if (i < count - 1) out.push([straights[i]]);
+      });
+      out.push([main / 2]);
+      return out;
+    };
+    const end = endOf(steps());
+    // The direction of each in-between straight (heading +x at the start).
+    const directions: [number, number][] = [];
+    let heading = Math.PI / 2;
+    for (let i = 0; i < count - 1; i++) {
+      heading += (angles[i] * Math.PI) / 180;
+      directions.push([Math.sin(heading), Math.cos(heading)]);
+    }
+    // Of all the pairs of straights that could close the gap, use the one that
+    // changes them least, so the lap stays close to the length asked for.
+    let best: { i: number; j: number; ka: number; kb: number } | null = null;
+    const longest = Math.max(120, o.length * 0.3);
+    for (let i = 0; i < directions.length; i++) {
+      for (let j = i + 1; j < directions.length; j++) {
+        const [ax, az] = directions[i];
+        const [bx, bz] = directions[j];
+        const det = ax * bz - bx * az;
+        if (Math.abs(det) < 0.5) continue; // nearly parallel: they can't close a gap sideways
+        // Solve ka × a + kb × b = -end.
+        const ka = (-end.x * bz + end.z * bx) / det;
+        const kb = (-ax * end.z + az * end.x) / det;
+        const la = straights[i] + ka;
+        const lb = straights[j] + kb;
+        if (la < 25 || lb < 25 || la > longest || lb > longest) continue;
+        if (!best || Math.abs(ka) + Math.abs(kb) < Math.abs(best.ka) + Math.abs(best.kb)) best = { i, j, ka, kb };
+      }
+    }
+    if (!best) continue;
+    straights[best.i] += best.ka;
+    straights[best.j] += best.kb;
+    const layout = steps();
+    if (isClearOfItself(drawTrack(layout), o.clearance)) return layout;
+  }
+  // Every try failed (this shouldn't happen): a plain rounded rectangle.
+  return [[200], [90, o.radius[1]], [150], [90, o.radius[1]], [400], [90, o.radius[1]], [150], [90, o.radius[1]], [200]];
+}
+
+/** Where a list of steps ends, starting from (0, 0) heading along +x. */
+function endOf(steps: TrackStep[]): { x: number; z: number } {
+  let x = 0;
+  let z = 0;
+  let heading = Math.PI / 2;
+  for (const step of steps) {
+    if (step.length === 1) {
+      x += Math.sin(heading) * step[0];
+      z += Math.cos(heading) * step[0];
+    } else {
+      const [degrees, radius] = step;
+      const turn = (degrees * Math.PI) / 180;
+      const side = Math.sign(turn);
+      // Round the corner's centre, from the old heading to the new one.
+      const cx = x + side * radius * Math.cos(heading);
+      const cz = z - side * radius * Math.sin(heading);
+      heading += turn;
+      x = cx - side * radius * Math.cos(heading);
+      z = cz + side * radius * Math.sin(heading);
+    }
+  }
+  return { x, z };
+}
+
+/**
+ * Whether a closed loop of points (about 2 m apart) keeps different parts of
+ * itself at least `clearance` metres apart. Points close together along the
+ * loop are allowed to be close, of course; only parts more than a long way
+ * round the loop from each other are checked.
+ */
+function isClearOfItself(points: { x: number; z: number }[], clearance: number): boolean {
+  const step = 4; // check every 4th point: about 8 m apart
+  const pts = points.filter((_, i) => i % step === 0);
+  const n = pts.length;
+  // Two points this many samples apart along the loop count as different parts of the track.
+  const apart = Math.ceil((Math.max(clearance * 2.4, 140) / 2) / step);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + apart; j < n; j++) {
+      if (n - (j - i) < apart) continue; // close together the other way round the loop
+      if ((pts[i].x - pts[j].x) ** 2 + (pts[i].z - pts[j].z) ** 2 < clearance * clearance) return false;
+    }
+  }
+  return true;
 }
 
 /** -π..π */
