@@ -36,6 +36,9 @@ export class TimeTrial {
   readonly start = START;
   readonly total = CHECKPOINTS.length;
   private arches: THREE.Mesh[] = [];
+  /** Where the car was last frame (NaN before the first frame of a lap). */
+  private lastX = NaN;
+  private lastZ = NaN;
   private arrow: THREE.Mesh;
   private nextMaterial = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffb000, emissiveIntensity: 1.6 });
   private finishMaterial = new THREE.MeshStandardMaterial({ color: 0x39ff88, emissive: 0x20d060, emissiveIntensity: 1.6 });
@@ -86,6 +89,7 @@ export class TimeTrial {
     this.countdown = COUNTDOWN;
     this.time = 0;
     this.next = 0;
+    this.lastX = this.lastZ = NaN;
     this.showArches();
   }
 
@@ -112,8 +116,12 @@ export class TimeTrial {
       }
     } else {
       this.time += dt;
+      // Check the whole path since last frame, not just where the car is now:
+      // a very fast car can jump right past an arch between two frames.
+      const fromX = Number.isNaN(this.lastX) ? carX : this.lastX;
+      const fromZ = Number.isNaN(this.lastZ) ? carZ : this.lastZ;
       const target = CHECKPOINTS[this.next];
-      if (Math.hypot(carX - target.x, carZ - target.z) < PASS_DISTANCE) {
+      if (distanceToPath(target.x, target.z, fromX, fromZ, carX, carZ) < PASS_DISTANCE) {
         this.next++;
         if (this.next === CHECKPOINTS.length) {
           this.finish();
@@ -123,6 +131,8 @@ export class TimeTrial {
         this.showArches();
       }
     }
+    this.lastX = carX;
+    this.lastZ = carZ;
 
     // Keep the arrow above the car (bobbing a little), pointing at the next arch.
     const target = CHECKPOINTS[this.next];
@@ -162,6 +172,16 @@ export class TimeTrial {
     if (this.next + 1 < CHECKPOINTS.length) markers.push({ ...CHECKPOINTS[this.next + 1], color: 'rgba(255,255,255,0.6)', size: 3.5 });
     return markers;
   }
+}
+
+/** How close the point (px, pz) comes to the straight line from (ax, az) to (bx, bz). */
+function distanceToPath(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const lengthSq = dx * dx + dz * dz;
+  // How far along the line the closest point is, from 0 (start) to 1 (end).
+  const t = lengthSq > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lengthSq)) : 0;
+  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
 }
 
 /** 83.456 seconds -> "1:23.46". */
