@@ -1,31 +1,63 @@
 #!/usr/bin/env bash
-# Installs Car Game: checks Node.js, installs packages, downloads Electron and builds the game.
-# Works on macOS, Linux and Windows (run it from Git Bash or WSL on Windows).
+# Installs Car Game (or updates it if it is already installed).
+#
+#   curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
+#
+# The game goes in ~/carGame. Set CAR_GAME_DIR to use another folder.
+# Run from a folder that is already a copy of the game, it installs that copy.
+# Works on macOS, Linux and Windows (Git Bash or WSL).
 set -euo pipefail
-cd "$(dirname "$0")"
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "Node.js is not installed. Install Node.js 22.12 or newer from https://nodejs.org and run this again." >&2
+REPO_URL="https://github.com/JosiahHands/carGame.git"
+
+fail() {
+  echo "Error: $*" >&2
   exit 1
-fi
+}
 
-if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=12)?0:1)'; then
-  echo "Node.js $(node -v) is too old. Install Node.js 22.12 or newer from https://nodejs.org and run this again." >&2
-  exit 1
-fi
+# Everything runs inside main, so bash has read the whole script before any
+# command starts. That keeps `curl ... | bash` safe.
+main() {
+  exec </dev/null
 
-echo "==> Installing packages"
-if [ -f package-lock.json ]; then
+  command -v git >/dev/null 2>&1 || fail "Git is not installed. Get it from https://git-scm.com and run this again."
+  command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 ||
+    fail "Node.js is not installed. Get Node.js 22.12 or newer from https://nodejs.org and run this again."
+  node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=12)?0:1)' ||
+    fail "Node.js $(node -v) is too old. Get Node.js 22.12 or newer from https://nodejs.org and run this again."
+
+  local dir="${CAR_GAME_DIR:-}"
+  local src="${BASH_SOURCE[0]:-}"
+  if [ -z "$dir" ] && [ -n "$src" ] && [ -f "$src" ] && [ -d "$(dirname "$src")/.git" ]; then
+    dir="$(cd "$(dirname "$src")" && pwd)"
+  fi
+  dir="${dir:-$HOME/carGame}"
+
+  if [ -d "$dir/.git" ]; then
+    case "$(git -C "$dir" remote get-url origin 2>/dev/null || true)" in
+      *JosiahHands/carGame*) ;;
+      *) fail "$dir is a Git folder for something else. Move it, or set CAR_GAME_DIR to another folder." ;;
+    esac
+    echo "==> Car Game is already in $dir, updating it"
+    git -C "$dir" pull --ff-only
+  elif [ -e "$dir" ]; then
+    fail "$dir already exists and is not Car Game. Move it, or set CAR_GAME_DIR to another folder."
+  else
+    echo "==> Downloading Car Game into $dir"
+    git clone "$REPO_URL" "$dir"
+  fi
+
+  cd "$dir"
+  echo "==> Installing packages"
   npm ci --no-audit --no-fund
-else
-  npm install --no-audit --no-fund
-fi
+  echo "==> Downloading Electron"
+  node node_modules/electron/install.js
+  echo "==> Building the game"
+  npm run build --silent
 
-echo "==> Downloading Electron"
-node node_modules/electron/install.js
+  echo
+  echo "Car Game is ready in $dir"
+  echo "Play it with:  cd \"$dir\" && npm start"
+}
 
-echo "==> Building the game"
-npm run build --silent
-
-echo
-echo "Car Game is installed. Start it with:  npm start"
+main "$@"
