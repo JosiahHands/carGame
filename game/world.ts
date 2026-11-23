@@ -700,13 +700,30 @@ export class World {
     if (t.hp <= 0) this.destroy(t, direction);
   }
 
-  /** Puts everything that was destroyed back at once ("Rebuild the city"). */
-  rebuildAll(): void {
+  /**
+   * Puts everything that was destroyed back at once ("Rebuild the city").
+   * Anything the player's car is on or next to (like a rubble pile) is left
+   * to come back later as usual, so the car never ends up inside a solid building.
+   */
+  rebuildAll(carX: number, carZ: number): void {
     for (const t of this.targets) {
+      if (!t.alive && this.isUnderCar(t, carX, carZ)) continue;
       if (!t.alive || (t.kind === 'building' && t.state !== 'standing')) this.restore(t, false);
       t.hp = t.maxHp;
     }
     this.effects.clear();
+  }
+
+  /** Whether `t`, once rebuilt, would overlap a car at (x, z). */
+  private isUnderCar(t: Target, x: number, z: number): boolean {
+    const margin = 3; // about half a car's length, plus a little room
+    if (t.kind === 'building') {
+      const b = t.box;
+      return x > b.minX - margin && x < b.maxX + margin && z > b.minZ - margin && z < b.maxZ + margin;
+    }
+    // Parked cars come back at their parking spot, not where the wreck landed.
+    if (t.kind === 'car') return Math.hypot(x - t.homeX, z - t.homeZ) < 2.5 + margin;
+    return Math.hypot(x - t.circle.x, z - t.circle.z) < t.circle.r + margin;
   }
 
   /** Destroys something; `direction` is the way it was hit, so things fall away from you. */

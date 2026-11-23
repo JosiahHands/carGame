@@ -166,7 +166,7 @@ const garage = new GarageUI(config, settings, {
     applySettings();
   },
   rebuildCity() {
-    world.rebuildAll();
+    world.rebuildAll(physics.x, physics.z);
     damage = 0;
     scoreEl.textContent = '';
     toast('The city has been rebuilt');
@@ -188,6 +188,7 @@ function updateHud(): void {
   weaponPanel.classList.toggle('hidden', !driving || !settings.weapons);
   minimap.setVisible(driving && settings.minimap);
   trialEl.classList.toggle('hidden', !driving || !trial.active);
+  countdownEl.classList.toggle('hidden', !driving || !trial.active);
   slowMotionEl.classList.toggle('hidden', !driving || !slowMotion);
   photoBar.classList.toggle('hidden', mode !== 'photo');
   fpsEl.classList.toggle('hidden', !settings.showFps);
@@ -454,20 +455,33 @@ function updateTimeTrial(dt: number): void {
 
 let accumulator = 0;
 let lastTime = performance.now();
+let nextFrameDue = 0; // for the frame rate limit: when the next frame should be drawn
 let fpsFrames = 0;
 let fpsTime = 0;
 
-function frame(): void {
+function frame(now: number): void {
   requestAnimationFrame(frame);
-  const now = performance.now();
-  // Frame rate limit: skip this screen refresh if the next frame isn't due yet.
-  if (settings.fpsLimit > 0 && now - lastTime < 1000 / settings.fpsLimit - 1.5) return;
-  const realDt = Math.min(0.05, (now - lastTime) / 1000);
+  // Frame rate limit: draw on the first screen refresh at or after each due
+  // time, then move the due time on by exactly one frame. Keeping a schedule
+  // (rather than timing from the last frame) makes the average come out right
+  // even when the screen's refresh rate isn't a multiple of the limit, e.g.
+  // 60 FPS on a 144 Hz screen. The 1 ms allows for timing jitter.
+  if (settings.fpsLimit > 0) {
+    const interval = 1000 / settings.fpsLimit;
+    if (now < nextFrameDue - 1) return;
+    if (now - nextFrameDue > interval) nextFrameDue = now; // fell behind (or just turned on): start again from now
+    nextFrameDue += interval;
+  }
+  const elapsed = Math.max(0, (now - lastTime) / 1000);
   lastTime = now;
+  // Game updates are capped at 50 ms, so a long pause doesn't make the car jump.
+  const realDt = Math.min(0.05, elapsed);
 
-  // Count frames for the FPS counter, updating it twice a second.
+  // Count frames for the FPS counter, updating it twice a second. This uses
+  // the real time between frames, not the capped time, so slow frames show
+  // their true rate.
   fpsFrames++;
-  fpsTime += realDt;
+  fpsTime += elapsed;
   if (fpsTime >= 0.5) {
     fpsEl.textContent = `${Math.round(fpsFrames / fpsTime)} FPS`;
     fpsFrames = 0;
@@ -484,7 +498,9 @@ function frame(): void {
     const waitingToStart = trial.active && trial.countdown > 0;
     if (!waitingToStart) drive(dt, controls);
     if (settings.weapons && !waitingToStart) useWeapons(dt, controls.fire);
-    updateTimeTrial(dt);
+    // The lap clock and countdown use real time, so slow motion can't
+    // make laps look faster or the countdown drag on.
+    updateTimeTrial(realDt);
   }
 
   syncCar(dt);
