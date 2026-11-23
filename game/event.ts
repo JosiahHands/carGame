@@ -109,6 +109,12 @@ export interface EventHud {
 const COUNTDOWN = 3.5;
 /** Progress jumps by more than this (metres) in one step mean the car has left the track: cutting across doesn't count. */
 const MAX_JUMP = 40;
+/**
+ * How far off the edge of the road (metres) a car can go and still be on
+ * course. Tracks with wide run-off areas or an apron (the speedway) allow
+ * up to 2 m past those instead.
+ */
+const OFF_COURSE = 6;
 const RESPAWN_TIME = 5; // seconds a wrecked rival burns before coming back
 const MPH = 2.237;
 
@@ -152,6 +158,10 @@ export class EventRun {
   playerWrecked = 0;
   /** Points of the drift going on now, not yet banked: they still count if the time runs out mid-drift. */
   unbankedDrift = 0;
+  /** Seconds of the jump going on now: they still count in a stunt show if the time runs out mid-air. */
+  unbankedAir = 0;
+  /** The furthest the player has got (metres round the track): each speed camera counts once per lap. */
+  private trapMark = -Infinity;
   readonly track: RaceTrack | null;
   readonly racers: Racer[] = [];
   private me: Racer;
@@ -233,7 +243,10 @@ export class EventRun {
       r.distance = along;
       r.along = ((along % track.length) + track.length) % track.length;
     });
-    if (this.spec.kind === 'speedTrap') this.buildTraps();
+    if (this.spec.kind === 'speedTrap') {
+      this.buildTraps();
+      this.trapMark = this.me.distance;
+    }
   }
 
   private placeOnTrack(r: Racer, along: number, offset: number): void {
@@ -269,11 +282,14 @@ export class EventRun {
     const step = 1 / 120;
     let time = 0;
     let trapSpeed = 0;
+    let furthest = racer.distance;
     while (racer.distance < goal && time < 900) {
-      const before = racer.distance;
       car.drive(step, this.world, track, racer, [], true);
       this.updateProgress(racer, step);
-      if (this.spec.kind === 'speedTrap') trapSpeed += this.trapsCrossed(before, racer.distance) * car.physics.speed * MPH;
+      if (this.spec.kind === 'speedTrap' && racer.distance > furthest) {
+        trapSpeed += this.trapsCrossed(furthest, racer.distance) * car.physics.speed * MPH;
+        furthest = racer.distance;
+      }
       time += step;
     }
     car.dispose();
@@ -376,10 +392,12 @@ export class EventRun {
     const impact = this.collideCars();
     if (!racing) return impact;
     for (const r of this.racers) {
-      const before = r.distance;
       if (track) this.updateProgress(r, dt);
-      if (r === this.me && this.spec.kind === 'speedTrap') {
-        const crossed = this.trapsCrossed(before, r.distance);
+      // A camera only counts the first time past it each lap: only progress
+      // beyond the furthest point reached so far can cross one.
+      if (r === this.me && this.spec.kind === 'speedTrap' && r.distance > this.trapMark) {
+        const crossed = this.trapsCrossed(this.trapMark, r.distance);
+        this.trapMark = r.distance;
         if (crossed > 0) {
           const mph = Math.round(r.physics.speed * MPH);
           this.score += mph * crossed;
@@ -400,23 +418,28 @@ export class EventRun {
   }
 
   /**
-   * Moves a car's place round the lap on. A big jump means it has left the
-   * track (or is on another part of it), which doesn't count: progress only
-   * carries on once it's back where it left.
+   * Moves a car's place round the lap on. Progress only counts on the road
+   * (or just off it): a car out on the grass, or on another part of the track
+   * (a big jump round the lap), is off course, and progress only carries on
+   * once it's back where it left.
    */
   private updateProgress(r: Racer, dt: number): void {
     const track = this.track!;
     const p = r.physics;
     const at = track.locate(p.x, p.z);
+    // Where it is across the road, even off course: the rivals use it to tell when they're lost.
+    r.offset = at ? at.offset : 999;
     let moved = Infinity;
     if (at) {
       moved = at.along - r.along;
       if (moved > track.length / 2) moved -= track.length;
       if (moved < -track.length / 2) moved += track.length;
     }
-    if (at && Math.abs(moved) < MAX_JUMP) {
+    const st = track.style;
+    const room = Math.max(OFF_COURSE, st.outsideRunoff + 2, (st.insideRunoff ?? 0) + 2, st.apron + 2);
+    const onCourse = at !== null && Math.abs(at.offset) <= st.width / 2 + room;
+    if (at && onCourse && Math.abs(moved) < MAX_JUMP) {
       r.along = at.along;
-      r.offset = at.offset;
       const before = r.distance;
       r.distance += moved;
       r.lost = 0;
@@ -680,12 +703,16 @@ export class EventRun {
     });
   }
 
+  /** Whether a lower score is better: finishing places and times. */
+  get lowerIsBetter(): boolean {
+    return this.isRace || this.spec.kind === 'timeAttack';
+  }
+
   /** Works out the stars for a score. */
   starsFor(score: number): number {
     const t = this.spec.targets;
-    const lowerIsBetter = this.isRace || this.spec.kind === 'timeAttack';
     let stars = 0;
-    for (let k = 0; k < 3; k++) if (lowerIsBetter ? score <= t[k] && score > 0 : score >= t[k]) stars = k + 1;
+    for (let k = 0; k < 3; k++) if (this.lowerIsBetter ? score <= t[k] && score > 0 : score >= t[k]) stars = k + 1;
     return stars;
   }
 
@@ -697,28 +724,31 @@ export class EventRun {
     let score = this.score;
     let scoreText = '';
     let position = 0;
-    let passed: boolean;
     if (s.kind === 'drift') score += this.unbankedDrift;
+    if (s.kind === 'stunt') score += this.unbankedAir;
     const standings = this.order().map((r) => ({
       name: r.name,
       me: r === me,
       text: r.finished !== null ? formatTime(r.finished) : r.outOrder ? 'Out' : s.kind === 'elimination' ? 'Survivor' : r.rival ? 'Running' : 'Did not finish',
     }));
+    // Not finishing a race (timed out after the winner) earns nothing, whatever the place.
+    let finished = true;
     if (this.isRace) {
       position = this.order().indexOf(me) + 1;
-      if (me.finished === null && !me.outOrder && s.kind !== 'elimination') position = this.racers.length; // gave up
+      if (me.finished === null && !me.outOrder && s.kind !== 'elimination') {
+        position = this.racers.length;
+        finished = false;
+      }
       score = position;
-      scoreText = ordinal(position);
-      passed = this.starsFor(position) > 0;
+      scoreText = finished ? ordinal(position) : 'Did not finish';
     } else if (s.kind === 'timeAttack') {
       score = me.finished ?? 0;
       scoreText = me.finished !== null ? formatTime(me.finished) : 'Did not finish';
-      passed = this.starsFor(score) > 0;
     } else {
       scoreText = this.formatScore(score);
-      passed = this.starsFor(score) > 0;
     }
-    this.result = { stars: this.starsFor(score), position, score, scoreText, passed, standings, bestLap: this.bestLap };
+    const stars = finished ? this.starsFor(score) : 0;
+    this.result = { stars, position, score, scoreText, passed: stars > 0, standings, bestLap: this.bestLap };
   }
 
   /** A score as shown for this kind of event. */

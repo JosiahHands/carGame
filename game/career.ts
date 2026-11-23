@@ -168,6 +168,8 @@ export interface CareerSave {
   stars: number[];
   /** Best score for each level, as shown (e.g. "1st", "1:02.33"). */
   best: string[];
+  /** The raw best score for each level (a place, seconds or points; 0 for none), to tell if a new result beats it. */
+  bestScore: number[];
   upgrades: Upgrades;
   /** Which cars (indices into CHASSIS) are owned, and which one is in use. */
   owned: number[];
@@ -180,7 +182,10 @@ export interface CareerSave {
   sandboxBest: number;
   /** Times the career has been finished and reset: each one pays 25% more coins. */
   completions: number;
-  /** Has the "you finished the career" screen been shown (until the next reset)? */
+  /**
+   * Has the player chosen Sandbox or Reset after beating level 100? Until
+   * they do, the choice keeps being offered (see awaitingChoice).
+   */
   finished: boolean;
   /** Date of the last daily challenge done (YYYY-MM-DD). */
   daily: string;
@@ -197,7 +202,7 @@ export const LEVELS = 100;
 
 export function newCareer(completions = 0): CareerSave {
   return {
-    coins: 0, stars: new Array(LEVELS).fill(0), best: new Array(LEVELS).fill(''), upgrades: noUpgrades(), owned: [0], car: 0,
+    coins: 0, stars: new Array(LEVELS).fill(0), best: new Array(LEVELS).fill(''), bestScore: new Array(LEVELS).fill(0), upgrades: noUpgrades(), owned: [0], car: 0,
     mode: 'career', sandboxLevel: LEVELS + 1, sandboxBest: 0, completions, finished: false, daily: '', streak: 0, events: 0, wins: 0, earned: 0,
   };
 }
@@ -210,6 +215,7 @@ export function loadCareer(): CareerSave {
     const num = (v: unknown, fallback: number, max = 1e12) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : fallback);
     save.coins = num(raw.coins, 0);
     if (Array.isArray(raw.stars)) save.stars = save.stars.map((_, i) => num(raw.stars![i], 0, 3));
+    if (Array.isArray(raw.bestScore)) save.bestScore = save.bestScore.map((_, i) => (typeof raw.bestScore![i] === 'number' && Number.isFinite(raw.bestScore![i]) ? Math.max(0, raw.bestScore![i]) : 0));
     if (Array.isArray(raw.best)) save.best = save.best.map((_, i) => (typeof raw.best![i] === 'string' ? raw.best![i].slice(0, 20) : ''));
     for (const k of Object.keys(save.upgrades) as UpgradeId[]) save.upgrades[k] = num(raw.upgrades?.[k], 0, SANDBOX_MAX_UPGRADE);
     if (Array.isArray(raw.owned)) save.owned = [...new Set([0, ...raw.owned.filter((i) => typeof i === 'number' && CHASSIS[i])])];
@@ -236,6 +242,11 @@ export function saveCareer(save: CareerSave): void {
   } catch {
     // The game keeps working without saving.
   }
+}
+
+/** Level 100 is beaten but Sandbox or Reset hasn't been chosen yet. */
+export function awaitingChoice(save: CareerSave): boolean {
+  return save.stars[LEVELS - 1] > 0 && !save.finished;
 }
 
 export function totalStars(save: CareerSave): number {
@@ -431,7 +442,7 @@ function buildSpec(o: SpecOptions): EventSpec {
       spec.pace = { config: o.rivalCar(), skill: Math.min(1, o.skill + 0.02) };
       break;
     case 'speedTrap':
-      spec.laps = 2;
+      spec.laps = o.laps ?? 2;
       spec.pace = { config: o.rivalCar(), skill: Math.min(1, o.skill + 0.02) };
       break;
     case 'takedown':
@@ -540,7 +551,20 @@ export interface Payout {
  * reward scaled by stars (and something even for no stars, so a hard level
  * still pays a little), plus bonuses the first time and for new stars.
  */
-export function payLevel(save: CareerSave, level: Level, stars: number, scoreText: string, position: number): Payout {
+/**
+ * The result: `stars`, the raw `score` and how it's shown, the finishing place
+ * (0 for challenges), and whether a lower score is better (places and times).
+ */
+export interface LevelResult {
+  stars: number;
+  score: number;
+  scoreText: string;
+  position: number;
+  lowerIsBetter: boolean;
+}
+
+export function payLevel(save: CareerSave, level: Level, result: LevelResult): Payout {
+  const { stars, score, scoreText, position } = result;
   const n = level.number;
   const base = level.reward;
   const lines: string[] = [];
@@ -563,8 +587,15 @@ export function payLevel(save: CareerSave, level: Level, stars: number, scoreTex
       }
       save.stars[n - 1] = stars;
       save.best[n - 1] = scoreText;
-    } else if (stars === had && stars > 0 && !save.best[n - 1]) {
-      save.best[n - 1] = scoreText;
+      save.bestScore[n - 1] = score;
+    } else if (stars === had && stars > 0) {
+      // Same stars: still a new best if the score beats the old one.
+      const old = save.bestScore[n - 1];
+      const better = !save.best[n - 1] || old <= 0 || (result.lowerIsBetter ? score < old : score > old);
+      if (better) {
+        save.best[n - 1] = scoreText;
+        save.bestScore[n - 1] = score;
+      }
     }
   } else if (stars > 0 && n === save.sandboxLevel) {
     firstClear = true;
