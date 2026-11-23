@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu } from 'electron';
+import { app, BrowserWindow, Menu, session } from 'electron';
 import * as path from 'node:path';
 
 function createWindow(): void {
@@ -32,5 +32,8 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Write saved settings (localStorage) to disk before the app exits.
+app.on('before-quit', () => session.defaultSession.flushStorageData());
 
 app.on('window-all-closed', () => app.quit());

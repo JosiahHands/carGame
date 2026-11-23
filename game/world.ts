@@ -34,6 +34,8 @@ interface Cone {
   vel: THREE.Vector3;
   spin: THREE.Vector3;
   knocked: boolean;
+  /** Knocked over and come to rest; no more physics until it is reset. */
+  settled: boolean;
   knockedAt: number;
 }
 
@@ -41,6 +43,8 @@ export const HALF_SIZE = 260; // the world spans -260..260 on x and z
 const ROAD_LINES = [-240, -160, -80, 0, 80, 160, 240];
 const ROAD_WIDTH = 12;
 const RISE = 0.8; // fraction of a ramp's length that slopes up
+const CONE_HEIGHT = 0.75;
+const CONE_LYING_Y = 0.25; // height of a cone's axis when it lies on its side
 
 export class World {
   readonly group = new THREE.Group();
@@ -349,14 +353,14 @@ export class World {
     }
 
     // Cone slalom and a cone box to smash through.
-    const coneGeo = new THREE.ConeGeometry(0.28, 0.75, 14).translate(0, 0.375, 0);
+    const coneGeo = new THREE.ConeGeometry(0.28, CONE_HEIGHT, 14).translate(0, CONE_HEIGHT / 2, 0);
     const coneMat = new THREE.MeshStandardMaterial({ color: 0xff6a13, roughness: 0.6 });
     const place = (x: number, z: number) => {
       const mesh = new THREE.Mesh(coneGeo, coneMat);
       mesh.position.set(x, 0, z);
       mesh.castShadow = true;
       this.group.add(mesh);
-      this.cones.push({ mesh, home: mesh.position.clone(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), knocked: false, knockedAt: 0 });
+      this.cones.push({ mesh, home: mesh.position.clone(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), knocked: false, settled: false, knockedAt: 0 });
     };
     for (let i = 0; i < 10; i++) place(bx - 28 + i * 5.5, bz + 4 + (i % 2) * 2);
     for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) place(bx - 22 + i * 1.6, bz + 26 + j * 1.6);
@@ -419,8 +423,14 @@ export class World {
     return best;
   }
 
-  /** Knocks over cones the car touches. Returns how many were hit. */
-  hitCones(x: number, z: number, radius: number, vx: number, vz: number): number {
+  /**
+   * Knocks over cones the car touches. `carY` is the height of the car's base
+   * (cones stand at y = 0), so a car flying over a cone misses it.
+   * Returns how many were hit.
+   */
+  hitCones(x: number, z: number, carY: number, radius: number, vx: number, vz: number): number {
+    // The underside of every body sits at least 0.2 m above the car's base.
+    if (carY + 0.2 > CONE_HEIGHT) return 0;
     let hits = 0;
     for (const c of this.cones) {
       if (c.knocked) continue;
@@ -428,6 +438,7 @@ export class World {
       const dz = c.mesh.position.z - z;
       if (dx * dx + dz * dz > (radius + 0.3) ** 2) continue;
       c.knocked = true;
+      c.settled = false;
       c.knockedAt = this.clock;
       const speed = Math.hypot(vx, vz);
       c.vel.set(vx * 1.1 + dx * 2, 2 + speed * 0.18, vz * 1.1 + dz * 2);
@@ -442,7 +453,7 @@ export class World {
     for (const c of this.cones) {
       if (!c.knocked) continue;
       const p = c.mesh.position;
-      if (c.vel.lengthSq() > 0.01 || p.y > 0.01) {
+      if (!c.settled) {
         c.vel.y -= 14 * dt;
         p.addScaledVector(c.vel, dt);
         c.mesh.rotation.x += c.spin.x * dt;
@@ -458,13 +469,15 @@ export class World {
             c.vel.set(0, 0, 0);
             // Settle lying on its side.
             c.mesh.rotation.set(Math.PI / 2, c.mesh.rotation.y, 0);
-            p.y = 0.25;
+            p.y = CONE_LYING_Y;
+            c.settled = true;
           }
         }
       }
       // Put cones back once the player has driven away.
       if (this.clock - c.knockedAt > 12 && Math.hypot(carX - c.home.x, carZ - c.home.z) > 40) {
         c.knocked = false;
+        c.settled = false;
         c.vel.set(0, 0, 0);
         c.mesh.position.copy(c.home);
         c.mesh.rotation.set(0, 0, 0);

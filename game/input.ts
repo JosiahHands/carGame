@@ -23,7 +23,9 @@ export class Input {
   constructor() {
     window.addEventListener('keydown', (e) => {
       if (isTyping(e.target)) return;
-      if (DRIVE_KEYS.has(e.code)) e.preventDefault();
+      // Arrows move a focused slider and Space presses a focused button,
+      // so only block their default action when no control has focus.
+      if (DRIVE_KEYS.has(e.code) && !isControl(e.target)) e.preventDefault();
       this.down.add(e.code);
       const action = ACTION_KEYS[e.code];
       if (action && !e.repeat) this.pending.push(action);
@@ -72,6 +74,10 @@ function firstGamepad(): Gamepad | null {
   if (!navigator.getGamepads) return null;
   for (const pad of navigator.getGamepads()) if (pad && pad.connected) return pad;
   return null;
+}
+
+function isControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('input, button, select, textarea, [contenteditable]') !== null;
 }
 
 function isTyping(target: EventTarget | null): boolean {

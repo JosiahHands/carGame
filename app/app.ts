@@ -43,11 +43,6 @@ physics.configure(config, car);
 physics.reset(world.spawn.x, world.spawn.z, world.spawn.heading);
 cameraRig.eyeHeight = car.eyeHeight;
 
-let saveTimer = 0;
-function scheduleSave(): void {
-  window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => saveConfig(config), 300);
-}
 
 function rebuildCar(): void {
   car.dispose();
@@ -95,7 +90,8 @@ const garage = new GarageUI(
   (_c, change) => {
     if (change === 'look') rebuildCar();
     else physics.configure(config, car);
-    scheduleSave();
+    // Save right away: a delayed save is lost if the window closes first.
+    saveConfig(config);
   },
   () => setMode('drive'),
 );

@@ -159,14 +159,18 @@ function lowerProfile(spec: BodySpec, archR: number, wheelY: number): THREE.Shap
   return shape;
 }
 
-/** Extrudes a side profile across the car's width, centred on x = 0. */
-function extrudeProfile(shape: THREE.Shape, width: number, bevel: number): THREE.ExtrudeGeometry {
+/**
+ * Extrudes a side profile across the car's width, centred on x = 0.
+ * `bevel` rounds the edges; the bevel also grows the outline outward by
+ * `bevelSize` (defaults to `bevel`).
+ */
+function extrudeProfile(shape: THREE.Shape, width: number, bevel: number, bevelSize = bevel): THREE.ExtrudeGeometry {
   const depth = Math.max(0.01, width - 2 * bevel);
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth,
     bevelEnabled: bevel > 0,
     bevelThickness: bevel,
-    bevelSize: bevel,
+    bevelSize,
     bevelSegments: 3,
     curveSegments: 8,
   });
@@ -365,8 +369,9 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   // Stripes
   if (config.stripes === 'racing') {
     for (const side of [-1, 1]) {
-      const stripe = add(extrudeProfile(lowerShape, 0.22, 0), accent);
-      stripe.scale.setScalar(1.012);
+      // The body's bevel pushes its surface BEVEL out from the profile, so the
+      // stripe uses the same profile pushed slightly further, sitting on top of the paint.
+      const stripe = add(extrudeProfile(lowerShape, 0.22, 0.004, BEVEL + 0.006), accent);
       stripe.position.x = side * 0.2;
       const roofStripe = add(new THREE.BoxGeometry(0.22, 0.012, roofLen + 0.06), accent);
       roofStripe.position.set(side * 0.2, roofY + 0.05, roof.position.z);

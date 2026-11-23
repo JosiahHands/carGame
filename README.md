@@ -11,6 +11,7 @@ grip, brakes, steering and drift. Your car is saved between sessions.
 
 Runs on macOS, Linux and Windows. It needs [Node.js](https://nodejs.org) 22.12 or newer.
 On Windows, run the commands in Git Bash or WSL. Run them from the game folder.
+Updating fetches the game code with Git, so it needs a folder made with `git clone`.
 After installing, start the game with `npm start`. Press H in the game to see the controls.
 
 Install:

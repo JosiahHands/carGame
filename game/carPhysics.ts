@@ -169,7 +169,9 @@ export class CarPhysics {
       this.vy -= GRAVITY * dt;
       this.y += this.vy * dt;
       if (this.y <= ground) {
-        if (this.airborne) events.landed = Math.max(0, -this.vy);
+        // Report how hard it hit. Don't rely on `airborne` here: that flag
+        // switches off up to 15 cm above the ground, before touchdown.
+        events.landed = Math.max(0, -this.vy);
         this.y = ground;
         this.vy = 0;
       }
@@ -193,7 +195,7 @@ export class CarPhysics {
     }
 
     events.impact = this.collide(world);
-    events.cones = world.hitCones(this.x, this.z, this.width / 2 + 0.2, this.vx, this.vz);
+    events.cones = world.hitCones(this.x, this.z, this.y, this.width / 2 + 0.2, this.vx, this.vz);
 
     // Final speeds and body lean for the visuals.
     vf = this.vx * fx + this.vz * fz;
