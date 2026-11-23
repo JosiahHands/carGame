@@ -53,23 +53,56 @@ const config: CarConfig = loadConfig();
 let night = false;
 let car: CarRig = buildCar(config, night);
 scene.add(car.root);
-physics.configure(config, car);
 physics.reset(world.spawn.x, world.spawn.z, world.spawn.heading);
-cameraRig.eyeHeight = car.eyeHeight;
+fitToCar();
 
-function rebuildCar(): void {
+/** Rebuilds the car after a change. Returns true if its size changed a lot. */
+function rebuildCar(): boolean {
   car.dispose();
   car = buildCar(config, night);
   scene.add(car.root);
+  const resized = fitToCar();
+  syncCar(0);
+  return resized;
+}
+
+/**
+ * Sets up the physics, cameras, sound and shadows for the car as it is now
+ * built. Returns true if the car's size changed by more than 10%.
+ */
+function fitToCar(): boolean {
   physics.configure(config, car);
   cameraRig.eyeHeight = car.eyeHeight;
-  syncCar(0);
+  // How much bigger than a normal car (about 4.5 m long and 1.4 m tall) it is.
+  const size = Math.max(car.length / 4.5, car.height / 1.4);
+  const resized = Math.abs(Math.log(size / cameraRig.size)) > 0.1;
+  cameraRig.size = size;
+  audio.setEngine(config.engineSound);
+  applyShadows();
+  return resized;
+}
+
+/** Shadows cover the area around the car; a giant car needs a bigger area. */
+function applyShadows(): void {
+  const spread = Math.min(8, Math.max(1, cameraRig.size));
+  if (settings.shadows === 'off') world.setShadows(false, SHADOW_SIZES.low.mapSize, SHADOW_SIZES.low.area);
+  else world.setShadows(true, SHADOW_SIZES[settings.shadows].mapSize, SHADOW_SIZES[settings.shadows].area * spread);
+}
+
+/** Metres as feet or metres, and m/s as mph or km/h, depending on the Units setting. */
+function showLength(m: number): string {
+  if (settings.units === 'mph') return `${Math.round(m * 3.281).toLocaleString()} ft`;
+  return `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString()} m`;
+}
+function speedInUnits(metresPerSecond: number): number {
+  return metresPerSecond * (settings.units === 'mph' ? 2.237 : 3.6);
 }
 
 // ---------- HUD ----------
 const $ = (id: string) => document.getElementById(id)!;
 const hud = $('hud');
 const speedEl = $('speed');
+const speedUnitEl = $('speed-unit');
 const gearEl = $('gear');
 const driftEl = $('drift');
 const bestEl = $('best');
@@ -137,11 +170,8 @@ world.onDestroyed = (target) => {
 function applySettings(): void {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.resolution);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  if (settings.shadows === 'off') {
-    world.setShadows(false, SHADOW_SIZES.low.mapSize, SHADOW_SIZES.low.area);
-  } else {
-    world.setShadows(true, SHADOW_SIZES[settings.shadows].mapSize, SHADOW_SIZES[settings.shadows].area);
-  }
+  applyShadows();
+  speedUnitEl.textContent = settings.units === 'mph' ? 'mph' : 'km/h';
   world.setViewDistance(settings.viewDistance);
   camera.far = settings.viewDistance + 200; // a bit past the fog, for the hills on the horizon
   camera.updateProjectionMatrix();
@@ -156,8 +186,9 @@ let slowMotion = false;
 
 const garage = new GarageUI(config, settings, {
   carChanged(change) {
-    if (change === 'look') rebuildCar();
-    else physics.configure(config, car);
+    // A much bigger or smaller car needs the garage camera moved to fit it.
+    const resized = change === 'look' ? rebuildCar() : fitToCar();
+    if (resized && mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
     // Save right away: a delayed save is lost if the window closes first.
     saveConfig(config);
   },
@@ -172,6 +203,16 @@ const garage = new GarageUI(config, settings, {
     toast('The city has been rebuilt');
   },
   drive: () => setMode('drive'),
+  honk() {
+    audio.unlock();
+    audio.horn(config.horn);
+  },
+  describeCar() {
+    const top = speedInUnits(config.tuning.topSpeed * 0.44704);
+    // Matches the physics: a car 3 m or taller flattens things up to twice its height.
+    const giant = car.height >= 3 ? ` · Flattens anything under ${showLength(car.height * 2)} tall` : '';
+    return `${showLength(car.height)} tall · ${showLength(car.length)} long · top speed ${Math.round(top)} ${settings.units === 'mph' ? 'mph' : 'km/h'}${giant}`;
+  },
 });
 document.body.append(garage.root);
 
@@ -302,6 +343,9 @@ function handleAction(action: Action): void {
       setMode('photo');
       toast('Photo mode: drag to look around, Enter to save');
       break;
+    case 'horn':
+      audio.horn(config.horn);
+      break;
     case 'slowmo':
       slowMotion = !slowMotion;
       updateHud();
@@ -339,6 +383,65 @@ function syncCar(dt: number): void {
   }
   car.setLights({ night, braking: physics.braking && mode === 'drive' });
   car.setNitro(physics.boosting && mode === 'drive');
+  car.animate(performance.now() / 1000);
+}
+
+/**
+ * Tyre smoke while drifting or spinning the wheels, and the boost trail while
+ * on nitro. Particles are spawned at a steady rate, whatever the frame rate.
+ */
+let smokeDue = 0;
+let trailDue = 0;
+let lastTips: THREE.Vector3[] = []; // where the exhausts were last frame
+let odometer = 0; // metres driven, for the rainbow trail's colour bands
+const spot = new THREE.Vector3();
+function carEffects(dt: number, throttle: number): void {
+  const size = cameraRig.size;
+  const sliding = !physics.airborne && Math.abs(physics.lateralSpeed) > 4 && physics.speed > 4;
+  const burnout = !physics.airborne && throttle > 0.9 && physics.speed < 6 && physics.forwardSpeed >= 0;
+  smokeDue += config.tireSmoke && (sliding || burnout) ? dt * 50 * effects.amount : 0;
+  while (smokeDue >= 1) {
+    smokeDue--;
+    const wheel = car.wheels[2 + Math.floor(Math.random() * 2)]; // a back wheel
+    wheel.steer.getWorldPosition(spot);
+    spot.y = physics.y + 0.15 * size;
+    const drift = new THREE.Vector3((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2).multiplyScalar(size);
+    effects.addSmoke({ at: spot.clone(), velocity: drift, life: 1.6, size: [0.5 * size, 2.6 * size], color: config.tireSmokeColor, opacity: 0.55, drag: 1.5 });
+  }
+
+  // More particles the faster the car goes, so the trail has no gaps (up to 40 a frame).
+  // The particle pools are shared with explosions, so this stays modest.
+  trailDue += physics.boosting ? dt * 40 * Math.max(1, physics.speed / 25) * effects.amount : 0;
+  trailDue = Math.min(trailDue, 40);
+  const startDistance = odometer;
+  odometer += physics.speed * dt;
+  // Spread this frame's particles evenly along the path each exhaust moved
+  // since the last frame, so a fast car leaves a smooth trail, not clumps.
+  const tips = car.exhausts.map((exhaust) => exhaust.getWorldPosition(new THREE.Vector3()));
+  if (lastTips.length !== tips.length) lastTips = tips.map((t) => t.clone());
+  const count = Math.floor(trailDue);
+  trailDue -= count;
+  for (let k = 1; k <= count; k++) {
+    for (let i = 0; i < tips.length; i++) {
+      const at = lastTips[i].clone().lerp(tips[i], k / count);
+      switch (config.boostTrail) {
+        case 'flames': // embers in the flame colour
+          effects.addGlow({ at, velocity: new THREE.Vector3((Math.random() - 0.5) * 2, Math.random(), (Math.random() - 0.5) * 2).multiplyScalar(size), life: 0.3, size: [0.25 * size, 0.05 * size], color: config.nitroColor });
+          break;
+        case 'rainbow': // a ribbon of coloured puffs that hangs in the air, changing colour along its length
+          at.y += 0.15 * size;
+          effects.addSmoke({ at, life: 0.8, size: [0.4 * size, 0.25 * size], color: new THREE.Color().setHSL(((startDistance + (odometer - startDistance) * (k / count)) / 4) % 1, 1, 0.5), opacity: 0.9 }); // a full rainbow every 4 m
+          break;
+        case 'sparkles':
+          effects.addGlow({ at, velocity: new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6).multiplyScalar(size), life: 0.6, size: [0.18 * size, 0.02 * size], color: Math.random() < 0.5 ? 0xffffff : 0xffd23f, rise: -6 * size });
+          break;
+        case 'smoke':
+          effects.addSmoke({ at, velocity: new THREE.Vector3(0, 0.5 * size, 0), life: 1.4, size: [0.4 * size, 2 * size], color: 0x3a3a3a, opacity: 0.6, drag: 1 });
+          break;
+      }
+    }
+  }
+  lastTips = tips;
 }
 
 let driftScore = 0;
@@ -504,6 +607,7 @@ function frame(now: number): void {
   }
 
   syncCar(dt);
+  if (driving) carEffects(dt, controls.throttle);
   effects.update(dt);
   world.update(dt, physics.x, physics.z);
   cameraRig.update(realDt, carPosition(), physics.heading, physics.speed, driving && physics.boosting);
@@ -516,7 +620,7 @@ function frame(now: number): void {
   // HUD
   const slip = physics.airborne ? 0 : Math.min(1, Math.abs(physics.lateralSpeed) / 7);
   audio.update(physics.speedFraction, driving ? controls.throttle : 0, driving ? slip : 0, driving);
-  speedEl.textContent = String(Math.round(physics.speed * 3.6));
+  speedEl.textContent = String(Math.round(speedInUnits(physics.speed)));
   gearEl.textContent = physics.forwardSpeed < -0.5 ? 'R' : String(audio.gear);
   driftEl.textContent = driftScore >= 10 ? `DRIFT ${Math.round(driftScore).toLocaleString()}` : '';
   nitroBar.style.width = `${Math.round(physics.nitro * 100)}%`;

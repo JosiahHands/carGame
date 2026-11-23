@@ -18,6 +18,8 @@ export interface Settings {
   showFps: boolean;
   minimap: boolean;
   weapons: boolean;
+  /** Speed and size units shown in the game. */
+  units: 'mph' | 'kmh';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showFps: false,
   minimap: true,
   weapons: true,
+  units: 'mph',
 };
 
 /** The quality presets. Each one sets the four graphics settings at once. */
@@ -72,6 +75,7 @@ export function loadSettings(): Settings {
   if (![0, 30, 60, 120].includes(settings.fpsLimit)) settings.fpsLimit = 0;
   if (!['off', 'low', 'high', 'ultra'].includes(settings.shadows)) settings.shadows = DEFAULT_SETTINGS.shadows;
   if (!['low', 'medium', 'high'].includes(settings.effects)) settings.effects = DEFAULT_SETTINGS.effects;
+  if (!['mph', 'kmh'].includes(settings.units)) settings.units = DEFAULT_SETTINGS.units;
   return settings;
 }
 

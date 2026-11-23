@@ -9,6 +9,8 @@ const MODES: CameraMode[] = ['chase', 'far', 'hood'];
 export class CameraRig {
   mode: CameraMode = 'chase';
   eyeHeight = 1.1;
+  /** How big the car is compared to a normal one; the follow and garage cameras keep their distance in proportion. */
+  size = 1;
   /** Field of view when standing still; it widens a little with speed. */
   baseFov = 62;
   readonly orbit: OrbitControls;
@@ -42,13 +44,14 @@ export class CameraRig {
     this.orbit.enabled = on;
     this.orbit.autoRotate = !photo;
     this.orbit.enablePan = photo;
-    this.orbit.minDistance = photo ? 2 : 4;
-    this.orbit.maxDistance = photo ? 40 : 14;
+    const s = this.size;
+    this.orbit.minDistance = (photo ? 2 : 4) * s;
+    this.orbit.maxDistance = (photo ? 40 : 14) * s;
     if (on) {
-      this.orbit.target.set(carPos.x, carPos.y + 0.7, carPos.z);
+      this.orbit.target.set(carPos.x, carPos.y + 0.7 * s, carPos.z);
       if (!photo) {
         const a = heading + Math.PI * 0.8;
-        this.camera.position.set(carPos.x + Math.sin(a) * 7, carPos.y + 2.2, carPos.z + Math.cos(a) * 7);
+        this.camera.position.set(carPos.x + Math.sin(a) * 7 * s, carPos.y + 2.2 * s, carPos.z + Math.cos(a) * 7 * s);
       }
       this.orbit.update();
     } else {
@@ -66,9 +69,10 @@ export class CameraRig {
   private target(carPos: THREE.Vector3, heading: number): void {
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);
-    const [dist, height, ahead] = this.mode === 'far' ? [11, 4.2, 4] : this.mode === 'hood' ? [-0.3, this.eyeHeight, 12] : [6.5, 2.4, 3];
+    const s = this.size;
+    const [dist, height, ahead] = this.mode === 'far' ? [11 * s, 4.2 * s, 4 * s] : this.mode === 'hood' ? [-0.3 * s, this.eyeHeight, 12 * s] : [6.5 * s, 2.4 * s, 3 * s];
     this.desired.set(carPos.x - fx * dist, carPos.y + height, carPos.z - fz * dist);
-    this.lookAt.set(carPos.x + fx * ahead, carPos.y + (this.mode === 'hood' ? this.eyeHeight - 0.2 : 1.0), carPos.z + fz * ahead);
+    this.lookAt.set(carPos.x + fx * ahead, carPos.y + (this.mode === 'hood' ? this.eyeHeight - 0.2 * s : 1.0 * s), carPos.z + fz * ahead);
   }
 
   update(dt: number, carPos: THREE.Vector3, heading: number, speed: number, boosting = false): void {
@@ -84,9 +88,12 @@ export class CameraRig {
     if (this.mode === 'hood') {
       this.camera.position.copy(this.desired);
     } else {
-      this.camera.position.lerp(this.desired, 1 - Math.exp(-dt * 6));
+      // Follow more tightly at high speed, or the camera would trail far
+      // behind a car doing hundreds of mph.
+      const stiffness = 6 * Math.max(1, speed / 30);
+      this.camera.position.lerp(this.desired, 1 - Math.exp(-dt * stiffness));
       // Never dip below the ground.
-      this.camera.position.y = Math.max(this.camera.position.y, carPos.y + 0.6);
+      this.camera.position.y = Math.max(this.camera.position.y, carPos.y + 0.6 * this.size);
     }
     this.camera.lookAt(this.lookAt);
     // Widen the view a little at speed, and more on nitro, for a sense of pace.

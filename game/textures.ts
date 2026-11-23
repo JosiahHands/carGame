@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { canvasTexture } from '../libs/canvasTexture';
 import { seededRandom } from '../libs/random';
+import type { Pattern } from './carConfig';
 
 export function grassTexture(): THREE.CanvasTexture {
   const rand = seededRandom(7);
@@ -99,4 +100,111 @@ export function carbonTexture(): THREE.CanvasTexture {
   }, true);
   tex.repeat.set(4, 4);
   return tex;
+}
+
+/**
+ * A paint pattern for the side of the car, as if looking at it side on: the
+ * left edge is the back of the car, the right edge the front, the top edge the
+ * top of the body. `length` and `height` are the body's size in metres, so
+ * checks and dots come out square and round.
+ */
+export function liveryTexture(pattern: Pattern, base: string, accent: string, length: number, height: number): THREE.CanvasTexture {
+  const width = 1024;
+  const ppm = width / length; // pixels per metre
+  const canvasHeight = Math.max(32, Math.min(1024, Math.round(height * ppm)));
+  const rand = seededRandom(9);
+  const texture = canvasTexture(width, canvasHeight, (ctx) => {
+    const h = canvasHeight;
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, width, h);
+    ctx.fillStyle = accent;
+    switch (pattern) {
+      case 'twoTone':
+        // The lower part of the body in the accent colour.
+        ctx.fillRect(0, h * 0.55, width, h);
+        break;
+      case 'checker': {
+        const square = 0.25 * ppm;
+        for (let y = 0; y * square < h; y++) {
+          for (let x = 0; x * square < width; x++) if ((x + y) % 2 === 0) ctx.fillRect(x * square, y * square, square, square);
+        }
+        break;
+      }
+      case 'dots': {
+        const gap = 0.3 * ppm;
+        for (let y = 0; y * gap < h + gap; y++) {
+          for (let x = 0; x * gap < width + gap; x++) {
+            ctx.beginPath();
+            ctx.arc(x * gap + (y % 2) * gap * 0.5, y * gap, 0.07 * ppm, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        break;
+      }
+      case 'camo': {
+        // Overlapping blobs in the accent colour and a darker shade of the paint.
+        const dark = '#' + new THREE.Color(base).multiplyScalar(0.55).getHexString();
+        for (let i = 0; i < length * 40; i++) {
+          ctx.fillStyle = i % 2 === 0 ? accent : dark;
+          ctx.beginPath();
+          ctx.ellipse(rand() * width, rand() * h, (0.12 + rand() * 0.25) * ppm, (0.08 + rand() * 0.15) * ppm, rand() * Math.PI, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case 'tiger':
+        // Pointed stripes reaching in from the top and the bottom, in turn.
+        for (let x = 0.15 * ppm; x < width; x += 0.32 * ppm) {
+          const fromTop = Math.round(x / (0.32 * ppm)) % 2 === 0;
+          const tipX = x + (rand() - 0.5) * 0.2 * ppm;
+          const reach = h * (0.45 + rand() * 0.35);
+          ctx.beginPath();
+          ctx.moveTo(x - 0.06 * ppm, fromTop ? 0 : h);
+          ctx.lineTo(tipX, fromTop ? reach : h - reach);
+          ctx.lineTo(x + 0.06 * ppm, fromTop ? 0 : h);
+          ctx.fill();
+        }
+        break;
+      case 'flames': {
+        // Tongues of flame licking back from the front of the car: the accent
+        // colour with a yellow core.
+        const tongue = (y: number, reach: number, thick: number, color: string) => {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(width, y - thick);
+          ctx.bezierCurveTo(width - reach * 0.4, y - thick * 1.4, width - reach * 0.7, y + thick * 0.6, width - reach, y - thick * 0.3);
+          ctx.bezierCurveTo(width - reach * 0.7, y + thick * 1.2, width - reach * 0.4, y + thick * 1.4, width, y + thick);
+          ctx.fill();
+        };
+        for (let i = 0; i < 6; i++) {
+          const y = h * (0.3 + i * 0.09);
+          const reach = width * (0.35 + rand() * 0.3);
+          tongue(y, reach, h * 0.09, accent);
+          tongue(y, reach * 0.6, h * 0.04, '#ffd23f');
+        }
+        break;
+      }
+      case 'none':
+        break;
+    }
+  });
+  return texture;
+}
+
+/** A white race-number roundel with a black number, for the doors. */
+export function raceNumberTexture(n: number): THREE.CanvasTexture {
+  return canvasTexture(128, 128, (ctx) => {
+    ctx.fillStyle = '#f4f1e6';
+    ctx.beginPath();
+    ctx.arc(64, 64, 60, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#1b1b1b';
+    ctx.stroke();
+    ctx.fillStyle = '#1b1b1b';
+    ctx.font = 'bold 72px "Arial Black", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(n), 64, 68, 100);
+  });
 }

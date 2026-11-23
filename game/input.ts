@@ -17,7 +17,8 @@ export type Action =
   | 'nextWeapon'
   | 'weapon1'
   | 'weapon2'
-  | 'weapon3';
+  | 'weapon3'
+  | 'horn';
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -36,9 +37,10 @@ const ACTION_KEYS: Record<string, Action> = {
   Digit1: 'weapon1',
   Digit2: 'weapon2',
   Digit3: 'weapon3',
+  KeyV: 'horn',
 };
 
-const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyJ']);
 
 export interface Controls extends CarInput {
   fire: boolean;
@@ -93,8 +95,8 @@ export class Input {
     }
     if (pad) {
       // Standard layout: Y = camera, Start = garage, Back = reset, X = night,
-      // LB = next weapon, D-pad down = slow motion.
-      const map: [number, Action][] = [[3, 'camera'], [9, 'garage'], [8, 'reset'], [2, 'night'], [4, 'nextWeapon'], [13, 'slowmo']];
+      // LB = next weapon, D-pad down = slow motion, right stick click = horn.
+      const map: [number, Action][] = [[3, 'camera'], [9, 'garage'], [8, 'reset'], [2, 'night'], [4, 'nextWeapon'], [13, 'slowmo'], [11, 'horn']];
       for (const [i, action] of map) {
         const pressed = !!pad.buttons[i]?.pressed;
         if (pressed && !this.padButtons[i]) this.pending.push(action);
@@ -114,6 +116,7 @@ export class Input {
     let handbrake = k('Space');
     let boost = k('ShiftLeft', 'ShiftRight');
     let fire = k('KeyE') || this.mouseDown;
+    let jump = k('KeyJ');
 
     const pad = firstGamepad();
     if (pad) {
@@ -124,8 +127,9 @@ export class Input {
       handbrake = handbrake || !!pad.buttons[0]?.pressed;
       boost = boost || !!pad.buttons[1]?.pressed;
       fire = fire || !!pad.buttons[5]?.pressed;
+      jump = jump || !!pad.buttons[10]?.pressed; // left stick click
     }
-    return { throttle, brake, steer, handbrake, boost, fire };
+    return { throttle, brake, steer, handbrake, boost, fire, jump };
   }
 }
 
