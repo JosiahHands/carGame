@@ -1,17 +1,23 @@
 // Arcade car physics: acceleration, braking, steering, grip, handbrake drifts,
 // jumps off ramps and bumping into things. Hand-written, no physics engine.
+import * as THREE from 'three';
 import type { BodyShape, CarConfig } from './carConfig';
-import type { World } from './world';
+import type { Target, World } from './world';
 
 export interface CarInput {
   throttle: number; // 0..1
   brake: number; // 0..1 (also reverse)
   steer: number; // -1 (right) .. 1 (left)
   handbrake: boolean;
+  boost: boolean;
 }
 
 export interface StepEvents {
   impact: number; // speed lost hitting something, m/s
+  /** What the car hit hardest, if it can be destroyed. */
+  hitTarget: Target | null;
+  /** Lamps and trees the car drove straight through. */
+  smashed: number;
   cones: number;
   landed: number; // vertical speed on landing, m/s
 }
@@ -45,6 +51,9 @@ export class CarPhysics {
   forwardSpeed = 0;
   lateralSpeed = 0;
   braking = false;
+  /** Nitro left in the bottle, 0..1. */
+  nitro = 1;
+  boosting = false;
 
   private accel = 9;
   private topSpeed = 50;
@@ -52,6 +61,8 @@ export class CarPhysics {
   private brakeDecel = 20;
   private maxSteer = 0.5;
   private driftGrip = 0.25;
+  private nitroPower = 1;
+  private nitroBurn = 0.3; // bottle used per second
   private wheelBase = 2.6;
   private length = 4.4;
   private width = 1.9;
@@ -66,6 +77,9 @@ export class CarPhysics {
     this.brakeDecel = 12 + t.brakes * 2;
     this.maxSteer = 0.38 + t.steering * 0.03;
     this.driftGrip = Math.max(0.06, 0.45 - t.drift * 0.04);
+    // Strong nitro pushes harder but empties the bottle faster.
+    this.nitroPower = 0.6 + t.nitro * 0.12;
+    this.nitroBurn = 0.18 + t.nitro * 0.025;
     this.wheelBase = dims.wheelBase;
     this.length = dims.length;
     this.width = dims.width;
@@ -79,6 +93,19 @@ export class CarPhysics {
     this.vx = this.vz = this.vy = 0;
     this.steerAngle = this.roll = this.bodyPitch = this.pitch = 0;
     this.airborne = false;
+    this.nitro = 1;
+    this.boosting = false;
+  }
+
+  /** Shoves the car, for example away from an explosion. */
+  push(vx: number, vy: number, vz: number): void {
+    this.vx += vx;
+    this.vz += vz;
+    if (vy > 0) {
+      this.vy = Math.max(this.vy, 0) + vy;
+      this.y += 0.05;
+      this.airborne = true;
+    }
   }
 
   get speed(): number {
@@ -91,7 +118,7 @@ export class CarPhysics {
   }
 
   step(dt: number, input: CarInput, world: World): StepEvents {
-    const events: StepEvents = { impact: 0, cones: 0, landed: 0 };
+    const events: StepEvents = { impact: 0, hitTarget: null, smashed: 0, cones: 0, landed: 0 };
     let fx = Math.sin(this.heading);
     let fz = Math.cos(this.heading);
     let vf = this.vx * fx + this.vz * fz;
@@ -112,6 +139,14 @@ export class CarPhysics {
         const headroom = Math.max(0, 1 - (vf / this.topSpeed) ** 2);
         vf += this.accel * input.throttle * headroom * dt * control;
       }
+    }
+    // Nitro: extra push and a higher top speed while the bottle lasts.
+    this.boosting = input.boost && this.nitro > 0 && vf > -0.5;
+    if (this.boosting) {
+      this.nitro = Math.max(0, this.nitro - this.nitroBurn * dt);
+      const top = this.topSpeed * (1 + 0.35 * this.nitroPower);
+      const headroom = Math.max(0, 1 - (vf / top) ** 2);
+      vf += this.accel * 1.6 * this.nitroPower * headroom * dt * (this.airborne ? 0.4 : 1);
     }
     if (input.brake > 0) {
       if (vf > 0.5) {
@@ -194,7 +229,7 @@ export class CarPhysics {
       this.pitch += (target - this.pitch) * Math.min(1, dt * 2);
     }
 
-    events.impact = this.collide(world);
+    events.impact = this.collide(world, events);
     events.cones = world.hitCones(this.x, this.z, this.y, this.width / 2 + 0.2, this.vx, this.vz);
 
     // Final speeds and body lean for the visuals.
@@ -213,28 +248,45 @@ export class CarPhysics {
   }
 
   /** Pushes the car out of walls, buildings and posts. Returns speed lost. */
-  private collide(world: World): number {
+  private collide(world: World, events: StepEvents): number {
     const fx = Math.sin(this.heading);
     const fz = Math.cos(this.heading);
     const r = this.width / 2;
     const offset = this.length / 2 - r;
     let impact = 0;
+    const hit = (lost: number, target: Target | undefined) => {
+      if (lost > impact) {
+        impact = lost;
+        events.hitTarget = target ?? null;
+      }
+    };
     for (const k of [-1, 0, 1]) {
       const cx = this.x + fx * offset * k;
       const cz = this.z + fz * offset * k;
       for (const b of world.boxes) {
+        if (!b.solid) continue;
+        // Flying over something low (a parked car) misses it. Walls always stop you.
+        if (b.target && this.y > b.height) continue;
         const px = Math.max(b.minX, Math.min(cx, b.maxX));
         const pz = Math.max(b.minZ, Math.min(cz, b.maxZ));
-        impact = Math.max(impact, this.resolve(cx, cz, px, pz, r));
+        hit(this.resolve(cx, cz, px, pz, r), b.target);
       }
       for (const c of world.circles) {
+        if (!c.solid) continue;
         const dx = cx - c.x;
         const dz = cz - c.z;
         const reach = r + c.r;
         if (dx * dx + dz * dz >= reach * reach) continue;
+        // Hit fast enough, lamps and trees snap and the car keeps going.
+        if (c.target && world.ram(c.target, this.speed, new THREE.Vector3(this.vx, 0, this.vz).normalize())) {
+          this.vx *= 0.9;
+          this.vz *= 0.9;
+          events.smashed++;
+          continue;
+        }
         const d = Math.hypot(dx, dz) || 0.001;
         // Closest point on the post's edge, so resolve() treats it like a box corner.
-        impact = Math.max(impact, this.resolve(cx, cz, c.x + (dx / d) * c.r, c.z + (dz / d) * c.r, r));
+        hit(this.resolve(cx, cz, c.x + (dx / d) * c.r, c.z + (dz / d) * c.r, r), c.target);
       }
     }
     return impact;

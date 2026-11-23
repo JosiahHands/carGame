@@ -107,7 +107,14 @@ export interface CarRig {
   wheelBase: number;
   /** Driver's eye height above the ground, for the bonnet camera. */
   eyeHeight: number;
+  /** Where bullets and rockets leave the car, in the car's own coordinates (+z is forward). */
+  gunMuzzle: THREE.Vector3;
+  rocketMuzzle: THREE.Vector3;
   setLights(state: { night: boolean; braking: boolean }): void;
+  /** Shows flickering nitro flames out of the exhausts. Call every frame. */
+  setNitro(on: boolean): void;
+  /** Turns the car into a burnt-out wreck (every surface dark and rough), or back again. */
+  setWrecked(wrecked: boolean): void;
   dispose(): void;
 }
 
@@ -460,6 +467,67 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     pipe.position.set(x, spec.bottomY + 0.06, rearZ + 0.06);
   }
 
+  // Nitro flames: two nested cones behind each pipe, hidden until boosting.
+  const flameOuterMat = track(
+    new THREE.MeshBasicMaterial({ color: config.nitroColor, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  const flameCoreMat = track(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  // Wide at the pipe, pointed 1 m behind it (before scaling).
+  const flameGeo = track(new THREE.ConeGeometry(1, 1, 12, 1, true).translate(0, 0.5, 0).rotateX(-Math.PI / 2));
+  const flames: THREE.Group[] = [];
+  for (const x of pipeXs) {
+    const flame = new THREE.Group();
+    flame.position.set(x, spec.bottomY + 0.06, rearZ - 0.08);
+    const outer = new THREE.Mesh(flameGeo, flameOuterMat);
+    outer.scale.set(pipeR * 2.2, pipeR * 2.2, 0.9);
+    const core = new THREE.Mesh(flameGeo, flameCoreMat);
+    core.scale.set(pipeR * 1.1, pipeR * 1.1, 0.45);
+    flame.add(outer, core);
+    flame.visible = false;
+    body.add(flame);
+    flames.push(flame);
+  }
+
+  // Roof weapons: a twin machine gun on the right and a rocket pod on the left.
+  const roofTop = roofY + 0.045;
+  const roofMid = (roofRear[0] + roofFront[0]) / 2;
+  const gunMuzzle = new THREE.Vector3(0.32, body.position.y + roofTop + 0.2, roofMid + 0.9);
+  const rocketMuzzle = new THREE.Vector3(-0.32, body.position.y + roofTop + 0.22, roofMid + 0.55);
+  if (config.roofGuns) {
+    const gunMetal = track(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.8, roughness: 0.35 }));
+    const base = add(new THREE.BoxGeometry(1.0, 0.06, 0.9), blackPlastic);
+    base.position.set(0, roofTop + 0.03, roofMid);
+    // Machine gun: a body, two barrels and an ammo box.
+    const gunBody = add(new THREE.BoxGeometry(0.2, 0.16, 0.5), gunMetal);
+    gunBody.position.set(0.32, roofTop + 0.2, roofMid + 0.05);
+    const post = add(new THREE.CylinderGeometry(0.05, 0.07, 0.12, 10), gunMetal);
+    post.position.set(0.32, roofTop + 0.1, roofMid);
+    for (const dx of [-0.045, 0.045]) {
+      const barrel = add(new THREE.CylinderGeometry(0.022, 0.022, 0.6, 10), gunMetal);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0.32 + dx, roofTop + 0.2, roofMid + 0.6);
+    }
+    const ammo = add(new THREE.BoxGeometry(0.14, 0.12, 0.2), partMat.accent);
+    ammo.position.set(0.47, roofTop + 0.12, roofMid - 0.05);
+    // Rocket pod: a box with four tubes, the tips painted in the accent colour.
+    const pod = add(new THREE.BoxGeometry(0.34, 0.3, 0.7), gunMetal);
+    pod.position.set(-0.32, roofTop + 0.22, roofMid + 0.05);
+    for (const dx of [-0.075, 0.075]) {
+      for (const dy of [-0.07, 0.07]) {
+        const tube = add(new THREE.CylinderGeometry(0.055, 0.055, 0.04, 12), blackPlastic);
+        tube.rotation.x = Math.PI / 2;
+        tube.position.set(-0.32 + dx, roofTop + 0.22 + dy, roofMid + 0.41);
+        const tip = add(new THREE.ConeGeometry(0.045, 0.1, 10), partMat.accent);
+        tip.rotation.x = Math.PI / 2;
+        tip.position.set(-0.32 + dx, roofTop + 0.22 + dy, roofMid + 0.44);
+      }
+    }
+  } else {
+    // No roof guns: fire from just above the bonnet.
+    gunMuzzle.set(0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
+    rocketMuzzle.set(-0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
+  }
+
   // Wheels
   const tireW = spec.tireWidth * config.tireWidth;
   const wheels: WheelRig[] = [];
@@ -503,6 +571,12 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     glowDecal.receiveShadow = false;
   }
 
+  // For wrecks: one burnt material, and a note of each part's real material to put back.
+  let wrecked = false;
+  const burnt = track(new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1, metalness: 0.2 }));
+  const realMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  let lightsState = { night: envNight, braking: false }; // to restore the lights after a wreck is repaired
+
   const rig: CarRig = {
     root,
     body,
@@ -511,11 +585,43 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     width: spec.width,
     wheelBase: spec.axleFront - spec.axleRear,
     eyeHeight: roofY - 0.2 + body.position.y,
+    gunMuzzle,
+    rocketMuzzle,
     setLights({ night, braking }) {
+      lightsState = { night, braking };
+      if (wrecked) return;
       headMat.emissiveIntensity = night ? 2.2 : 0.6;
       beam.intensity = night ? 60 : 0;
       tailMat.emissiveIntensity = braking ? 2.5 : night ? 1.0 : 0.35;
       glowLight.intensity = config.underglow ? (night ? 6 : 2) : 0;
+    },
+    setNitro(on) {
+      for (const flame of flames) {
+        flame.visible = on;
+        // A random length each frame makes the flames flicker.
+        flame.scale.set(1.2, 1.2, 0.75 + Math.random() * 0.5);
+      }
+    },
+    setWrecked(on) {
+      if (on === wrecked) return;
+      wrecked = on;
+      if (on) {
+        // Swap every lit surface for burnt metal (glowing parts like the flames stay as they are).
+        root.traverse((part) => {
+          if (part instanceof THREE.Mesh && !(part.material instanceof THREE.MeshBasicMaterial)) {
+            realMaterials.set(part, part.material);
+            part.material = burnt;
+          }
+        });
+        beam.intensity = 0;
+        glowLight.intensity = 0;
+        if (glowDecal) glowDecal.visible = false;
+      } else {
+        for (const [part, material] of realMaterials) part.material = material;
+        realMaterials.clear();
+        if (glowDecal) glowDecal.visible = true;
+        rig.setLights(lightsState);
+      }
     },
     dispose() {
       for (const d of disposables) d.dispose();
