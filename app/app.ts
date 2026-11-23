@@ -79,7 +79,25 @@ function fitToCar(): boolean {
   cameraRig.size = size;
   audio.setEngine(config.engineSound);
   applyShadows();
+  applyViewDistance();
   return resized;
+}
+
+/**
+ * Sets how far you can see: the View distance setting, but always far enough
+ * to see the whole car from as far away as the camera can orbit (40 × its size,
+ * in photo mode). Otherwise a giant car is lost in the fog or past the far plane.
+ */
+function applyViewDistance(): void {
+  const s = cameraRig.size;
+  const reach = 40 * s + Math.max(car.length, car.height);
+  const distance = Math.max(settings.viewDistance, reach * 1.5);
+  world.setViewDistance(distance);
+  // A huge far plane needs the near plane further out too, or distant
+  // surfaces flicker. The hood camera of a big car is far from its nose anyway.
+  camera.near = 0.1 * Math.max(1, s / 5);
+  camera.far = distance + 200; // a bit past the fog, for the hills on the horizon
+  camera.updateProjectionMatrix();
 }
 
 /** Shadows cover the area around the car; a giant car needs a bigger area. */
@@ -172,9 +190,7 @@ function applySettings(): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
   applyShadows();
   speedUnitEl.textContent = settings.units === 'mph' ? 'mph' : 'km/h';
-  world.setViewDistance(settings.viewDistance);
-  camera.far = settings.viewDistance + 200; // a bit past the fog, for the hills on the horizon
-  camera.updateProjectionMatrix();
+  applyViewDistance();
   cameraRig.baseFov = settings.fov;
   effects.amount = EFFECTS_AMOUNT[settings.effects];
   updateHud();
@@ -197,7 +213,7 @@ const garage = new GarageUI(config, settings, {
     applySettings();
   },
   rebuildCity() {
-    world.rebuildAll(physics.x, physics.z);
+    world.rebuildAll(physics.x, physics.z, carRadius());
     damage = 0;
     scoreEl.textContent = '';
     toast('The city has been rebuilt');
@@ -215,6 +231,11 @@ const garage = new GarageUI(config, settings, {
   },
 });
 document.body.append(garage.root);
+
+/** How far the car's footprint reaches from its centre: half its diagonal. */
+function carRadius(): number {
+  return Math.hypot(car.length, car.width) / 2;
+}
 
 function carPosition(): THREE.Vector3 {
   return new THREE.Vector3(physics.x, physics.y, physics.z);
@@ -609,7 +630,7 @@ function frame(now: number): void {
   syncCar(dt);
   if (driving) carEffects(dt, controls.throttle);
   effects.update(dt);
-  world.update(dt, physics.x, physics.z);
+  world.update(dt, physics.x, physics.z, carRadius());
   cameraRig.update(realDt, carPosition(), physics.heading, physics.speed, driving && physics.boosting);
   if (shake > 0.001 && driving) {
     camera.position.x += (Math.random() - 0.5) * shake;

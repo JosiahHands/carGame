@@ -704,19 +704,20 @@ export class World {
    * Puts everything that was destroyed back at once ("Rebuild the city").
    * Anything the player's car is on or next to (like a rubble pile) is left
    * to come back later as usual, so the car never ends up inside a solid building.
+   * `carRadius` is half the car's diagonal: how far its footprint reaches from its centre.
    */
-  rebuildAll(carX: number, carZ: number): void {
+  rebuildAll(carX: number, carZ: number, carRadius: number): void {
     for (const t of this.targets) {
-      if (!t.alive && this.isUnderCar(t, carX, carZ)) continue;
+      if (!t.alive && this.isUnderCar(t, carX, carZ, carRadius)) continue;
       if (!t.alive || (t.kind === 'building' && t.state !== 'standing')) this.restore(t, false);
       t.hp = t.maxHp;
     }
     this.effects.clear();
   }
 
-  /** Whether `t`, once rebuilt, would overlap a car at (x, z). */
-  private isUnderCar(t: Target, x: number, z: number): boolean {
-    const margin = 3; // about half a car's length, plus a little room
+  /** Whether `t`, once rebuilt, would overlap a car at (x, z) that reaches `carRadius` from its centre. */
+  private isUnderCar(t: Target, x: number, z: number, carRadius: number): boolean {
+    const margin = carRadius + 0.5; // the car's reach, plus a little room
     if (t.kind === 'building') {
       const b = t.box;
       return x > b.minX - margin && x < b.maxX + margin && z > b.minZ - margin && z < b.maxZ + margin;
@@ -857,7 +858,8 @@ export class World {
 
   // ---------- every frame ----------
 
-  update(dt: number, carX: number, carZ: number): void {
+  /** `carRadius` is half the car's diagonal: how far its footprint reaches from its centre. */
+  update(dt: number, carX: number, carZ: number, carRadius: number): void {
     this.clock += dt;
     this.updateBuildings(dt);
     this.updateWrecks(dt);
@@ -867,8 +869,9 @@ export class World {
     for (const t of this.targets) {
       if (t.alive || (t.kind === 'car' && t.flying)) continue;
       const longAgo = this.clock - t.destroyedAt > COMES_BACK_AFTER;
-      const farAway = Math.hypot(carX - t.x, carZ - t.z) > COMES_BACK_DISTANCE;
-      if (longAgo && farAway) this.restore(t, true);
+      // A giant car has to be further away, so the building doesn't come back inside it.
+      const farAway = Math.hypot(carX - t.x, carZ - t.z) > COMES_BACK_DISTANCE + carRadius;
+      if (longAgo && farAway && !this.isUnderCar(t, carX, carZ, carRadius)) this.restore(t, true);
     }
 
     // Keep the sun's shadow box centred on the car.

@@ -229,7 +229,7 @@ export class CarPhysics {
     // Move, checking for crashes along the way. At hundreds of mph the car
     // moves several metres a step, so it moves in smaller pieces then, or it
     // could pass straight through a lamp post.
-    const pieces = Math.min(12, Math.max(1, Math.ceil((this.speed * dt) / (this.width * 0.4))));
+    const pieces = Math.min(12, Math.max(1, Math.ceil((this.speed * dt) / (Math.min(this.width, this.length) * 0.4))));
     for (let i = 0; i < pieces; i++) {
       this.x += (this.vx * dt) / pieces;
       this.z += (this.vz * dt) / pieces;
@@ -299,7 +299,15 @@ export class CarPhysics {
   private collide(world: World, events: StepEvents): number {
     const fx = Math.sin(this.heading);
     const fz = Math.cos(this.heading);
-    const r = this.width / 2;
+    // The car's footprint is a grid of circles as wide as its shorter side
+    // (usually the width). A normal car gets a single row of them from the
+    // front to the back; a car wider than it is long gets a row from side to
+    // side instead. Either way no circle sticks out past the body.
+    const r = Math.min(this.length, this.width) / 2;
+    const alongRoom = this.length / 2 - r; // how far the circle centres spread forwards and back
+    const acrossRoom = this.width / 2 - r; // ...and to the sides
+    const alongCount = alongRoom > 0.01 ? Math.max(3, Math.ceil(this.length / (2 * r)) + 1) : 1;
+    const acrossCount = acrossRoom > 0.01 ? Math.max(3, Math.ceil(this.width / (2 * r)) + 1) : 1;
     const giant = this.height >= GIANT_HEIGHT;
     const direction = new THREE.Vector3(this.vx, 0, this.vz).normalize();
     let impact = 0;
@@ -309,14 +317,14 @@ export class CarPhysics {
         events.hitTarget = target ?? null;
       }
     };
-    // The car's footprint is a row of circles, as wide as the car, from the
-    // front to the back. Long cars get more of them, so there are no gaps.
-    const circles = Math.max(3, Math.ceil(this.length / this.width) + 1);
-    const offset = Math.max(0, this.length / 2 - r);
-    for (let k = 0; k < circles; k++) {
-      const along = offset * (-1 + (2 * k) / (circles - 1));
-      const cx = this.x + fx * along;
-      const cz = this.z + fz * along;
+    // Spreads `count` circles evenly from -room to +room (just 0 for one circle).
+    const spread = (k: number, count: number, room: number) => (count === 1 ? 0 : room * (-1 + (2 * k) / (count - 1)));
+    for (let k = 0; k < alongCount * acrossCount; k++) {
+      const along = spread(k % alongCount, alongCount, alongRoom);
+      const across = spread(Math.floor(k / alongCount), acrossCount, acrossRoom);
+      // Forwards is (fx, fz); to the side is (fz, -fx).
+      const cx = this.x + fx * along + fz * across;
+      const cz = this.z + fz * along - fx * across;
       for (const b of world.boxes) {
         if (!b.solid) continue;
         // Flying over something low (a parked car) misses it. Walls always stop you.
@@ -333,6 +341,8 @@ export class CarPhysics {
       }
       for (const c of world.circles) {
         if (!c.solid) continue;
+        // Flying over a lamp post or tree misses it.
+        if (this.y > c.height) continue;
         const dx = cx - c.x;
         const dz = cz - c.z;
         const reach = r + c.r;

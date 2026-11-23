@@ -338,9 +338,43 @@ function cleanFields<T extends object>(raw: unknown, defaults: T): T {
   return result as T;
 }
 
+/**
+ * Older saves scored the tuning from 1 to 10 (5 was normal) and had a ride
+ * height from -1 to 1. This turns those into today's settings, so the car drives
+ * the way it did before: each score goes through the old physics formula and is
+ * divided by what a score of 5 gave, then scaled to today's normal value.
+ */
+function upgradeOldSave(r: Record<string, unknown>): void {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  if (typeof r.rideHeight === 'number' && r.lift === undefined) r.lift = r.rideHeight * 0.07;
+  const old = (r.tuning && typeof r.tuning === 'object' ? r.tuning : null) as Record<string, unknown> | null;
+  if (!old || !('power' in old) || 'horsepower' in old) return;
+  // A missing or broken score counts as the old default of 5.
+  const score = (key: string) => {
+    const v = old[key];
+    return typeof v === 'number' && Number.isFinite(v) ? Math.min(10, Math.max(1, v)) : 5;
+  };
+  const normal = DEFAULT_CONFIG.tuning;
+  // Old acceleration was 5 + 0.9 × power; today's grows with horsepower^0.6.
+  const accel = (5 + 0.9 * score('power')) / 9.5;
+  r.tuning = {
+    horsepower: Math.round(normal.horsepower * accel ** (1 / 0.6)),
+    topSpeed: Math.round((normal.topSpeed * (28 + 5 * score('topSpeed'))) / 53),
+    grip: round2((2.5 + 0.9 * score('grip')) / 7),
+    brakes: round2((12 + 2 * score('brakes')) / 22),
+    steering: Math.round(((0.38 + 0.03 * score('steering')) * 180) / Math.PI),
+    drift: score('drift'),
+    nitroPower: round2((0.6 + 0.12 * score('nitro')) / 1.2),
+    // Stronger nitro used to empty the bottle faster.
+    nitroSeconds: round2((normal.nitroSeconds * 0.305) / (0.18 + 0.025 * score('nitro'))),
+  };
+}
+
 /** Turns anything (old saves, share codes, hand-edited data) into a valid config. */
 export function sanitizeConfig(raw: unknown): CarConfig {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  // Work on a copy so the caller's object isn't changed.
+  const r = { ...(raw && typeof raw === 'object' ? raw : {}) } as Record<string, unknown>;
+  upgradeOldSave(r);
   // Older saves stored the underglow as on/off.
   if (typeof r.underglow === 'boolean') r.underglow = r.underglow ? 'on' : 'off';
   const config = cleanFields(r, DEFAULT_CONFIG);
@@ -422,7 +456,13 @@ export function readShareCode(code: string): CarConfig | null {
   const match = /^CAR1-([A-Za-z0-9+/=]+)$/.exec(code.trim());
   if (!match) return null;
   try {
-    return sanitizeConfig(JSON.parse(atob(match[1])));
+    const data = JSON.parse(atob(match[1]));
+    // A car is always a JSON object ({} is the stock car). Anything else, like
+    // null, a number or a list, isn't a share code.
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+    // Every key must be a car setting, so random text that happens to be JSON is refused.
+    for (const key of Object.keys(data)) if (!(key in DEFAULT_CONFIG)) return null;
+    return sanitizeConfig(data);
   } catch {
     return null;
   }
