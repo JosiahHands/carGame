@@ -97,6 +97,87 @@ export class EngineAudio {
     this.squealGain.gain.setTargetAtTime(active ? Math.min(0.25, slip * 0.3) : 0, t, 0.05);
   }
 
+  /** A short burst of filtered noise, the building block of most effects. */
+  private noiseBurst(type: BiquadFilterType, freq: number, volume: number, length: number, q = 1): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    // Start somewhere random in the noise so repeated shots don't sound identical.
+    const offset = Math.random() * 0.5;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(volume, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + length);
+    src.connect(filter).connect(g).connect(this.master);
+    src.start(ctx.currentTime, offset);
+    src.stop(ctx.currentTime + length + 0.05);
+  }
+
+  /** A falling tone, for booms and whooshes. */
+  private sweep(type: OscillatorType, from: number, to: number, volume: number, length: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + length);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(volume, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + length);
+    osc.connect(g).connect(this.master);
+    osc.start();
+    osc.stop(ctx.currentTime + length + 0.05);
+  }
+
+  /** A sharp crack: high hiss plus a low thump. */
+  gunshot(): void {
+    this.noiseBurst('highpass', 900, 0.22, 0.07);
+    this.noiseBurst('lowpass', 400, 0.18, 0.09);
+  }
+
+  /** A whoosh with a falling buzz. */
+  rocketLaunch(): void {
+    this.noiseBurst('bandpass', 1200, 0.4, 0.5, 0.8);
+    this.sweep('sawtooth', 300, 90, 0.06, 0.4);
+  }
+
+  /** An explosion. `distance` in metres makes far-away booms quieter. */
+  explosion(size: number, distance: number): void {
+    const near = 1 / (1 + distance / 40);
+    this.noiseBurst('lowpass', 500, Math.min(1, 0.8 * size * near), 1.4);
+    this.sweep('sine', 120, 30, Math.min(0.8, 0.5 * size * near), 0.9);
+  }
+
+  /** A deep falling boom. */
+  shockwave(): void {
+    this.sweep('sine', 180, 25, 0.7, 1.1);
+    this.noiseBurst('lowpass', 800, 0.6, 0.8);
+  }
+
+  /** A two-note chime for a checkpoint, or three notes for the finish line. */
+  chime(finish = false): void {
+    if (!this.ctx) return;
+    const notes = finish ? [660, 880, 1320] : [880, 1320];
+    for (let i = 0; i < notes.length; i++) {
+      // Each note starts 0.09 s after the one before and fades out over 0.35 s.
+      const start = this.ctx.currentTime + i * 0.09;
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = notes[i];
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.25, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+      osc.connect(gain).connect(this.master);
+      osc.start(start);
+      osc.stop(start + 0.4);
+    }
+  }
+
   crash(strength: number): void {
     if (!this.ctx || strength < 2) return;
     const ctx = this.ctx;

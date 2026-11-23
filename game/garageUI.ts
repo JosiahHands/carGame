@@ -1,4 +1,5 @@
-// The garage panel: every customization option, grouped into tabs.
+// The garage panel: every customization option grouped into tabs, plus a
+// Settings tab for graphics quality and game options.
 import {
   BODY_OPTIONS,
   DEFAULT_CONFIG,
@@ -18,17 +19,31 @@ import {
   type Option,
   type Tuning,
 } from './carConfig';
+import { PRESETS, type Settings } from './settings';
 
 type Change = 'look' | 'tuning';
 
-const TABS = ['Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Tuning'] as const;
-type Tab = (typeof TABS)[number];
+const TABS = ['Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Tuning', 'Settings'] as const;
+export type Tab = (typeof TABS)[number];
+
+const ON_OFF: Option<'on' | 'off'>[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+/** What the garage tells the game about. */
+export interface GarageEvents {
+  carChanged(change: Change): void;
+  settingsChanged(): void;
+  rebuildCity(): void;
+  drive(): void;
 }
 
 export class GarageUI {
@@ -39,8 +54,8 @@ export class GarageUI {
 
   constructor(
     private config: CarConfig,
-    private onChange: (config: CarConfig, change: Change) => void,
-    onDrive: () => void,
+    private settings: Settings,
+    private events: GarageEvents,
   ) {
     this.root = el('div', 'garage');
     const head = el('header');
@@ -60,7 +75,7 @@ export class GarageUI {
     const reset = el('button', 'btn', 'Reset');
     reset.addEventListener('click', () => this.replace(cloneConfig(DEFAULT_CONFIG)));
     const drive = el('button', 'btn primary', 'Drive ▶');
-    drive.addEventListener('click', onDrive);
+    drive.addEventListener('click', () => this.events.drive());
     foot.append(random, reset, drive);
     this.root.append(head, nav, this.body, foot);
     this.show('Body');
@@ -72,17 +87,17 @@ export class GarageUI {
 
   private replace(next: CarConfig): void {
     Object.assign(this.config, next, { tuning: { ...next.tuning } });
-    this.onChange(this.config, 'look');
-    this.onChange(this.config, 'tuning');
+    this.events.carChanged('look');
+    this.events.carChanged('tuning');
     this.show(this.tab);
   }
 
-  private show(tab: Tab): void {
+  show(tab: Tab): void {
     this.tab = tab;
     for (const [t, b] of this.tabButtons) b.classList.toggle('active', t === tab);
     this.body.replaceChildren();
     const c = this.config;
-    const look = () => this.onChange(c, 'look');
+    const look = () => this.events.carChanged('look');
     switch (tab) {
       case 'Body':
         this.choice('Body style', BODY_OPTIONS, () => c.body, (v) => ((c.body = v), look()));
@@ -106,20 +121,90 @@ export class GarageUI {
         this.choice('Spoiler', SPOILER_OPTIONS, () => c.spoiler, (v) => ((c.spoiler = v), look()));
         this.choice('Spoiler colour', PART_COLOR_OPTIONS, () => c.spoilerColor, (v) => ((c.spoilerColor = v), look()));
         this.choice('Exhaust', EXHAUST_OPTIONS, () => c.exhaust, (v) => ((c.exhaust = v), look()));
+        this.choice('Roof weapons', ON_OFF, () => (c.roofGuns ? 'on' : 'off'), (v) => ((c.roofGuns = v === 'on'), look()));
         break;
       case 'Lights':
         this.color('Headlight colour', LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look()));
-        this.choice('Underglow', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }], () => (c.underglow ? 'on' : 'off'), (v) => ((c.underglow = v === 'on'), look()));
+        this.choice('Underglow', ON_OFF, () => (c.underglow ? 'on' : 'off'), (v) => ((c.underglow = v === 'on'), look()));
         this.color('Underglow colour', ['#7af0ff', '#c58bff', '#ff4fd8', '#39ff88', '#ff3b3b', '#ffd23f', '#2f6bff', '#ffffff'], () => c.underglowColor, (v) => ((c.underglowColor = v), look()));
+        this.color('Nitro flame colour', ['#4fb3ff', '#ff7a1a', '#c58bff', '#39ff88', '#ff3bd0', '#ffffff'], () => c.nitroColor, (v) => ((c.nitroColor = v), look()));
         this.hint('Press N while driving to switch between day and night.');
         break;
       case 'Tuning':
         for (const key of Object.keys(TUNING_LABELS) as (keyof Tuning)[]) {
-          this.slider(TUNING_LABELS[key], 1, 10, 1, () => c.tuning[key], (v) => ((c.tuning[key] = v), this.onChange(c, 'tuning')), (v) => `${v}/10`);
+          this.slider(TUNING_LABELS[key], 1, 10, 1, () => c.tuning[key], (v) => ((c.tuning[key] = v), this.events.carChanged('tuning')), (v) => `${v}/10`);
         }
-        this.hint('Drift sets how far the back steps out when you pull the handbrake (Space).');
+        this.hint('Drift sets how far the back steps out when you pull the handbrake (Space). Nitro sets how hard Shift pushes you and how long the bottle lasts.');
+        break;
+      case 'Settings':
+        this.showSettings();
         break;
     }
+  }
+
+  private showSettings(): void {
+    const s = this.settings;
+    const changed = () => this.events.settingsChanged();
+    const onOff = (on: boolean) => (on ? 'on' : 'off');
+
+    // Preset buttons set several settings at once, then redraw the tab to show them.
+    const presets = el('div', 'segmented');
+    for (const [name, values] of Object.entries(PRESETS)) {
+      const b = el('button', undefined, name);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        Object.assign(s, values);
+        changed();
+        this.show('Settings');
+      });
+      presets.append(b);
+    }
+    this.row('Quality preset').append(presets);
+    this.slider('Resolution', 0.5, 1, 0.05, () => s.resolution, (v) => ((s.resolution = v), changed()), (v) => `${Math.round(v * 100)}%`);
+    this.choice(
+      'Shadows',
+      [
+        { value: 'off', label: 'Off' },
+        { value: 'low', label: 'Low' },
+        { value: 'high', label: 'High' },
+        { value: 'ultra', label: 'Ultra' },
+      ],
+      () => s.shadows,
+      (v) => ((s.shadows = v), changed()),
+    );
+    this.slider('View distance', 150, 600, 10, () => s.viewDistance, (v) => ((s.viewDistance = v), changed()), (v) => `${v} m`);
+    this.choice(
+      'Explosion effects',
+      [
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
+      ],
+      () => s.effects,
+      (v) => ((s.effects = v), changed()),
+    );
+    this.choice(
+      'Frame rate limit',
+      [
+        { value: '0', label: 'None' },
+        { value: '30', label: '30' },
+        { value: '60', label: '60' },
+        { value: '120', label: '120' },
+      ],
+      () => String(s.fpsLimit),
+      (v) => ((s.fpsLimit = Number(v)), changed()),
+    );
+    this.choice('Anti-aliasing (after restart)', ON_OFF, () => onOff(s.antialias), (v) => ((s.antialias = v === 'on'), changed()));
+    this.choice('FPS counter', ON_OFF, () => onOff(s.showFps), (v) => ((s.showFps = v === 'on'), changed()));
+    this.slider('Field of view', 50, 90, 1, () => s.fov, (v) => ((s.fov = v), changed()), (v) => `${v}°`);
+    this.choice('Weapons', ON_OFF, () => onOff(s.weapons), (v) => ((s.weapons = v === 'on'), changed()));
+    this.choice('Minimap', ON_OFF, () => onOff(s.minimap), (v) => ((s.minimap = v === 'on'), changed()));
+
+    const rebuild = el('button', 'btn', 'Rebuild the city');
+    rebuild.type = 'button';
+    rebuild.addEventListener('click', () => this.events.rebuildCity());
+    this.row('Destroyed buildings').append(rebuild);
+    this.hint('If the game feels slow, try the Low or Medium preset and turn on the FPS counter to see the difference.');
   }
 
   private row(label: string): HTMLDivElement {

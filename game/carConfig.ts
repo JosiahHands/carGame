@@ -15,6 +15,7 @@ export interface Tuning {
   brakes: number; // 1..10
   steering: number; // 1..10 steering lock
   drift: number; // 1..10 how loose the handbrake makes the rear
+  nitro: number; // 1..10 nitro boost strength and bottle size
 }
 
 export interface CarConfig {
@@ -35,6 +36,9 @@ export interface CarConfig {
   headlightColor: string;
   underglow: boolean;
   underglowColor: string;
+  nitroColor: string;
+  /** Show the machine gun and rocket pod on the roof. */
+  roofGuns: boolean;
   plate: string;
   tuning: Tuning;
 }
@@ -106,6 +110,7 @@ export const TUNING_LABELS: Record<keyof Tuning, string> = {
   brakes: 'Brakes',
   steering: 'Steering',
   drift: 'Drift',
+  nitro: 'Nitro',
 };
 
 export const DEFAULT_CONFIG: CarConfig = {
@@ -126,8 +131,10 @@ export const DEFAULT_CONFIG: CarConfig = {
   headlightColor: '#fff6e0',
   underglow: false,
   underglowColor: '#7af0ff',
+  nitroColor: '#4fb3ff',
+  roofGuns: true,
   plate: 'DRIVE',
-  tuning: { power: 5, topSpeed: 5, grip: 5, brakes: 5, steering: 5, drift: 5 },
+  tuning: { power: 5, topSpeed: 5, grip: 5, brakes: 5, steering: 5, drift: 5, nitro: 5 },
 };
 
 const STORAGE_KEY = 'carGame.config.v1';
@@ -175,6 +182,8 @@ export function sanitizeConfig(raw: unknown): CarConfig {
     headlightColor: color(r.headlightColor, d.headlightColor),
     underglow: typeof r.underglow === 'boolean' ? r.underglow : d.underglow,
     underglowColor: color(r.underglowColor, d.underglowColor),
+    nitroColor: color(r.nitroColor, d.nitroColor),
+    roofGuns: typeof r.roofGuns === 'boolean' ? r.roofGuns : d.roofGuns,
     plate: typeof r.plate === 'string' ? cleanPlate(r.plate) : d.plate,
     tuning,
   };
@@ -240,6 +249,7 @@ export function randomConfig(current: CarConfig): CarConfig {
     headlightColor: pick(LIGHT_SWATCHES),
     underglow: Math.random() < 0.4,
     underglowColor: randomColor(),
+    nitroColor: randomColor(),
     tuning: { ...current.tuning },
   };
 }
