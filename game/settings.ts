@@ -1,5 +1,6 @@
-// Graphics and game settings, chosen on the Settings tab of the garage.
-// Saved between sessions, like the car.
+// Graphics and game settings, chosen on the Settings tab of the garage (and
+// the map, on the Maps tab). Saved between sessions, like the car.
+import type { MapName } from './world';
 
 export interface Settings {
   /** How sharp the picture is: 1 draws every pixel, 0.5 draws a quarter as many. */
@@ -20,6 +21,10 @@ export interface Settings {
   weapons: boolean;
   /** Speed and size units shown in the game. */
   units: 'mph' | 'kmh';
+  /** Which map to drive on. */
+  map: MapName;
+  /** Automatic changes gear by itself; manual is X / Z (or the D-pad). */
+  transmission: 'auto' | 'manual';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +39,8 @@ export const DEFAULT_SETTINGS: Settings = {
   minimap: true,
   weapons: true,
   units: 'mph',
+  map: 'city',
+  transmission: 'auto',
 };
 
 /** The quality presets. Each one sets the four graphics settings at once. */
@@ -76,6 +83,8 @@ export function loadSettings(): Settings {
   if (!['off', 'low', 'high', 'ultra'].includes(settings.shadows)) settings.shadows = DEFAULT_SETTINGS.shadows;
   if (!['low', 'medium', 'high'].includes(settings.effects)) settings.effects = DEFAULT_SETTINGS.effects;
   if (!['mph', 'kmh'].includes(settings.units)) settings.units = DEFAULT_SETTINGS.units;
+  if (!['city', 'circuit', 'oval'].includes(settings.map)) settings.map = DEFAULT_SETTINGS.map;
+  if (!['auto', 'manual'].includes(settings.transmission)) settings.transmission = DEFAULT_SETTINGS.transmission;
   return settings;
 }
 

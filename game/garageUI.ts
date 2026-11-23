@@ -34,11 +34,13 @@ import {
   type Tuning,
 } from './carConfig';
 import { PRESETS, type Settings } from './settings';
+import { bestLapFor, formatTime } from './timeTrial';
+import { MAPS, type MapName } from './world';
 
 /** 'look' changes need the car rebuilt; 'tuning' changes (driving, sound) don't. */
 type Change = 'look' | 'tuning';
 
-const TABS = ['Builds', 'Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Sound & FX', 'Engine', 'Physics', 'Settings'] as const;
+const TABS = ['Builds', 'Maps', 'Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Sound & FX', 'Engine', 'Physics', 'Settings'] as const;
 export type Tab = (typeof TABS)[number];
 
 const ON_OFF: Option<'on' | 'off'>[] = [
@@ -70,6 +72,8 @@ export interface GarageEvents {
   carChanged(change: Change): void;
   settingsChanged(): void;
   rebuildCity(): void;
+  /** Switch to another map (already saved in the settings). */
+  mapChanged(map: MapName): void;
   drive(): void;
   /** Plays the car's horn, to try it out. */
   honk(): void;
@@ -161,6 +165,9 @@ export class GarageUI {
     switch (tab) {
       case 'Builds':
         this.showBuilds();
+        break;
+      case 'Maps':
+        this.showMaps();
         break;
       case 'Body':
         this.choice('Body style', BODY_OPTIONS, () => c.body, (v) => ((c.body = v), look()));
@@ -381,10 +388,38 @@ export class GarageUI {
       () => s.units,
       (v) => ((s.units = v), changed(), this.refreshStats()),
     );
+    this.choice(
+      'Gearbox',
+      [
+        { value: 'auto', label: 'Automatic' },
+        { value: 'manual', label: 'Manual (X / Z)' },
+      ],
+      () => s.transmission,
+      (v) => ((s.transmission = v), changed()),
+    );
     this.choice('Weapons', ON_OFF, () => onOff(s.weapons), (v) => ((s.weapons = v === 'on'), changed()));
     this.choice('Minimap', ON_OFF, () => onOff(s.minimap), (v) => ((s.minimap = v === 'on'), changed()));
-    this.row('Destroyed buildings').append(button('Rebuild the city', 'btn', () => this.events.rebuildCity()));
+    this.row('Destroyed buildings').append(button('Rebuild everything', 'btn', () => this.events.rebuildCity()));
     this.hint('If the game feels slow, try the Low or Medium preset and turn on the FPS counter to see the difference.');
+  }
+
+  /** A card for each map, with its best lap. Picking one switches to it straight away. */
+  private showMaps(): void {
+    const grid = el('div', 'build-grid maps');
+    for (const m of MAPS) {
+      const best = bestLapFor(m.value);
+      const card = button('', 'build', () => {
+        if (this.settings.map === m.value) return;
+        this.settings.map = m.value;
+        this.events.mapChanged(m.value);
+        this.show('Maps');
+      });
+      card.classList.toggle('active', this.settings.map === m.value);
+      card.append(el('strong', undefined, m.label), el('span', undefined, m.about), el('em', undefined, best > 0 ? `Best lap ${formatTime(best)}` : 'No lap yet'));
+      grid.append(card);
+    }
+    this.body.append(grid);
+    this.hint('Press T while driving for a timed lap. Beat your best and a ghost of that lap races you next time.');
   }
 
   // ---------- controls ----------

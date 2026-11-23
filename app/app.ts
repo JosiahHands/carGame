@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { loadConfig, saveConfig, type CarConfig } from '../game/carConfig';
 import { buildCar, type CarRig } from '../game/carModel';
-import { CarPhysics } from '../game/carPhysics';
+import { CarPhysics, GEAR_TOPS } from '../game/carPhysics';
 import { CameraRig } from '../game/cameraRig';
 import { Effects } from '../game/effects';
 import { EngineAudio } from '../game/engineAudio';
@@ -13,7 +13,7 @@ import { Minimap } from '../game/minimap';
 import { EFFECTS_AMOUNT, SHADOW_SIZES, loadSettings, saveSettings } from '../game/settings';
 import { TimeTrial, formatTime } from '../game/timeTrial';
 import { Weapons } from '../game/weapons';
-import { World } from '../game/world';
+import { MAPS, World } from '../game/world';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 steps per second
 const SLOW_MOTION = 0.3; // speed of time in slow motion
@@ -39,12 +39,13 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1200);
 const cameraRig = new CameraRig(camera, renderer.domElement);
 const effects = new Effects(scene);
-const world = new World(scene, effects);
+const world = new World(scene, effects, settings.map);
 const physics = new CarPhysics();
 const input = new Input(renderer.domElement);
 const audio = new EngineAudio();
 const weapons = new Weapons(scene, world, effects, audio);
 const trial = new TimeTrial(scene);
+trial.setCourse(world.course, world.map);
 const minimap = new Minimap();
 document.body.append(minimap.canvas);
 
@@ -54,6 +55,7 @@ let night = false;
 let car: CarRig = buildCar(config, night);
 scene.add(car.root);
 physics.reset(world.spawn.x, world.spawn.z, world.spawn.heading);
+physics.y = world.heightAt(physics.x, physics.z);
 fitToCar();
 
 /** Rebuilds the car after a change. Returns true if its size changed a lot. */
@@ -125,6 +127,7 @@ const gearEl = $('gear');
 const driftEl = $('drift');
 const bestEl = $('best');
 const nitroBar = $('nitro-fill');
+const revsBar = $('revs-fill');
 const helpEl = $('help');
 const hintEl = $('hint');
 const toastEl = $('toast');
@@ -193,6 +196,8 @@ function applySettings(): void {
   applyViewDistance();
   cameraRig.baseFov = settings.fov;
   effects.amount = EFFECTS_AMOUNT[settings.effects];
+  physics.manual = settings.transmission === 'manual';
+  gearEl.classList.toggle('manual', physics.manual);
   updateHud();
 }
 
@@ -216,7 +221,11 @@ const garage = new GarageUI(config, settings, {
     world.rebuildAll(physics.x, physics.z, carRadius());
     damage = 0;
     scoreEl.textContent = '';
-    toast('The city has been rebuilt');
+    toast('Everything has been rebuilt');
+  },
+  mapChanged() {
+    saveSettings(settings);
+    loadMap();
   },
   drive: () => setMode('drive'),
   honk() {
@@ -298,9 +307,29 @@ function savePhoto(): void {
 }
 $('photo-save').addEventListener('click', savePhoto);
 
+/** Switches to the map chosen in the settings, and puts the car at its start. */
+function loadMap(): void {
+  trial.stop();
+  weapons.clear();
+  effects.clear();
+  world.load(settings.map);
+  trial.setCourse(world.course, world.map);
+  ghost?.dispose();
+  ghost = null;
+  damage = 0;
+  scoreEl.textContent = '';
+  placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+  syncCar(0);
+  if (mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
+  showBest();
+  updateHud();
+  toast(MAPS.find((m) => m.value === world.map)!.label);
+}
+
 /** Puts the car at a spot, standing still, with the camera behind it. */
 function placeCar(x: number, z: number, heading: number): void {
   physics.reset(x, z, heading);
+  physics.y = world.heightAt(x, z); // the start can be on a banked straight
   weapons.clear();
   cameraRig.snap(carPosition(), physics.heading);
   driftScore = 0;
@@ -309,7 +338,40 @@ function placeCar(x: number, z: number, heading: number): void {
 function startTimeTrial(): void {
   placeCar(trial.start.x, trial.start.z, trial.start.heading);
   trial.begin();
+  // Race the ghost of the best lap, if there is one.
+  ghost?.dispose();
+  ghost = trial.hasGhost ? makeGhost() : null;
   updateHud();
+}
+
+// ---------- the ghost of the best lap ----------
+let ghost: CarRig | null = null;
+const ghostMaterial = new THREE.MeshStandardMaterial({ color: 0x9fd3ff, emissive: 0x3a7bd5, emissiveIntensity: 0.7, transparent: true, opacity: 0.35, depthWrite: false });
+
+/** A see-through blue copy of the player's car. */
+function makeGhost(): CarRig {
+  const rig = buildCar(config, false, false);
+  rig.root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.material = ghostMaterial;
+      o.castShadow = false;
+    } else if (o instanceof THREE.Sprite || o instanceof THREE.Points || o instanceof THREE.Light) {
+      o.visible = false;
+    }
+  });
+  rig.root.visible = false;
+  scene.add(rig.root);
+  return rig;
+}
+
+/** Moves the ghost to where the best lap was at this point in the lap. */
+function updateGhost(): void {
+  if (!ghost) return;
+  const pose = trial.ghostPose();
+  ghost.root.visible = pose !== null && mode !== 'garage';
+  if (!pose) return;
+  ghost.root.position.set(pose.x, pose.y, pose.z);
+  ghost.root.rotation.set(pose.pitch, pose.heading, pose.groundRoll, 'YXZ');
 }
 
 function handleAction(action: Action): void {
@@ -367,6 +429,15 @@ function handleAction(action: Action): void {
     case 'horn':
       audio.horn(config.horn);
       break;
+    case 'shiftUp':
+    case 'shiftDown':
+      if (!physics.manual) {
+        toast('Automatic gearbox: pick Manual in Settings (Esc)', 2200);
+        break;
+      }
+      // A refused change (top gear, first gear, or too fast to change down) flashes the gear red.
+      if (!(action === 'shiftUp' ? physics.shiftUp() : physics.shiftDown())) gearRefused = 0.25;
+      break;
     case 'slowmo':
       slowMotion = !slowMotion;
       updateHud();
@@ -394,9 +465,12 @@ function handleAction(action: Action): void {
 }
 
 // ---------- per-frame updates ----------
+/** Seconds left of the red flash on the gear, after a gear change that wasn't allowed. */
+let gearRefused = 0;
+
 function syncCar(dt: number): void {
   car.root.position.set(physics.x, physics.y, physics.z);
-  car.root.rotation.set(physics.pitch, physics.heading, 0, 'YXZ');
+  car.root.rotation.set(physics.pitch, physics.heading, physics.groundRoll, 'YXZ');
   car.body.rotation.set(physics.bodyPitch, 0, physics.roll);
   for (const w of car.wheels) {
     w.spin.rotation.x += (physics.forwardSpeed / w.radius) * dt;
@@ -412,6 +486,7 @@ function syncCar(dt: number): void {
  * on nitro. Particles are spawned at a steady rate, whatever the frame rate.
  */
 let smokeDue = 0;
+let grassDue = 0;
 let trailDue = 0;
 let lastTips: THREE.Vector3[] = []; // where the exhausts were last frame
 let odometer = 0; // metres driven, for the rainbow trail's colour bands
@@ -428,6 +503,16 @@ function carEffects(dt: number, throttle: number): void {
     spot.y = physics.y + 0.15 * size;
     const drift = new THREE.Vector3((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2).multiplyScalar(size);
     effects.addSmoke({ at: spot.clone(), velocity: drift, life: 1.6, size: [0.5 * size, 2.6 * size], color: config.tireSmokeColor, opacity: 0.55, drag: 1.5 });
+  }
+
+  // Dirt and grass thrown up by the wheels off the edge of a race track.
+  grassDue += physics.onGrass && physics.speed > 5 ? dt * Math.min(60, physics.speed) * effects.amount : 0;
+  while (grassDue >= 1) {
+    grassDue--;
+    car.wheels[Math.floor(Math.random() * car.wheels.length)].steer.getWorldPosition(spot);
+    spot.y = physics.y + 0.2 * size;
+    const kick = new THREE.Vector3(-physics.vx * 0.15 + (Math.random() - 0.5) * 2, 1 + Math.random() * 2, -physics.vz * 0.15 + (Math.random() - 0.5) * 2).multiplyScalar(size);
+    effects.addSmoke({ at: spot.clone(), velocity: kick, life: 0.9, size: [0.4 * size, 1.6 * size], color: Math.random() < 0.5 ? 0x7a6a48 : 0x5f7d3a, opacity: 0.6, drag: 2 });
   }
 
   // More particles the faster the car goes, so the trail has no gaps (up to 40 a frame).
@@ -518,6 +603,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
       }
     }
     if (ev.smashed > 0) shake = Math.max(shake, 0.15);
+    if (physics.onGrass && physics.speed > 10) shake = Math.max(shake, 0.04); // bumpy
     if (ev.cones > 0) audio.crash(5);
     if (ev.landed > 6) audio.crash(ev.landed * 0.6);
   }
@@ -558,7 +644,7 @@ function useWeapons(dt: number, firing: boolean): void {
 }
 
 function updateTimeTrial(dt: number): void {
-  const event = trial.update(dt, physics.x, physics.y, physics.z);
+  const event = trial.update(dt, physics);
   if (event === 'go') {
     toast('GO!', 900);
     audio.chime();
@@ -628,6 +714,8 @@ function frame(now: number): void {
   }
 
   syncCar(dt);
+  updateGhost();
+  world.setStartLights(trial.startLights);
   if (driving) carEffects(dt, controls.throttle);
   effects.update(dt);
   world.update(dt, physics.x, physics.z, carRadius());
@@ -640,9 +728,16 @@ function frame(now: number): void {
 
   // HUD
   const slip = physics.airborne ? 0 : Math.min(1, Math.abs(physics.lateralSpeed) / 7);
-  audio.update(physics.speedFraction, driving ? controls.throttle : 0, driving ? slip : 0, driving);
+  audio.update(physics.revs, physics.speedFraction, driving ? controls.throttle : 0, driving ? slip : 0, driving, driving && physics.limiter);
   speedEl.textContent = String(Math.round(speedInUnits(physics.speed)));
-  gearEl.textContent = physics.forwardSpeed < -0.5 ? 'R' : String(audio.gear);
+  gearEl.textContent = physics.forwardSpeed < -0.5 ? 'R' : String(physics.gear);
+  gearRefused = Math.max(0, gearRefused - realDt);
+  gearEl.classList.toggle('refused', gearRefused > 0);
+  // The rev counter. With a manual gearbox, the red shift light says change up now.
+  const revs = Math.min(1, Math.max(0, physics.revs));
+  revsBar.style.width = `${Math.round(revs * 100)}%`;
+  revsBar.classList.toggle('high', revs > 0.75);
+  revsBar.classList.toggle('shift', physics.manual && revs > 0.92 && physics.gear < GEAR_TOPS.length);
   driftEl.textContent = driftScore >= 10 ? `DRIFT ${Math.round(driftScore).toLocaleString()}` : '';
   nitroBar.style.width = `${Math.round(physics.nitro * 100)}%`;
   nitroBar.classList.toggle('active', physics.boosting);

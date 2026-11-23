@@ -1,14 +1,33 @@
 # Car Game
 
-A 3D driving game. Build your car in the garage, then drive it around a small city
-with a car park and a stunt park full of ramps and cones. Drift with the handbrake
-for points, and switch between day and night.
+A 3D driving game. Build your car in the garage, then pick a map and drive. Drift
+with the handbrake for points, and switch between day and night.
+
+There are three maps, chosen on the garage's Maps tab:
+
+- **City:** streets, parks, a car park and a stunt park full of ramps and cones.
+- **Grand Prix circuit:** a twisty 2 km race track with fast sweepers, a
+  hairpin, esses and a chicane. It has red and white kerbs, barriers,
+  grandstands full of fans, floodlights, and a paddock with pit garages and
+  team cars. Grass off the track slows you down.
+- **Speedway:** a 3 km oval with turns banked at 26°. Cars lean into the
+  banking, and a 500 mph build can stay flat out on the high line. Drive off
+  the apron into the infield to find the paddock and a row of stunt ramps.
+
+Press T for a timed lap on any map. A start gantry over the line counts you
+down with five red lights. Each map keeps its own best lap, and once you have
+one, a see-through ghost of that lap races you.
 
 Your car has a roof machine gun, a rocket pod and a shockwave blast. Buildings,
-parked cars, street lamps and trees can all be destroyed: buildings collapse into
-rubble you can drive over, and everything is rebuilt once you drive away. There is
-also a nitro boost, slow motion, a minimap, a time trial lap through the city and a
-photo mode for saving screenshots.
+parked cars, street lamps and trees can all be destroyed, on every map: buildings
+collapse into rubble you can drive over, and everything is rebuilt once you drive
+away. There is also a nitro boost, slow motion, a minimap and a photo mode for
+saving screenshots.
+
+The gearbox is automatic, or pick Manual in Settings and change gear yourself with
+X and Z (D-pad right and left on a gamepad). A rev counter turns into a flashing
+red shift light at the redline; hold a gear too long and you hit the rev limiter,
+change up too early and the engine bogs down.
 
 The garage lets you build almost anything:
 

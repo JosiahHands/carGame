@@ -1,7 +1,9 @@
-// Arcade car physics: acceleration, braking, steering, grip, handbrake drifts,
-// jumps off ramps and bumping into things. Hand-written, no physics engine.
+// Arcade car physics: acceleration, a gearbox (automatic or manual), braking,
+// steering, grip, handbrake drifts, jumps off ramps and bumping into things.
+// Hand-written, no physics engine.
 import * as THREE from 'three';
 import type { CarConfig } from './carConfig';
+import { WALL_THICKNESS } from './raceTrack';
 import type { Target, World } from './world';
 
 export interface CarInput {
@@ -34,6 +36,12 @@ const MPH = 0.44704; // metres per second
 const CORNERING_LIMIT = 250;
 /** A car this tall (metres) or taller flattens anything up to twice its height. */
 const GIANT_HEIGHT = 3;
+/**
+ * The five forward gears: where each one runs out of revs, as a share of the
+ * car's top speed. Every upshift lands at least halfway up the next gear's
+ * revs, where the engine still pulls hard.
+ */
+export const GEAR_TOPS = [0.18, 0.34, 0.52, 0.72, 1.0];
 
 export class CarPhysics {
   x = 0;
@@ -50,12 +58,24 @@ export class CarPhysics {
   bodyPitch = 0;
   /** Ground slope pitch (ramps / flight), radians, nose-up negative. */
   pitch = 0;
+  /** Ground slope sideways (banked turns), radians; positive lifts the left side. */
+  groundRoll = 0;
+  /** On grass, off the race track, which slows the car down. */
+  onGrass = false;
   forwardSpeed = 0;
   lateralSpeed = 0;
   braking = false;
   /** Nitro left in the bottle, 0..1. */
   nitro = 1;
   boosting = false;
+  /** Manual gearbox: the player changes gear with shiftUp() and shiftDown(). Otherwise it changes itself. */
+  manual = false;
+  /** Forward gear, 1 to 5. (Reversing works in any gear: hold the brake.) */
+  gear = 1;
+  /** Engine revs: 0 at a standstill, 1 at the redline of the current gear. */
+  revs = 0;
+  /** On the throttle at the redline, so the rev limiter is cutting the power (manual only). */
+  limiter = false;
 
   // Set from the car's tuning by configure().
   private accel = 9; // m/s² at full throttle from a standstill
@@ -112,10 +132,30 @@ export class CarPhysics {
     this.y = 0;
     this.heading = heading;
     this.vx = this.vz = this.vy = 0;
-    this.steerAngle = this.roll = this.bodyPitch = this.pitch = 0;
+    this.steerAngle = this.roll = this.bodyPitch = this.pitch = this.groundRoll = 0;
     this.airborne = false;
     this.nitro = 1;
     this.boosting = false;
+    this.gear = 1;
+    this.revs = 0;
+    this.limiter = false;
+  }
+
+  /** Changes up a gear (manual gearbox). Returns false in top gear. */
+  shiftUp(): boolean {
+    if (this.gear >= GEAR_TOPS.length) return false;
+    this.gear++;
+    return true;
+  }
+
+  /**
+   * Changes down a gear (manual gearbox). Returns false in first gear, or when
+   * going too fast for the lower gear: that would send the engine past the redline.
+   */
+  shiftDown(): boolean {
+    if (this.gear <= 1 || this.forwardSpeed > GEAR_TOPS[this.gear - 2] * this.topSpeed * 1.01) return false;
+    this.gear--;
+    return true;
   }
 
   /** Shoves the car, for example away from an explosion. */
@@ -133,7 +173,7 @@ export class CarPhysics {
     return Math.hypot(this.vx, this.vz);
   }
 
-  /** 0..1, how close to top speed. Used for the engine sound. */
+  /** 0..1, how close to top speed. */
   get speedFraction(): number {
     return Math.min(1, Math.abs(this.forwardSpeed) / this.topSpeed);
   }
@@ -150,6 +190,26 @@ export class CarPhysics {
     const steerTarget = input.steer * this.maxSteer / (1 + Math.abs(vf) / 28);
     this.steerAngle += (steerTarget - this.steerAngle) * Math.min(1, dt * 10);
 
+    // The gearbox. An automatic picks the gear for the speed, changing up at
+    // each gear's redline. Revs grow with speed through each gear.
+    if (!this.manual) {
+      this.gear = 1;
+      while (this.gear < GEAR_TOPS.length && Math.abs(vf) > GEAR_TOPS[this.gear - 1] * this.topSpeed) this.gear++;
+    }
+    this.revs = vf < 0 ? -vf / MAX_REVERSE : vf / (GEAR_TOPS[this.gear - 1] * this.topSpeed);
+    // How hard the engine pulls in this gear. An automatic always uses the
+    // right gear, so it always pulls fully. In a manual, a high gear below
+    // about half revs bogs down (first gear never does: the clutch slips), and
+    // at the redline the rev limiter cuts the power until you change up.
+    // Changing up at the redline lands at least 0.53 up the next gear's revs,
+    // so it is exactly as quick as the automatic; changing up early is slower.
+    let pull = 1;
+    if (this.manual) {
+      if (this.revs >= 1) pull = 0;
+      else if (this.gear > 1) pull = 0.12 + 0.88 * Math.min(1, this.revs / 0.53) ** 2;
+    }
+    this.limiter = this.manual && this.revs >= 1 && input.throttle > 0;
+
     // Throttle, brake and reverse.
     this.braking = false;
     if (input.throttle > 0) {
@@ -158,7 +218,7 @@ export class CarPhysics {
         this.braking = true;
       } else {
         const headroom = Math.max(0, 1 - (vf / this.topSpeed) ** 2);
-        vf += this.accel * input.throttle * headroom * dt * control;
+        vf += this.accel * input.throttle * headroom * pull * dt * control;
       }
     }
     // Nitro: extra push and a higher top speed while the bottle lasts.
@@ -190,6 +250,12 @@ export class CarPhysics {
       const air = input.throttle > 0 ? 0 : Math.abs(vf) * 0.012;
       const s = Math.sign(vf);
       vf -= s * Math.min(Math.abs(vf), (coast + air) * dt);
+    }
+    // Grass beside a race track drags the car back: a normal car manages about 75 mph on it.
+    this.onGrass = !this.airborne && world.offRoad(this.x, this.z);
+    if (this.onGrass) {
+      const s = Math.sign(vf);
+      vf -= s * Math.min(Math.abs(vf), (0.5 + Math.abs(vf) * 0.08) * dt);
     }
 
     // Downforce presses the car onto the road harder the faster it goes,
@@ -245,6 +311,11 @@ export class CarPhysics {
 
     // Vertical: follow the ground, fly off ramp lips, land with gravity.
     const ground = world.heightAt(this.x, this.z);
+    // A car on the ground stays on it where the road falls away gently, like
+    // coming down off a banked turn (less than 1 in 5). Steeper drops, like
+    // the lip of a ramp, still launch it into the air.
+    const drop = this.y - ground;
+    if (!this.airborne && this.vy <= 0 && drop > 0 && drop < this.speed * dt * 0.2 + 0.02) this.y = ground;
     if (this.y > ground + 0.02) {
       this.vy -= this.gravity * dt;
       this.y += this.vy * dt;
@@ -269,9 +340,16 @@ export class CarPhysics {
       const hRear = world.heightAt(this.x - fx * half, this.z - fz * half);
       const target = -Math.atan2(hFront - hRear, this.wheelBase);
       this.pitch += (target - this.pitch) * Math.min(1, dt * 20);
+      // Lean with the ground across the car too, like on a banked turn. The left is (fz, -fx).
+      const side = this.width / 2;
+      const hLeft = world.heightAt(this.x + fz * side, this.z - fx * side);
+      const hRight = world.heightAt(this.x - fz * side, this.z + fx * side);
+      const rollTarget = Math.atan2(hLeft - hRight, this.width);
+      this.groundRoll += (rollTarget - this.groundRoll) * Math.min(1, dt * 20);
     } else {
       const target = -Math.atan2(this.vy, Math.max(4, Math.abs(vf))) * 0.6;
       this.pitch += (target - this.pitch) * Math.min(1, dt * 2);
+      this.groundRoll -= this.groundRoll * Math.min(1, dt * 2);
     }
 
     events.cones = world.hitCones(this.x, this.z, this.y, this.width / 2 + 0.2, this.vx, this.vz);
@@ -294,7 +372,8 @@ export class CarPhysics {
   /**
    * Pushes the car out of walls, buildings and posts. Returns speed lost.
    * A giant car (see GIANT_HEIGHT) flattens buildings, parked cars, lamps and
-   * trees instead; only the city's edge walls still stop it.
+   * trees instead, and steps over race track barriers less than half its
+   * height; only the map's edge walls still stop it.
    */
   private collide(world: World, events: StepEvents): number {
     const fx = Math.sin(this.heading);
@@ -339,6 +418,21 @@ export class CarPhysics {
         }
         hit(this.resolve(cx, cz, px, pz, r), b.target);
       }
+      // Race track barriers and grandstands: straight walls at any angle. A
+      // giant car steps over any wall less than half its height.
+      const reach = r + WALL_THICKNESS / 2;
+      for (const w of world.walls) {
+        if (this.y > w.top || (giant && w.top - this.y < this.height / 2)) continue;
+        if (cx + reach < w.minX || cx - reach > w.maxX || cz + reach < w.minZ || cz - reach > w.maxZ) continue;
+        // The closest point on the wall's middle line.
+        const sx = w.bx - w.ax;
+        const sz = w.bz - w.az;
+        const t = Math.max(0, Math.min(1, ((cx - w.ax) * sx + (cz - w.az) * sz) / (sx * sx + sz * sz || 1)));
+        const px = w.ax + sx * t;
+        const pz = w.az + sz * t;
+        if ((cx - px) ** 2 + (cz - pz) ** 2 >= reach * reach) continue;
+        hit(this.resolve(cx, cz, px, pz, reach), undefined);
+      }
       for (const c of world.circles) {
         if (!c.solid) continue;
         // Flying over a lamp post or tree misses it.
@@ -356,6 +450,7 @@ export class CarPhysics {
           events.smashed++;
           continue;
         }
+        if (giant && c.height < this.height / 2) continue; // steps over posts that aren't targets, like the start gantry's
         const d = Math.hypot(dx, dz) || 0.001;
         // Closest point on the post's edge, so resolve() treats it like a box corner.
         hit(this.resolve(cx, cz, c.x + (dx / d) * c.r, c.z + (dz / d) * c.r, r), c.target);
