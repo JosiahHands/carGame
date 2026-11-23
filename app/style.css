@@ -191,6 +191,36 @@ body {
   width: 150px;
 }
 
+/* The rev counter: green, then yellow, then a flashing red shift light at the redline. */
+.revs .fill {
+  background: #39d98a;
+}
+
+.revs .fill.high {
+  background: #ffd23f;
+}
+
+.revs .fill.shift {
+  background: #ff3b3b;
+  box-shadow: 0 0 12px #ff3b3b;
+  animation: shift-light 0.12s steps(2) infinite;
+}
+
+@keyframes shift-light {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A manual gearbox shows the gear in the accent colour; it flashes red when a downshift is refused. */
+.gear.manual {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.gear.refused {
+  background: rgba(255, 59, 59, 0.7);
+}
+
 .nitro .fill.active {
   background: #9fe0ff;
   box-shadow: 0 0 12px #4fb3ff;
@@ -549,6 +579,22 @@ input.text {
 .build span {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* Maps: one card per row, the current map outlined. */
+.build-grid.maps {
+  grid-template-columns: 1fr;
+}
+
+.build.active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.build em {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  color: #ffd23f;
 }
 
 /* A text box with a button beside it, and a saved build's row. */

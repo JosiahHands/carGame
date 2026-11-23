@@ -18,7 +18,9 @@ export type Action =
   | 'weapon1'
   | 'weapon2'
   | 'weapon3'
-  | 'horn';
+  | 'horn'
+  | 'shiftUp'
+  | 'shiftDown';
 
 const ACTION_KEYS: Record<string, Action> = {
   KeyC: 'camera',
@@ -38,6 +40,8 @@ const ACTION_KEYS: Record<string, Action> = {
   Digit2: 'weapon2',
   Digit3: 'weapon3',
   KeyV: 'horn',
+  KeyX: 'shiftUp',
+  KeyZ: 'shiftDown',
 };
 
 const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyJ']);
@@ -95,8 +99,9 @@ export class Input {
     }
     if (pad) {
       // Standard layout: Y = camera, Start = garage, Back = reset, X = night,
-      // LB = next weapon, D-pad down = slow motion, right stick click = horn.
-      const map: [number, Action][] = [[3, 'camera'], [9, 'garage'], [8, 'reset'], [2, 'night'], [4, 'nextWeapon'], [13, 'slowmo'], [11, 'horn']];
+      // LB = next weapon, D-pad down = slow motion, right stick click = horn,
+      // D-pad right / left = gear up / down.
+      const map: [number, Action][] = [[3, 'camera'], [9, 'garage'], [8, 'reset'], [2, 'night'], [4, 'nextWeapon'], [13, 'slowmo'], [11, 'horn'], [15, 'shiftUp'], [14, 'shiftDown']];
       for (const [i, action] of map) {
         const pressed = !!pad.buttons[i]?.pressed;
         if (pressed && !this.padButtons[i]) this.pending.push(action);

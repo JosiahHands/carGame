@@ -1,8 +1,6 @@
 // Synthesised engine, tyre squeal, horn and crash sounds (Web Audio, no sound files).
 import type { EngineSound, Horn } from './carConfig';
 
-const GEAR_TOPS = [0.18, 0.34, 0.52, 0.72, 1.0]; // fraction of top speed where each gear ends
-
 /**
  * What each engine sounds like: the two oscillator waveforms, how high the
  * note is compared to the V8, and how loud it is.
@@ -27,7 +25,6 @@ export class EngineAudio {
   private noise!: AudioBuffer;
   private muted = false;
   private engine = ENGINES.v8;
-  gear = 1;
 
   constructor() {
     try {
@@ -105,16 +102,15 @@ export class EngineAudio {
     return this.muted;
   }
 
-  /** speedFraction 0..1, throttle 0..1, slip 0..1 (tyre squeal). */
-  update(speedFraction: number, throttle: number, slip: number, active: boolean): void {
-    // Pick a gear and work out the revs within it.
-    let gear = 0;
-    while (gear < GEAR_TOPS.length - 1 && speedFraction > GEAR_TOPS[gear]) gear++;
-    this.gear = gear + 1;
+  /**
+   * Call every frame. revs: 0 (idle) to 1 (redline), from the gearbox;
+   * speedFraction 0..1 of top speed; throttle 0..1; slip 0..1 (tyre squeal);
+   * limiter: bouncing off the rev limiter, which makes the note stutter.
+   */
+  update(revs: number, speedFraction: number, throttle: number, slip: number, active: boolean, limiter = false): void {
     if (!this.ctx) return;
-    const lo = gear === 0 ? 0 : GEAR_TOPS[gear - 1];
-    const inGear = (speedFraction - lo) / (GEAR_TOPS[gear] - lo);
-    const rpm = 900 + Math.max(0, Math.min(1, inGear)) * 6000 * (gear === 0 ? 0.9 : 0.75) + (gear > 0 ? 1500 : 0);
+    let rpm = 900 + Math.max(0, Math.min(1.05, revs)) * 6300;
+    if (limiter) rpm *= 0.94 + Math.random() * 0.08;
     const freq = (rpm / 30) * this.engine.pitch;
     const t = this.ctx.currentTime;
     this.oscA.frequency.setTargetAtTime(freq, t, 0.05);

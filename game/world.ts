@@ -1,16 +1,102 @@
-// The drivable world: a city grid with buildings, parks, a car park and a stunt park.
+// The drivable world. There are three maps:
+//  - City: a grid of streets with buildings, parks, a car park and a stunt park.
+//  - Grand Prix circuit: a twisty 2 km race track with kerbs and grandstands.
+//  - Speedway: a 3 km oval with steeply banked turns, for very fast cars.
+// The race tracks themselves (road, kerbs, banking, barriers) come from raceTrack.ts.
 //
-// Buildings, parked cars, street lamps and trees can be destroyed ("targets").
-// Buildings sink into a pile of rubble you can drive over; parked cars blow up
-// into burning wrecks; lamps and trees fall over. Everything comes back a while
-// after the player has driven away.
+// Buildings, parked cars, street lamps and trees can be destroyed ("targets")
+// on every map. Buildings sink into a pile of rubble you can drive over;
+// parked cars blow up into burning wrecks; lamps and trees fall over.
+// Everything comes back a while after the player has driven away.
 import * as THREE from 'three';
 import { buildCar, type CarRig } from './carModel';
 import { DEFAULT_CONFIG, randomConfig } from './carConfig';
 import type { Effects } from './effects';
+import { RaceTrack, drawTrack, makeWall, type TrackStyle, type Wall } from './raceTrack';
 import { concreteTexture, grassTexture, roadTexture, windowTexture } from './textures';
-import { gradientTexture } from '../libs/canvasTexture';
+import { canvasTexture, gradientTexture } from '../libs/canvasTexture';
 import { seededRandom } from '../libs/random';
+
+export type MapName = 'city' | 'circuit' | 'oval';
+
+/** The maps, for the garage's Maps tab. */
+export const MAPS: { value: MapName; label: string; about: string }[] = [
+  { value: 'city', label: 'City', about: 'Streets, parks, a car park and a stunt park, all destroyable.' },
+  { value: 'circuit', label: 'Grand Prix circuit', about: 'A twisty 2 km track: fast sweepers, a hairpin, esses and a chicane, with kerbs and grandstands.' },
+  { value: 'oval', label: 'Speedway', about: 'A 3 km oval with turns banked at 26°. Built for 500 mph.' },
+];
+
+/** A time trial lap: arches to drive through in order, and where the car waits for the start. */
+export interface Course {
+  /** The last arch is the finish line. `heading` and `bank` are worked out from the arches either side if missing. */
+  checkpoints: { x: number; y: number; z: number; heading?: number; bank?: number }[];
+  start: { x: number; z: number; heading: number };
+  /** Radius of each arch; driving within it counts. */
+  radius: number;
+}
+
+/** The city's lap, through glowing arches round the streets. The last arch is the finish line. */
+const CITY_COURSE: Course = {
+  checkpoints: [
+    { x: 0, z: 120 },
+    { x: 40, z: 160 },
+    { x: 120, z: 160 },
+    { x: 160, z: 100 },
+    { x: 160, z: 20 },
+    { x: 120, z: -80 },
+    { x: 40, z: -80 },
+    { x: 0, z: -40 },
+    { x: 0, z: 20 },
+  ].map((c) => ({ ...c, y: 0 })),
+  // 15 m before the finish line, in the right-hand lane.
+  start: { x: -3, z: 5, heading: 0 },
+  radius: 7.5,
+};
+
+/**
+ * The Grand Prix circuit, drawn as straights (metres) and corners (degrees to
+ * turn, positive left, and the corner's radius). It starts on the start line
+ * heading along the main straight.
+ */
+const CIRCUIT: ([number] | [number, number])[] = [
+  [238.42], // main straight, first half
+  [110, 40], // turn 1: a long left
+  [120],
+  [-50, 80], // fast right kink
+  [90],
+  [120, 50], // turn 3: tight left onto the top straight
+  [120],
+  [90, 40], // left, diving into the infield
+  [130],
+  [-180, 32], // the hairpin
+  [40],
+  [90, 35], // left, back out
+  [60],
+  [-40, 50], // esses
+  [40, 50],
+  [60],
+  [90, 45], // left onto the west straight
+  [145.14],
+  [30, 40], // chicane
+  [-30, 40],
+  [50],
+  [90, 35], // last corner, onto the main straight
+  [200], // main straight, second half, up to the start line
+];
+
+const CIRCUIT_STYLE: TrackStyle = {
+  width: 16, bank: [0, 0], kerbs: true, outsideRunoff: 9, insideRunoff: 9, apron: 0,
+  wallHeight: 1.1, fence: 0, wallColors: ['#d7263d', '#f2f2f2'],
+};
+
+/** The speedway: two 800 m straights joined by two banked half circles. */
+const OVAL_RADIUS = 220;
+const OVAL: ([number] | [number, number])[] = [[400], [180, OVAL_RADIUS], [800], [180, OVAL_RADIUS], [400]];
+
+const OVAL_STYLE: TrackStyle = {
+  width: 24, bank: [5, 26], kerbs: false, outsideRunoff: 0.6, insideRunoff: null, apron: 10,
+  wallHeight: 1.2, fence: 5, wallColors: ['#f4f4f4', '#2b6fd6'],
+};
 
 /** A solid box standing on the ground (building, parked car, wall). */
 export interface Box {
@@ -130,7 +216,7 @@ export interface Cone {
   knockedAt: number;
 }
 
-export const HALF_SIZE = 260; // the world spans -260..260 on x and z
+export const HALF_SIZE = 260; // the city spans -260..260 on x and z
 export const ROAD_LINES = [-240, -160, -80, 0, 80, 160, 240];
 export const ROAD_WIDTH = 12;
 const RISE = 0.8; // fraction of a ramp's length that slopes up
@@ -146,15 +232,27 @@ export class World {
   readonly group = new THREE.Group();
   readonly boxes: Box[] = [];
   readonly circles: Circle[] = [];
+  /** Straight walls at any angle: race track barriers and grandstands. */
+  readonly walls: Wall[] = [];
   readonly targets: Target[] = [];
   readonly blocks: Block[] = [];
   readonly ramps: Ramp[] = [];
-  readonly spawn = { x: -3, z: -20, heading: 0 };
+  map: MapName = 'city';
+  /** The map spans -half..half on x and z, with a wall all the way round. */
+  half = HALF_SIZE;
+  /** The race track, on the circuit and speedway maps. */
+  track: RaceTrack | null = null;
+  spawn = { x: -3, z: -20, heading: 0 };
+  course: Course = CITY_COURSE;
   /** Called whenever something is destroyed (for the score and sounds). */
   onDestroyed: (target: Target) => void = () => {};
   private buildings: BuildingTarget[] = [];
   private cones: Cone[] = [];
   private parkedCars: CarRig[] = [];
+  /** Paved areas off the track (the paddock), where the car isn't slowed by grass. */
+  private pavedAreas: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+  /** The five start lights over the start line. */
+  private startLights: THREE.MeshStandardMaterial[] = [];
   private buildingMats: THREE.MeshStandardMaterial[] = [];
   private lampHeadMat: THREE.MeshStandardMaterial;
   private sun: THREE.DirectionalLight;
@@ -169,6 +267,7 @@ export class World {
   constructor(
     private scene: THREE.Scene,
     private effects: Effects,
+    map: MapName = 'city',
   ) {
     scene.add(this.group);
 
@@ -188,21 +287,60 @@ export class World {
     scene.add(this.hemi, this.sun, this.sun.target);
 
     this.lampHeadMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd9a0, emissiveIntensity: 0 });
-
-    this.buildGround();
-    this.buildRoads();
-    this.buildBlocks();
-    this.buildEdges();
-    this.setNight(false);
+    this.load(map);
   }
 
   // ---------- building the world ----------
 
+  /** Throws away the current map and builds another one. */
+  load(map: MapName): void {
+    this.clear();
+    this.map = map;
+    this.rand = seededRandom(42); // the same map every time
+    if (map === 'circuit') this.buildCircuit();
+    else if (map === 'oval') this.buildOval();
+    else this.buildCity();
+    this.buildEdges();
+    this.setNight(this.night);
+  }
+
+  /** Removes everything on the map and frees its memory. */
+  private clear(): void {
+    for (const car of this.parkedCars) car.dispose();
+    // The building and lamp materials are shared by every map, so they're kept.
+    const keep = new Set<THREE.Material>([...this.buildingMats, this.lampHeadMat]);
+    this.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      // Instanced meshes (lamps, trees, fans, fence posts) also hold a buffer of positions and colours.
+      if (o instanceof THREE.InstancedMesh) o.dispose();
+      o.geometry.dispose();
+      for (const m of [o.material].flat() as THREE.Material[]) {
+        if (keep.has(m)) continue;
+        (m as THREE.MeshStandardMaterial).map?.dispose();
+        m.dispose();
+      }
+    });
+    this.group.clear();
+    const lists: unknown[][] = [this.boxes, this.circles, this.walls, this.targets, this.blocks, this.ramps, this.buildings, this.cones, this.parkedCars, this.pavedAreas, this.startLights];
+    for (const list of lists) list.length = 0;
+    this.track = null;
+  }
+
+  private buildCity(): void {
+    this.half = HALF_SIZE;
+    this.spawn = { x: -3, z: -20, heading: 0 };
+    this.course = CITY_COURSE;
+    this.buildGround();
+    this.buildRoads();
+    this.buildBlocks();
+  }
+
   private buildGround(): void {
+    const size = this.half * 2 + 400;
     const tex = grassTexture();
-    tex.repeat.set(140, 140);
+    tex.repeat.set(size / 6.5, size / 6.5);
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(HALF_SIZE * 2 + 400, HALF_SIZE * 2 + 400),
+      new THREE.PlaneGeometry(size, size),
       new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }),
     );
     ground.rotation.x = -Math.PI / 2;
@@ -246,28 +384,33 @@ export class World {
       }
     }
     // Street lamps along the roads.
-    const poles: THREE.Matrix4[] = [];
+    const poles: THREE.Vector3[] = [];
     // Lamps sit 20 m either side of each block centre, well clear of the crossings.
     const along = ROAD_LINES.slice(0, -1).flatMap((c) => [c + 20, c + 60]);
     for (const c of ROAD_LINES) {
       for (const p of along) {
-        poles.push(new THREE.Matrix4().makeTranslation(c + ROAD_WIDTH / 2 + 1, 0, p));
-        poles.push(new THREE.Matrix4().makeTranslation(p, 0, c - ROAD_WIDTH / 2 - 1));
+        poles.push(new THREE.Vector3(c + ROAD_WIDTH / 2 + 1, 0, p));
+        poles.push(new THREE.Vector3(p, 0, c - ROAD_WIDTH / 2 - 1));
       }
     }
+    this.addLamps(poles);
+  }
+
+  /** Lamp posts at each point, `size` times as tall as a street lamp (7 m). */
+  private addLamps(points: THREE.Vector3[], size = 1): void {
     const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 7, 8).translate(0, 3.5, 0);
     const headGeo = new THREE.BoxGeometry(0.7, 0.25, 0.7).translate(0, 7.1, 0);
-    const poleMesh = new THREE.InstancedMesh(poleGeo, new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.6, roughness: 0.4 }), poles.length);
-    const headMesh = new THREE.InstancedMesh(headGeo, this.lampHeadMat, poles.length);
-    poles.forEach((m, i) => {
+    const poleMesh = new THREE.InstancedMesh(poleGeo, new THREE.MeshStandardMaterial({ color: 0x3a3d42, metalness: 0.6, roughness: 0.4 }), points.length);
+    const headMesh = new THREE.InstancedMesh(headGeo, this.lampHeadMat, points.length);
+    points.forEach((p, i) => {
+      const m = new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(size, size, size));
       poleMesh.setMatrixAt(i, m);
       headMesh.setMatrixAt(i, m);
-      const p = new THREE.Vector3().setFromMatrixPosition(m);
       // Each lamp can be shot or knocked down (3 bullets).
-      const circle: Circle = { x: p.x, z: p.z, r: 0.25, height: 7.3, hitRadius: 0.3, solid: true };
+      const circle: Circle = { x: p.x, z: p.z, r: 0.25 * size, height: 7.3 * size, hitRadius: 0.3 * size, solid: true };
       const lamp: PropTarget = {
-        kind: 'lamp', x: p.x, z: p.z, hp: 25, maxHp: 25, alive: true, destroyedAt: 0, value: 1500,
-        circle, meshes: [poleMesh, headMesh], index: i, matrix: m.clone(), size: 1,
+        kind: 'lamp', x: p.x, z: p.z, hp: 25, maxHp: 25, alive: true, destroyedAt: 0, value: Math.round(1500 * size),
+        circle, meshes: [poleMesh, headMesh], index: i, matrix: m, size,
       };
       circle.target = lamp;
       this.circles.push(circle);
@@ -439,26 +582,28 @@ export class World {
         line.rotation.x = -Math.PI / 2;
         line.position.set(x - 3, 0.025, z);
         this.group.add(line);
-        if (this.rand() < 0.55) {
-          const car = buildCar(randomConfig(DEFAULT_CONFIG), false, false);
-          car.root.position.set(x, 0, z);
-          car.root.rotation.y = row > 0 ? Math.PI : 0;
-          this.group.add(car.root);
-          this.parkedCars.push(car);
-          const hw = car.width / 2 + 0.05;
-          const hl = car.length / 2;
-          const box: Box = { minX: x - hw, maxX: x + hw, minZ: z - hl, maxZ: z + hl, height: 1.4, solid: true };
-          const parked: CarTarget = {
-            kind: 'car', x, z, hp: 70, maxHp: 70, alive: true, destroyedAt: 0, value: 12000,
-            box, rig: car, homeX: x, homeZ: z, homeHeading: car.root.rotation.y,
-            velocity: new THREE.Vector3(), spin: new THREE.Vector3(), flying: false, burnUntil: 0,
-          };
-          box.target = parked;
-          this.boxes.push(box);
-          this.targets.push(parked);
-        }
+        if (this.rand() < 0.55) this.addParkedCar(x, z, row > 0 ? Math.PI : 0);
       }
     }
+  }
+
+  /** A random parked car that can be rammed or blown up. */
+  private addParkedCar(x: number, z: number, heading: number): void {
+    const car = buildCar(randomConfig(DEFAULT_CONFIG), false, false);
+    car.root.position.set(x, 0, z);
+    car.root.rotation.y = heading;
+    this.group.add(car.root);
+    this.parkedCars.push(car);
+    const box: Box = { minX: x, maxX: x, minZ: z, maxZ: z, height: 1.4, solid: true };
+    const parked: CarTarget = {
+      kind: 'car', x, z, hp: 70, maxHp: 70, alive: true, destroyedAt: 0, value: 12000,
+      box, rig: car, homeX: x, homeZ: z, homeHeading: heading,
+      velocity: new THREE.Vector3(), spin: new THREE.Vector3(), flying: false, burnUntil: 0,
+    };
+    this.fitCarBox(parked);
+    box.target = parked;
+    this.boxes.push(box);
+    this.targets.push(parked);
   }
 
   private buildStuntPark(bx: number, bz: number): void {
@@ -470,29 +615,7 @@ export class World {
       { x: bx - 4, z: bz + 18, angle: Math.PI, width: 5, length: 8, height: 1.2 },
       { x: bx + 20, z: bz + 22, angle: -Math.PI / 2, width: 6, length: 12, height: 2.0 },
     ];
-    for (const ramp of ramps) {
-      const L = ramp.length;
-      const shape = new THREE.Shape();
-      shape.moveTo(-L / 2, 0);
-      shape.lineTo(-L / 2 + L * RISE, ramp.height);
-      shape.lineTo(L / 2, 0);
-      shape.closePath();
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: ramp.width, bevelEnabled: false });
-      geo.translate(0, 0, -ramp.width / 2);
-      geo.rotateY(-Math.PI / 2); // profile now runs along +z
-      const mesh = new THREE.Mesh(geo, rampMat);
-      mesh.position.set(ramp.x, 0, ramp.z);
-      mesh.rotation.y = ramp.angle;
-      mesh.castShadow = mesh.receiveShadow = true;
-      this.group.add(mesh);
-      // Hazard stripes along the lip.
-      for (const side of [-1, 1]) {
-        const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.3), stripeMat);
-        s.position.set(side * (ramp.width / 2 - 0.3), ramp.height + 0.02, -L / 2 + L * RISE);
-        mesh.add(s);
-      }
-      this.ramps.push(ramp);
-    }
+    for (const ramp of ramps) this.addRamp(ramp, rampMat, stripeMat);
 
     // Cone slalom and a cone box to smash through.
     const coneGeo = new THREE.ConeGeometry(0.28, CONE_HEIGHT, 14).translate(0, CONE_HEIGHT / 2, 0);
@@ -509,15 +632,321 @@ export class World {
     for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) place(bx + 2 + i * 1.6, bz - 26 + j * 1.6);
   }
 
+  // ---------- the race tracks ----------
+
+  /** Puts a race track on the map, centred, and sets the start, the lap and the map's size. */
+  private addTrack(steps: ([number] | [number, number])[], style: TrackStyle): RaceTrack {
+    const path = drawTrack(steps);
+    // Centre the track on the middle of the map.
+    const xs = path.map((p) => p.x);
+    const zs = path.map((p) => p.z);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const track = new RaceTrack(path.map((p) => ({ x: p.x - cx, z: p.z - cz })), style);
+    this.track = track;
+    const reach = Math.max(...track.points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))));
+    this.half = Math.ceil(reach + 110); // room round the outside for grandstands and trees
+    this.buildGround();
+    this.group.add(track.buildMeshes());
+    this.walls.push(...track.walls());
+    this.addGantry(track);
+
+    // The lap: arches spaced round the track, the last one on the start line.
+    const count = Math.max(6, Math.round(track.length / 320));
+    const checkpoints = [];
+    for (let k = 1; k <= count; k++) {
+      const p = track.pose((track.length * k) / count);
+      checkpoints.push({ x: p.x, y: p.y, z: p.z, heading: p.heading, bank: p.bank });
+    }
+    const start = track.pose(-20); // on the grid, 20 m behind the line
+    this.course = { checkpoints, start: { x: start.x, z: start.z, heading: start.heading }, radius: style.width / 2 + 1.5 };
+    this.spawn = { ...this.course.start };
+    return track;
+  }
+
+  private buildCircuit(): void {
+    const track = this.addTrack(CIRCUIT, CIRCUIT_STYLE);
+    const start = track.pose(0); // the main straight runs along +x through here
+    const wall = track.leftWall!; // both barriers are this far from the middle of the road
+
+    // Grandstands along the outside of the main straight, either side of the
+    // start gantry, and beside the top straight and the west straight.
+    this.addTrackGrandstand(track, -105, 160, 14, '#d7263d');
+    this.addTrackGrandstand(track, 115, 170, 14, '#2b6fd6');
+    this.addTrackGrandstand(track, 760, 100, 10, '#f2c94c');
+    this.addTrackGrandstand(track, 1541, 110, 10, '#39a845');
+
+    // The paddock inside the main straight: pit building, control tower,
+    // team buildings and the teams' cars, on a concrete apron.
+    const pz = start.z - wall - 8; // just inside the barrier
+    this.addPaddock(start.x - 175, start.x + 190, pz - 110, pz);
+    this.addBuilding(start.x + 10, pz - 9, 190, 14, 8); // pit garages
+    this.addBuilding(start.x - 120, pz - 12, 16, 18, 30); // control tower
+    for (let i = 0; i < 5; i++) this.addBuilding(start.x - 100 + i * 52, pz - 62, 30, 18, 10 + this.rand() * 8); // team hospitality
+    for (let i = 0; i < 22; i++) this.addParkedCar(start.x - 150 + i * 14, pz - 34, Math.PI / 2);
+    for (let i = 0; i < 22; i++) if (this.rand() < 0.7) this.addParkedCar(start.x - 150 + i * 14, pz - 90, -Math.PI / 2);
+
+    // Floodlights round the outside of the track.
+    const lights: THREE.Vector3[] = [];
+    for (let along = 60; along < track.length; along += 140) {
+      const p = track.pose(along, -(wall + 5));
+      if (this.isClear(p.x, p.z, 3)) lights.push(new THREE.Vector3(p.x, 0, p.z));
+    }
+    this.addLamps(lights, 2.2);
+    this.scatterTrees(420);
+  }
+
+  private buildOval(): void {
+    const track = this.addTrack(OVAL, OVAL_STYLE);
+    const start = track.pose(0); // the front straight runs along +x through here
+    const outside = track.rightWall! + 0.6; // back of the outside wall
+
+    // A huge grandstand along the front straight, in three sections.
+    for (const [along, color] of [[-215, '#2b6fd6'], [0, '#d7263d'], [215, '#2b6fd6']] as const) this.addTrackGrandstand(track, along, 200, 22, color);
+
+    // The infield: no wall on the inside, so drive straight off the apron
+    // into the paddock, the stunt ramps and the trees.
+    const infield = start.z - OVAL_RADIUS; // middle of the oval
+    const pz = start.z - OVAL_STYLE.width / 2 - OVAL_STYLE.apron - 14;
+    this.addPaddock(start.x - 260, start.x + 260, pz - 90, pz);
+    this.addBuilding(start.x, pz - 9, 300, 14, 9); // pit garages
+    this.addBuilding(start.x - 200, pz - 14, 18, 18, 34); // control tower
+    for (let i = 0; i < 30; i++) this.addParkedCar(start.x - 230 + i * 16, pz - 34, Math.PI / 2);
+    for (let i = 0; i < 6; i++) this.addBuilding(start.x - 200 + i * 80, pz - 70, 40, 18, 8 + this.rand() * 10);
+
+    // Stunt ramps in the middle of the infield, lined up for big jumps.
+    const rampMat = new THREE.MeshStandardMaterial({ color: 0xe0a03a, roughness: 0.7 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7 });
+    for (const [dx, dz, angle, height] of [
+      [-250, 10, Math.PI / 2, 3],
+      [0, 10, Math.PI / 2, 5],
+      [250, 10, Math.PI / 2, 3],
+      [-120, 70, -Math.PI / 2, 4],
+      [120, 70, -Math.PI / 2, 4],
+    ]) {
+      this.addRamp({ x: start.x + dx, z: infield + dz, angle, width: 10, length: height * 6, height }, rampMat, stripeMat);
+    }
+
+    // Tall floodlights behind the outside wall.
+    const lights: THREE.Vector3[] = [];
+    for (let along = 0; along < track.length; along += 150) {
+      const p = track.pose(along, -(outside + 6));
+      if (this.isClear(p.x, p.z, 3)) lights.push(new THREE.Vector3(p.x, 0, p.z));
+    }
+    this.addLamps(lights, 3);
+    this.scatterTrees(380);
+  }
+
+  /** A concrete area the car can drive on at full speed (grass slows it down). */
+  private addPaddock(minX: number, maxX: number, minZ: number, maxZ: number): void {
+    const tex = concreteTexture();
+    tex.repeat.set((maxX - minX) / 4, (maxZ - minZ) / 4);
+    const slab = new THREE.Mesh(new THREE.PlaneGeometry(maxX - minX, maxZ - minZ), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+    slab.rotation.x = -Math.PI / 2;
+    slab.position.set((minX + maxX) / 2, 0.015, (minZ + maxZ) / 2);
+    slab.receiveShadow = true;
+    this.group.add(slab);
+    this.pavedAreas.push({ minX, maxX, minZ, maxZ });
+  }
+
+  /** Whether a spot is clear of the track, its barriers, buildings and grandstands, by `margin` metres. */
+  private isClear(x: number, z: number, margin: number): boolean {
+    if (Math.abs(x) > this.half - margin || Math.abs(z) > this.half - margin) return false;
+    if (this.track) {
+      const wall = Math.max(this.track.leftWall ?? 0, this.track.rightWall ?? 0, this.track.style.width / 2 + this.track.style.apron);
+      if (this.track.distanceFrom(x, z) < wall + margin) return false;
+    }
+    if (this.boxes.some((b) => x > b.minX - margin && x < b.maxX + margin && z > b.minZ - margin && z < b.maxZ + margin)) return false;
+    if (this.pavedAreas.some((a) => x > a.minX - margin && x < a.maxX + margin && z > a.minZ - margin && z < a.maxZ + margin)) return false;
+    if (this.ramps.some((r) => Math.hypot(x - r.x, z - r.z) < r.length / 2 + r.width + margin)) return false;
+    return !this.walls.some((w) => {
+      const sx = w.bx - w.ax;
+      const sz = w.bz - w.az;
+      const t = Math.max(0, Math.min(1, ((x - w.ax) * sx + (z - w.az) * sz) / (sx * sx + sz * sz || 1)));
+      return Math.hypot(x - (w.ax + sx * t), z - (w.az + sz * t)) < margin;
+    });
+  }
+
+  /** Trees dotted around the map wherever there's room. */
+  private scatterTrees(count: number): void {
+    const trees: THREE.Vector3[] = [];
+    for (let tries = 0; trees.length < count && tries < count * 20; tries++) {
+      const x = (this.rand() * 2 - 1) * (this.half - 4);
+      const z = (this.rand() * 2 - 1) * (this.half - 4);
+      if (this.isClear(x, z, 4)) trees.push(new THREE.Vector3(x, 0, z));
+    }
+    this.addTrees(trees);
+  }
+
+  /** A grandstand beside a straight bit of track, `along` metres from the start line, on the outside of the track, facing it. */
+  private addTrackGrandstand(track: RaceTrack, along: number, length: number, rows: number, roofColor: string): void {
+    const out = -track.inside; // which side is the outside: +1 left, -1 right
+    const wall = (out > 0 ? track.leftWall : track.rightWall) ?? track.style.width / 2;
+    const p = track.pose(along, out * (wall + 3.5));
+    // Away from the track is `out` times the road's left, which is (cos h, -sin h).
+    const facing = Math.atan2(out * Math.cos(p.heading), -out * Math.sin(p.heading));
+    this.addGrandstand(p.x, p.z, facing, length, rows, roofColor);
+  }
+
+  /**
+   * A grandstand full of fans. (x, z) is the middle of its front edge, and
+   * `facing` is the direction from the front to the back (0 = +z), so the
+   * fans look the other way, at the track.
+   */
+  private addGrandstand(x: number, z: number, facing: number, length: number, rows: number, roofColor: string): void {
+    const stand = new THREE.Group();
+    stand.position.set(x, 0, z);
+    stand.rotation.y = facing;
+    const step = 1; // depth of each row
+    const rise = 0.55; // height of each row
+    const depth = rows * step;
+    const top = rows * rise;
+
+    // The stepped seating, drawn side-on and stretched along its length.
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    for (let r = 0; r < rows; r++) {
+      shape.lineTo(r * step, (r + 1) * rise);
+      shape.lineTo((r + 1) * step, (r + 1) * rise);
+    }
+    shape.lineTo(depth, 0);
+    shape.closePath();
+    const seatsGeo = new THREE.ExtrudeGeometry(shape, { depth: length, bevelEnabled: false }).translate(0, 0, -length / 2).rotateY(-Math.PI / 2);
+    const concrete = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.9 });
+    const seats = new THREE.Mesh(seatsGeo, concrete);
+    seats.castShadow = seats.receiveShadow = true;
+    stand.add(seats);
+
+    // Back wall and a roof on posts over the top rows.
+    const back = new THREE.Mesh(new THREE.BoxGeometry(length, top + 5, 0.4), concrete);
+    back.position.set(0, (top + 5) / 2, depth + 0.2);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(length + 2, 0.4, depth * 0.75), new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.6 }));
+    roof.position.set(0, top + 5, depth - (depth * 0.75) / 2 + 0.4);
+    roof.castShadow = true;
+    stand.add(back, roof);
+    const postGeo = new THREE.BoxGeometry(0.3, 5, 0.3);
+    for (let px = -length / 2; px <= length / 2; px += 20) {
+      const post = new THREE.Mesh(postGeo, concrete);
+      post.position.set(px, top + 2.5, depth * 0.35);
+      stand.add(post);
+    }
+
+    // The crowd: a body and a head for each fan, in bright shirts, with gaps.
+    const fans: THREE.Matrix4[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let px = -length / 2 + 0.5; px < length / 2; px += 0.75) {
+        if (this.rand() < 0.15) continue;
+        fans.push(new THREE.Matrix4().makeTranslation(px + (this.rand() - 0.5) * 0.2, (r + 1) * rise, r * step + 0.45));
+      }
+    }
+    const bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(0.46, 0.7, 0.3).translate(0, 0.35, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), fans.length);
+    const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 6, 4).translate(0, 0.86, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 }), fans.length);
+    const shirt = new THREE.Color();
+    const skin = new THREE.Color();
+    fans.forEach((m, i) => {
+      bodies.setMatrixAt(i, m);
+      heads.setMatrixAt(i, m);
+      bodies.setColorAt(i, shirt.setHSL(this.rand(), 0.75, 0.35 + this.rand() * 0.3));
+      heads.setColorAt(i, skin.setHSL(0.07, 0.45, 0.25 + this.rand() * 0.5));
+    });
+    stand.add(bodies, heads);
+    this.group.add(stand);
+
+    // Solid all round, so a car that jumps the barrier crashes into it.
+    const corner = (lx: number, lz: number) => new THREE.Vector3(lx, 0, lz).applyAxisAngle(new THREE.Vector3(0, 1, 0), facing).add(stand.position);
+    const corners = [corner(-length / 2, 0), corner(length / 2, 0), corner(length / 2, depth + 0.4), corner(-length / 2, depth + 0.4)];
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i];
+      const b = corners[(i + 1) % 4];
+      this.walls.push(makeWall(a.x, a.z, b.x, b.z, top + 5));
+    }
+  }
+
+  /** The gantry over the start line, with its banner and the five start lights. */
+  private addGantry(track: RaceTrack): void {
+    const p = track.pose(0);
+    const gantry = new THREE.Group();
+    gantry.position.set(p.x, 0, p.z);
+    gantry.rotation.y = p.heading; // local +z is the way the cars go, +x is their left
+    const s = track.style;
+    const left = (track.leftWall ?? s.width / 2 + s.apron) + 1.5;
+    const right = -((track.rightWall ?? s.width / 2 + s.apron) + 1.5);
+    const metal = new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.6, roughness: 0.4 });
+    const height = 9 + Math.max(...[left, right].map((o) => track.pose(0, o).y));
+    for (const x of [left, right]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(1, height, 1), metal);
+      pillar.position.set(x, height / 2, 0);
+      pillar.castShadow = true;
+      gantry.add(pillar);
+      // The pillars are solid.
+      const at = track.pose(0, x);
+      this.circles.push({ x: at.x, z: at.z, r: 0.7, height, hitRadius: 0.7, solid: true });
+    }
+    const span = left - right;
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(span + 1, 2.4, 1.2), metal);
+    beam.position.set((left + right) / 2, height - 1.2, 0);
+    beam.castShadow = true;
+    gantry.add(beam);
+    // The banner faces the cars coming towards the line, and the back says it too.
+    const banner = new THREE.MeshStandardMaterial({ map: bannerTexture(this.map === 'oval' ? 'SPEEDWAY' : 'GRAND PRIX'), roughness: 0.6 });
+    for (const side of [-1, 1]) {
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(span, 40), 2), banner);
+      sign.position.set((left + right) / 2, height - 1.2, side * 0.61);
+      sign.rotation.y = side < 0 ? Math.PI : 0;
+      gantry.add(sign);
+    }
+    // Five start lights hanging under the beam, facing the grid.
+    for (let i = 0; i < 5; i++) {
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.6, 0.5), metal);
+      housing.position.set((i - 2) * 1.4, height - 3.3, -0.3);
+      const light = new THREE.MeshStandardMaterial({ color: 0x300000, emissive: 0xff0000, emissiveIntensity: 0 });
+      this.startLights.push(light);
+      for (const y of [0.35, -0.35]) {
+        const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), light);
+        bulb.position.set(0, y, -0.26);
+        bulb.rotation.y = Math.PI;
+        housing.add(bulb);
+      }
+      gantry.add(housing);
+    }
+    this.group.add(gantry);
+  }
+
+  /** A jump ramp: a wedge you drive up, with a steep drop off the back. */
+  private addRamp(ramp: Ramp, rampMat: THREE.Material, stripeMat: THREE.Material): void {
+    const L = ramp.length;
+    const shape = new THREE.Shape();
+    shape.moveTo(-L / 2, 0);
+    shape.lineTo(-L / 2 + L * RISE, ramp.height);
+    shape.lineTo(L / 2, 0);
+    shape.closePath();
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: ramp.width, bevelEnabled: false });
+    geo.translate(0, 0, -ramp.width / 2);
+    geo.rotateY(-Math.PI / 2); // profile now runs along +z
+    const mesh = new THREE.Mesh(geo, rampMat);
+    mesh.position.set(ramp.x, 0, ramp.z);
+    mesh.rotation.y = ramp.angle;
+    mesh.castShadow = mesh.receiveShadow = true;
+    this.group.add(mesh);
+    // Hazard stripes along the lip.
+    for (const side of [-1, 1]) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.3), stripeMat);
+      s.position.set(side * (ramp.width / 2 - 0.3), ramp.height + 0.02, -L / 2 + L * RISE);
+      mesh.add(s);
+    }
+    this.ramps.push(ramp);
+  }
+
   private buildEdges(): void {
     // Barrier walls around the edge.
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.9 });
-    const len = HALF_SIZE * 2 + 2;
+    const half = this.half;
+    const len = half * 2 + 2;
     for (const [x, z, w, d] of [
-      [0, HALF_SIZE + 1, len, 2],
-      [0, -HALF_SIZE - 1, len, 2],
-      [HALF_SIZE + 1, 0, 2, len],
-      [-HALF_SIZE - 1, 0, 2, len],
+      [0, half + 1, len, 2],
+      [0, -half - 1, len, 2],
+      [half + 1, 0, 2, len],
+      [-half - 1, 0, 2, len],
     ]) {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, d), wallMat);
       wall.position.set(x, 0.7, z);
@@ -533,7 +962,7 @@ export class World {
     const q = new THREE.Quaternion();
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2;
-      const dist = 340 + this.rand() * 80;
+      const dist = half + 80 + this.rand() * 80;
       const r = 50 + this.rand() * 60;
       const h = 30 + this.rand() * 60;
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.rand() * Math.PI);
@@ -545,9 +974,9 @@ export class World {
 
   // ---------- driving ----------
 
-  /** Ground height at a point: non-zero on ramps and rubble piles. */
+  /** Ground height at a point: non-zero on banked track, ramps and rubble piles. */
   heightAt(x: number, z: number): number {
-    let best = 0;
+    let best = this.track ? this.track.heightAt(x, z) : 0;
     for (const r of this.ramps) {
       const dx = x - r.x;
       const dz = z - r.z;
@@ -568,6 +997,17 @@ export class World {
       if (h > best) best = h;
     }
     return best;
+  }
+
+  /** Whether (x, z) is grass that slows the car down: anywhere off the tarmac on the race tracks. */
+  offRoad(x: number, z: number): boolean {
+    if (!this.track || this.track.isPaved(x, z)) return false;
+    return !this.pavedAreas.some((a) => x > a.minX && x < a.maxX && z > a.minZ && z < a.maxZ);
+  }
+
+  /** Lights up the first `count` of the five start lights (none on the city map). */
+  setStartLights(count: number): void {
+    this.startLights.forEach((m, i) => (m.emissiveIntensity = i < count ? 1.6 : 0));
   }
 
   /**
@@ -632,12 +1072,50 @@ export class World {
       }
     };
 
-    if (ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), point)) consider(null, null, true);
+    // The ground. A race track's road can be raised above it (the oval's
+    // banked turns), so there the ray steps along 1 m at a time until it dips
+    // below the road, then narrows down where it crossed.
+    const track = this.track;
+    if (track) {
+      const below = (t: number) => {
+        point.copy(origin).addScaledVector(direction, t);
+        return point.y <= track.heightAt(point.x, point.z);
+      };
+      for (let t = 1; t < maxDistance + 1; t++) {
+        if (!below(t)) continue;
+        let lo = t - 1;
+        let hi = t;
+        for (let k = 0; k < 10; k++) {
+          const mid = (lo + hi) / 2;
+          if (below(mid)) hi = mid;
+          else lo = mid;
+        }
+        below(hi);
+        consider(null, null, true);
+        break;
+      }
+    } else if (ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), point)) {
+      consider(null, null, true);
+    }
     for (const b of this.boxes) {
       if (!b.solid) continue;
       box.min.set(b.minX, 0, b.minZ);
       box.max.set(b.maxX, b.height, b.maxZ);
       if (ray.intersectBox(box, point)) consider(b.target ?? null, null, false);
+    }
+    for (const w of this.walls) {
+      // Where the ray crosses the wall, seen from above: `t` along the ray, `u` along the wall.
+      const sx = w.bx - w.ax;
+      const sz = w.bz - w.az;
+      const denom = direction.x * sz - direction.z * sx;
+      if (Math.abs(denom) < 1e-9) continue;
+      const qx = w.ax - origin.x;
+      const qz = w.az - origin.z;
+      const t = (qx * sz - qz * sx) / denom;
+      const u = (qx * direction.z - qz * direction.x) / denom;
+      if (t < 0 || u < 0 || u > 1) continue;
+      point.copy(origin).addScaledVector(direction, t);
+      if (point.y >= 0 && point.y <= w.top) consider(null, null, false);
     }
     for (const c of this.circles) {
       if (!c.solid) continue;
@@ -764,15 +1242,15 @@ export class World {
       t.circle.solid = false;
       this.setPropVisible(t, false);
       const lamp = t.kind === 'lamp';
-      const height = lamp ? 7 : 2.4 * t.size;
+      const height = (lamp ? 7 : 2.4) * t.size;
       fx.addDebris(
         new THREE.Vector3(t.x + direction.x, height / 2, t.z + direction.z),
         new THREE.Vector3(direction.x * 6, 3, direction.z * 6),
-        lamp ? new THREE.Vector3(0.24, 7, 0.24) : new THREE.Vector3(0.5 * t.size, height, 0.5 * t.size),
+        lamp ? new THREE.Vector3(0.24 * t.size, height, 0.24 * t.size) : new THREE.Vector3(0.5 * t.size, height, 0.5 * t.size),
         lamp ? 0x3a3d42 : 0x6b4a2f,
         4,
       );
-      if (lamp) fx.shatter(new THREE.Vector3(t.x, 7, t.z), 4, [0xffffff, 0xcccccc], 0.3, 5); // the lamp's glass
+      if (lamp) fx.shatter(new THREE.Vector3(t.x, height, t.z), 4, [0xffffff, 0xcccccc], 0.3, 5); // the lamp's glass
       else fx.shatter(new THREE.Vector3(t.x, 3.6 * t.size, t.z), 14, [0x4f8a3a, 0x3f7a2d, 0x5f9a45], 0.9 * t.size, 5); // leaves
     }
     this.onDestroyed(t);
@@ -937,8 +1415,8 @@ export class World {
             // Settle on its wheels, inside the city walls, and become solid again.
             t.flying = false;
             root.rotation.set(0, root.rotation.y, 0);
-            root.position.x = THREE.MathUtils.clamp(root.position.x, -HALF_SIZE + 3, HALF_SIZE - 3);
-            root.position.z = THREE.MathUtils.clamp(root.position.z, -HALF_SIZE + 3, HALF_SIZE - 3);
+            root.position.x = THREE.MathUtils.clamp(root.position.x, -this.half + 3, this.half - 3);
+            root.position.z = THREE.MathUtils.clamp(root.position.z, -this.half + 3, this.half - 3);
             this.fitCarBox(t);
             t.box.solid = true;
           }
@@ -1029,4 +1507,20 @@ export class World {
 function rubbleShape(dx: number, dz: number, width: number, depth: number): number {
   const fromMiddle = Math.max(Math.abs(dx) / (width / 2), Math.abs(dz) / (depth / 2)); // 0 in the middle, 1 at the edge
   return Math.max(0, Math.min(1, (1 - fromMiddle) * 2.5));
+}
+
+/** White text on a dark banner, for the start gantry. */
+function bannerTexture(text: string): THREE.CanvasTexture {
+  return canvasTexture(1024, 64, (ctx) => {
+    ctx.fillStyle = '#15181d';
+    ctx.fillRect(0, 0, 1024, 64);
+    ctx.fillStyle = '#d7263d';
+    ctx.fillRect(0, 0, 1024, 6);
+    ctx.fillRect(0, 58, 1024, 6);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 40px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${text}  ·  START  ·  FINISH`, 512, 34);
+  });
 }

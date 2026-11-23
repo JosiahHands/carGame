@@ -19,6 +19,7 @@
         <span id="speed-unit" class="unit">mph</span>
         <span id="gear" class="gear">1</span>
       </div>
+      <div class="nitro revs"><span class="nitro-label">REVS</span><div class="bar"><div id="revs-fill" class="fill"></div></div></div>
       <div class="nitro" title="Nitro (Shift)"><span class="nitro-label">NITRO</span><div class="bar"><div id="nitro-fill" class="fill"></div></div></div>
       <div id="drift" class="drift"></div>
       <div id="best" class="best"></div>
@@ -41,6 +42,7 @@
         <dt>A D / ← →</dt><dd>Steer</dd>
         <dt>Space</dt><dd>Handbrake (drift)</dd>
         <dt>Shift</dt><dd>Nitro boost</dd>
+        <dt>X / Z</dt><dd>Gear up / down (pick a manual gearbox in Settings)</dd>
         <dt>J</dt><dd>Jump (set a jump height in the garage)</dd>
         <dt>V</dt><dd>Horn</dd>
         <dt>E / click</dt><dd>Fire</dd>
@@ -49,7 +51,7 @@
         <dt>B</dt><dd>Slow motion</dd>
         <dt>P</dt><dd>Photo mode</dd>
         <dt>C</dt><dd>Change camera</dd>
-        <dt>G</dt><dd>Garage: customize everything</dd>
+        <dt>G</dt><dd>Garage: customize everything, pick a map</dd>
         <dt>N</dt><dd>Day / night</dd>
         <dt>R</dt><dd>Back to start</dd>
         <dt>Esc</dt><dd>Settings (in the garage)</dd>
@@ -57,7 +59,7 @@
         <dt>F</dt><dd>Fullscreen</dd>
         <dt>H</dt><dd>Show / hide this help</dd>
       </dl>
-      <p>Gamepads work too: right trigger to drive, left trigger to brake, A handbrake, B nitro, RB fire, LB change weapon, left stick click jump, right stick click horn.</p>
+      <p>Gamepads work too: right trigger to drive, left trigger to brake, A handbrake, B nitro, RB fire, LB change weapon, left stick click jump, right stick click horn, D-pad right / left gear up / down.</p>
       <p>The stunt park with ramps and cones is just ahead of the start, on your left. Blow things up for nitro; drifting and jumps fill it too.</p>
     </div>
     <div id="photo-bar" class="photo-bar hidden">
@@ -65,7 +67,7 @@
       <button id="photo-save" class="btn primary" type="button">Save photo</button>
       <span class="muted">P to go back</span>
     </div>
-    <div id="hint" class="hint-bar hidden">H help · G garage · Esc settings · J jump · V horn · E fire · Q weapon · Shift nitro · T time trial</div>
+    <div id="hint" class="hint-bar hidden">H help · G garage · Esc settings · J jump · V horn · E fire · Q weapon · Shift nitro · X Z gears · T time trial</div>
     <script type="module" src="./app.ts"></script>
   </body>
 </html>

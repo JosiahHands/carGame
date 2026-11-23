@@ -3,7 +3,8 @@
 import { HALF_SIZE, ROAD_LINES, ROAD_WIDTH, type World } from './world';
 
 const SIZE = 180; // CSS pixels
-const RANGE = 130; // metres from the centre to the edge
+/** Metres from the centre to the edge: the race tracks are bigger and faster, so they show more. */
+const RANGE = { city: 130, circuit: 220, oval: 300 };
 
 export interface MapMarker {
   x: number;
@@ -40,7 +41,8 @@ export class Minimap {
     this.timer = 1 / 30;
 
     const ctx = this.ctx;
-    const pixelsPerMetre = SIZE / 2 / RANGE;
+    const range = RANGE[world.map];
+    const pixelsPerMetre = SIZE / 2 / range;
     ctx.save();
     ctx.clearRect(0, 0, SIZE, SIZE);
     ctx.beginPath();
@@ -60,16 +62,44 @@ export class Minimap {
       ctx.fillRect(cx - w / 2, cz - d / 2, w, d);
     };
 
-    const inner = 80 - ROAD_WIDTH;
-    for (const b of world.blocks) {
-      rect(b.x, b.z, inner, inner, b.kind === 'park' ? '#4f7d3f' : b.kind === 'lot' ? '#45474c' : '#8b8f96');
-      if (b.kind === 'stunt') rect(b.x, b.z, inner - 6, inner - 6, '#9a9488');
+    if (world.map === 'city') {
+      const inner = 80 - ROAD_WIDTH;
+      for (const b of world.blocks) {
+        rect(b.x, b.z, inner, inner, b.kind === 'park' ? '#4f7d3f' : b.kind === 'lot' ? '#45474c' : '#8b8f96');
+        if (b.kind === 'stunt') rect(b.x, b.z, inner - 6, inner - 6, '#9a9488');
+      }
+      const len = HALF_SIZE * 2 - 16;
+      for (const c of ROAD_LINES) {
+        rect(c, 0, ROAD_WIDTH, len, '#2b2d31');
+        rect(0, c, len, ROAD_WIDTH, '#2b2d31');
+      }
     }
-    const len = HALF_SIZE * 2 - 16;
-    for (const c of ROAD_LINES) {
-      rect(c, 0, ROAD_WIDTH, len, '#2b2d31');
-      rect(0, c, len, ROAD_WIDTH, '#2b2d31');
+    if (world.track) {
+      // The race track as a thick line, with its start line.
+      const track = world.track;
+      ctx.strokeStyle = '#2b2d31';
+      ctx.lineWidth = track.style.width;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (const p of track.points) ctx.lineTo(p.x, p.z);
+      ctx.closePath();
+      ctx.stroke();
+      const start = track.pose(0);
+      ctx.save();
+      ctx.translate(start.x, start.z);
+      ctx.rotate(-start.heading);
+      rect(0, 0, track.style.width, 3, '#f4f4f4');
+      ctx.restore();
     }
+    // Barriers and grandstands.
+    ctx.strokeStyle = '#b8bcc2';
+    ctx.lineWidth = 1.5 / pixelsPerMetre;
+    ctx.beginPath();
+    for (const w of world.walls) {
+      ctx.moveTo(w.ax, w.az);
+      ctx.lineTo(w.bx, w.bz);
+    }
+    ctx.stroke();
     for (const r of world.ramps) {
       ctx.save();
       ctx.translate(r.x, r.z);
@@ -88,14 +118,14 @@ export class Minimap {
     // Edge walls.
     ctx.strokeStyle = '#b8bcc2';
     ctx.lineWidth = 2 / pixelsPerMetre;
-    ctx.strokeRect(-HALF_SIZE, -HALF_SIZE, HALF_SIZE * 2, HALF_SIZE * 2);
+    ctx.strokeRect(-world.half, -world.half, world.half * 2, world.half * 2);
 
     // Markers, kept on the rim when they are off the map.
     for (const m of markers) {
       let dx = m.x - x;
       let dz = m.z - z;
       const d = Math.hypot(dx, dz);
-      const max = RANGE - 8;
+      const max = range - 8;
       if (d > max) {
         dx *= max / d;
         dz *= max / d;
