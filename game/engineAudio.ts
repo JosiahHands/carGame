@@ -12,6 +12,7 @@ export class EngineAudio {
   private squealGain!: GainNode;
   private noise!: AudioBuffer;
   private muted = false;
+  private timeScale = 1;
   gear = 1;
 
   constructor() {
@@ -88,13 +89,96 @@ export class EngineAudio {
     const lo = gear === 0 ? 0 : GEAR_TOPS[gear - 1];
     const inGear = (speedFraction - lo) / (GEAR_TOPS[gear] - lo);
     const rpm = 900 + Math.max(0, Math.min(1, inGear)) * 6000 * (gear === 0 ? 0.9 : 0.75) + (gear > 0 ? 1500 : 0);
-    const freq = rpm / 30;
+    const freq = (rpm / 30) * (0.6 + 0.4 * this.timeScale);
     const t = this.ctx.currentTime;
     this.oscA.frequency.setTargetAtTime(freq, t, 0.05);
     this.oscB.frequency.setTargetAtTime(freq / 2, t, 0.05);
     this.filter.frequency.setTargetAtTime(500 + throttle * 1400 + speedFraction * 800, t, 0.08);
     this.engineGain.gain.setTargetAtTime(active ? 0.12 + throttle * 0.12 : 0.05, t, 0.1);
     this.squealGain.gain.setTargetAtTime(active ? Math.min(0.25, slip * 0.3) : 0, t, 0.05);
+  }
+
+  /** A short burst of filtered noise, the building block of most effects. */
+  private noiseBurst(type: BiquadFilterType, freq: number, volume: number, length: number, q = 1): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    // Start somewhere random in the noise so repeated shots don't sound identical.
+    const offset = Math.random() * 0.5;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(volume, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + length);
+    src.connect(filter).connect(g).connect(this.master);
+    src.start(ctx.currentTime, offset);
+    src.stop(ctx.currentTime + length + 0.05);
+  }
+
+  /** A falling tone, for booms and whooshes. */
+  private sweep(type: OscillatorType, from: number, to: number, volume: number, length: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + length);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(volume, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + length);
+    osc.connect(g).connect(this.master);
+    osc.start();
+    osc.stop(ctx.currentTime + length + 0.05);
+  }
+
+  gunshot(): void {
+    this.noiseBurst('highpass', 900, 0.22, 0.07);
+    this.noiseBurst('lowpass', 400, 0.18, 0.09);
+  }
+
+  rocketLaunch(): void {
+    this.noiseBurst('bandpass', 1200, 0.4, 0.5, 0.8);
+    this.sweep('sawtooth', 300, 90, 0.06, 0.4);
+  }
+
+  /** An explosion. `distance` in metres makes far-away booms quieter. */
+  explosion(size: number, distance: number): void {
+    const near = 1 / (1 + distance / 40);
+    this.noiseBurst('lowpass', 500, Math.min(1, 0.8 * size * near), 1.4);
+    this.sweep('sine', 120, 30, Math.min(0.8, 0.5 * size * near), 0.9);
+  }
+
+  shockwave(): void {
+    this.sweep('sine', 180, 25, 0.7, 1.1);
+    this.noiseBurst('lowpass', 800, 0.6, 0.8);
+  }
+
+  /** A rising chime, for checkpoints. `final` plays a longer one. */
+  chime(final = false): void {
+    if (!this.ctx) return;
+    const notes = final ? [660, 880, 1320] : [880, 1320];
+    notes.forEach((f, i) => {
+      const ctx = this.ctx!;
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      const g = ctx.createGain();
+      const t = ctx.currentTime + i * 0.09;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      osc.connect(g).connect(this.master);
+      osc.start();
+      osc.stop(t + 0.4);
+    });
+  }
+
+  /** Slows the whole soundscape down for slow motion. */
+  setTimeScale(scale: number): void {
+    this.timeScale = scale;
   }
 
   crash(strength: number): void {

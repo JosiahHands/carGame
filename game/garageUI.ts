@@ -15,21 +15,14 @@ import {
   cloneConfig,
   randomConfig,
   type CarConfig,
-  type Option,
   type Tuning,
 } from './carConfig';
+import { el, row, segmented, slider, swatches, textInput } from '../libs/formControls';
 
 type Change = 'look' | 'tuning';
 
 const TABS = ['Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Tuning'] as const;
 type Tab = (typeof TABS)[number];
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
 
 export class GarageUI {
   readonly root: HTMLDivElement;
@@ -41,10 +34,15 @@ export class GarageUI {
     private config: CarConfig,
     private onChange: (config: CarConfig, change: Change) => void,
     onDrive: () => void,
+    onSettings: () => void,
   ) {
-    this.root = el('div', 'garage');
+    this.root = el('div', 'garage panel');
     const head = el('header');
-    head.append(el('h1', undefined, 'Garage'), el('p', undefined, 'Build your car, then hit Drive.'));
+    const settings = el('button', 'icon-btn', '⚙');
+    settings.type = 'button';
+    settings.title = 'Settings (Esc)';
+    settings.addEventListener('click', onSettings);
+    head.append(el('h1', undefined, 'Garage'), settings, el('p', undefined, 'Build your car, then hit Drive.'));
     const nav = el('nav', 'tabs');
     for (const t of TABS) {
       const b = el('button', 'tab', t);
@@ -53,7 +51,7 @@ export class GarageUI {
       this.tabButtons.set(t, b);
       nav.append(b);
     }
-    this.body = el('div', 'garage-body');
+    this.body = el('div', 'panel-body');
     const foot = el('footer');
     const random = el('button', 'btn', 'Randomize');
     random.addEventListener('click', () => this.replace(randomConfig(this.config)));
@@ -83,138 +81,53 @@ export class GarageUI {
     this.body.replaceChildren();
     const c = this.config;
     const look = () => this.onChange(c, 'look');
+    const add = (label: string, control: HTMLElement) => this.body.append(row(label, control));
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
     switch (tab) {
       case 'Body':
-        this.choice('Body style', BODY_OPTIONS, () => c.body, (v) => ((c.body = v), look()));
-        this.slider('Ride height', -1, 1, 0.1, () => c.rideHeight, (v) => ((c.rideHeight = v), look()), (v) => (v === 0 ? 'Stock' : v < 0 ? 'Lowered' : 'Raised'));
-        this.text('Number plate', () => c.plate, (v) => ((c.plate = v), look()));
+        add('Body style', segmented(BODY_OPTIONS, () => c.body, (v) => ((c.body = v), look())));
+        add('Ride height', slider(-1, 1, 0.1, () => c.rideHeight, (v) => ((c.rideHeight = v), look()), (v) => (v === 0 ? 'Stock' : v < 0 ? 'Lowered' : 'Raised')));
+        add('Number plate', textInput(8, () => c.plate, (v) => ((c.plate = v), look()), cleanPlate));
         break;
       case 'Paint':
-        this.color('Paint colour', PAINT_SWATCHES, () => c.paintColor, (v) => ((c.paintColor = v), look()));
-        this.choice('Finish', FINISH_OPTIONS, () => c.finish, (v) => ((c.finish = v), look()));
-        this.choice('Stripes', STRIPE_OPTIONS, () => c.stripes, (v) => ((c.stripes = v), look()));
-        this.color('Accent colour (stripes, parts)', PAINT_SWATCHES, () => c.accentColor, (v) => ((c.accentColor = v), look()));
-        this.slider('Window tint', 0, 1, 0.05, () => c.windowTint, (v) => ((c.windowTint = v), look()), (v) => `${Math.round(v * 100)}%`);
+        add('Paint colour', swatches(PAINT_SWATCHES, () => c.paintColor, (v) => ((c.paintColor = v), look())));
+        add('Finish', segmented(FINISH_OPTIONS, () => c.finish, (v) => ((c.finish = v), look())));
+        add('Stripes', segmented(STRIPE_OPTIONS, () => c.stripes, (v) => ((c.stripes = v), look())));
+        add('Accent colour (stripes, parts)', swatches(PAINT_SWATCHES, () => c.accentColor, (v) => ((c.accentColor = v), look())));
+        add('Window tint', slider(0, 1, 0.05, () => c.windowTint, (v) => ((c.windowTint = v), look()), pct));
         break;
       case 'Wheels':
-        this.choice('Rims', WHEEL_OPTIONS, () => c.wheelStyle, (v) => ((c.wheelStyle = v), look()));
-        this.color('Rim colour', ['#c9ccd1', '#1a1a1a', '#ffffff', '#d4af37', '#b87333', '#d7263d', '#1b98e0', '#3bb273'], () => c.rimColor, (v) => ((c.rimColor = v), look()));
-        this.slider('Wheel size', 0.85, 1.25, 0.05, () => c.wheelSize, (v) => ((c.wheelSize = v), look()), (v) => `${Math.round(v * 100)}%`);
-        this.slider('Tyre width', 0.8, 1.4, 0.05, () => c.tireWidth, (v) => ((c.tireWidth = v), look()), (v) => `${Math.round(v * 100)}%`);
+        add('Rims', segmented(WHEEL_OPTIONS, () => c.wheelStyle, (v) => ((c.wheelStyle = v), look())));
+        add('Rim colour', swatches(['#c9ccd1', '#1a1a1a', '#ffffff', '#d4af37', '#b87333', '#d7263d', '#1b98e0', '#3bb273'], () => c.rimColor, (v) => ((c.rimColor = v), look())));
+        add('Wheel size', slider(0.85, 1.25, 0.05, () => c.wheelSize, (v) => ((c.wheelSize = v), look()), pct));
+        add('Tyre width', slider(0.8, 1.4, 0.05, () => c.tireWidth, (v) => ((c.tireWidth = v), look()), pct));
         break;
       case 'Parts':
-        this.choice('Spoiler', SPOILER_OPTIONS, () => c.spoiler, (v) => ((c.spoiler = v), look()));
-        this.choice('Spoiler colour', PART_COLOR_OPTIONS, () => c.spoilerColor, (v) => ((c.spoilerColor = v), look()));
-        this.choice('Exhaust', EXHAUST_OPTIONS, () => c.exhaust, (v) => ((c.exhaust = v), look()));
+        add('Spoiler', segmented(SPOILER_OPTIONS, () => c.spoiler, (v) => ((c.spoiler = v), look())));
+        add('Spoiler colour', segmented(PART_COLOR_OPTIONS, () => c.spoilerColor, (v) => ((c.spoilerColor = v), look())));
+        add('Exhaust', segmented(EXHAUST_OPTIONS, () => c.exhaust, (v) => ((c.exhaust = v), look())));
+        add(
+          'Roof weapons',
+          segmented([{ value: 'on', label: 'Show' }, { value: 'off', label: 'Hide' }], () => (c.roofGuns ? 'on' : 'off'), (v) => ((c.roofGuns = v === 'on'), look())),
+        );
         break;
       case 'Lights':
-        this.color('Headlight colour', LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look()));
-        this.choice('Underglow', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }], () => (c.underglow ? 'on' : 'off'), (v) => ((c.underglow = v === 'on'), look()));
-        this.color('Underglow colour', ['#7af0ff', '#c58bff', '#ff4fd8', '#39ff88', '#ff3b3b', '#ffd23f', '#2f6bff', '#ffffff'], () => c.underglowColor, (v) => ((c.underglowColor = v), look()));
+        add('Headlight colour', swatches(LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look())));
+        add('Underglow', segmented([{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }], () => (c.underglow ? 'on' : 'off'), (v) => ((c.underglow = v === 'on'), look())));
+        add('Underglow colour', swatches(['#7af0ff', '#c58bff', '#ff4fd8', '#39ff88', '#ff3b3b', '#ffd23f', '#2f6bff', '#ffffff'], () => c.underglowColor, (v) => ((c.underglowColor = v), look())));
+        add('Nitro flame colour', swatches(['#4fb3ff', '#ff7a1a', '#c58bff', '#39ff88', '#ff3bd0', '#ffffff'], () => c.nitroColor, (v) => ((c.nitroColor = v), look())));
         this.hint('Press N while driving to switch between day and night.');
         break;
       case 'Tuning':
         for (const key of Object.keys(TUNING_LABELS) as (keyof Tuning)[]) {
-          this.slider(TUNING_LABELS[key], 1, 10, 1, () => c.tuning[key], (v) => ((c.tuning[key] = v), this.onChange(c, 'tuning')), (v) => `${v}/10`);
+          add(TUNING_LABELS[key], slider(1, 10, 1, () => c.tuning[key], (v) => ((c.tuning[key] = v), this.onChange(c, 'tuning')), (v) => `${v}/10`));
         }
-        this.hint('Drift sets how far the back steps out when you pull the handbrake (Space).');
+        this.hint('Drift sets how far the back steps out when you pull the handbrake (Space). Nitro sets how hard Shift pushes you and how long the bottle lasts.');
         break;
     }
   }
 
-  private row(label: string): HTMLDivElement {
-    const row = el('div', 'row');
-    row.append(el('label', undefined, label));
-    this.body.append(row);
-    return row;
-  }
-
   private hint(text: string): void {
     this.body.append(el('p', 'hint', text));
-  }
-
-  private choice<T extends string>(label: string, options: Option<T>[], get: () => T, set: (v: T) => void): void {
-    const row = this.row(label);
-    const group = el('div', 'segmented');
-    const buttons: [T, HTMLButtonElement][] = [];
-    for (const o of options) {
-      const b = el('button', undefined, o.label);
-      b.type = 'button';
-      b.addEventListener('click', () => {
-        set(o.value);
-        for (const [v, btn] of buttons) btn.classList.toggle('active', v === get());
-      });
-      b.classList.toggle('active', o.value === get());
-      buttons.push([o.value, b]);
-      group.append(b);
-    }
-    row.append(group);
-  }
-
-  private color(label: string, swatches: string[], get: () => string, set: (v: string) => void): void {
-    const row = this.row(label);
-    const wrap = el('div', 'swatches');
-    const picker = el('input');
-    picker.type = 'color';
-    picker.value = get();
-    picker.title = 'Pick any colour';
-    const sync = () => {
-      for (const b of wrap.querySelectorAll<HTMLButtonElement>('button')) b.classList.toggle('active', b.dataset.color === get());
-      picker.value = get();
-    };
-    for (const s of swatches) {
-      const b = el('button', 'swatch');
-      b.type = 'button';
-      b.style.background = s;
-      b.dataset.color = s;
-      b.title = s;
-      b.addEventListener('click', () => {
-        set(s);
-        sync();
-      });
-      wrap.append(b);
-    }
-    picker.addEventListener('input', () => {
-      set(picker.value.toLowerCase());
-      sync();
-    });
-    wrap.append(picker);
-    row.append(wrap);
-    sync();
-  }
-
-  private slider(label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt: (v: number) => string): void {
-    const row = this.row(label);
-    const wrap = el('div', 'slider');
-    const input = el('input');
-    input.type = 'range';
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(get());
-    const out = el('span', 'value', fmt(get()));
-    input.addEventListener('input', () => {
-      const v = Math.round(Number(input.value) / step) * step;
-      const clean = Number(v.toFixed(2));
-      set(clean);
-      out.textContent = fmt(clean);
-    });
-    wrap.append(input, out);
-    row.append(wrap);
-  }
-
-  private text(label: string, get: () => string, set: (v: string) => void): void {
-    const row = this.row(label);
-    const input = el('input', 'text');
-    input.type = 'text';
-    input.maxLength = 8;
-    input.value = get();
-    input.spellcheck = false;
-    input.addEventListener('input', () => {
-      const clean = cleanPlate(input.value);
-      if (clean !== input.value) input.value = clean;
-      set(clean);
-    });
-    row.append(input);
   }
 }

@@ -12,15 +12,26 @@
   </head>
   <body>
     <div id="game"></div>
+    <div id="boostfx" class="boostfx"></div>
     <div id="hud" class="hidden">
       <div class="speedo">
         <span id="speed">0</span>
         <span class="unit">km/h</span>
         <span id="gear" class="gear">1</span>
       </div>
+      <div class="nitro" title="Nitro (Shift)"><span class="nitro-label">NITRO</span><div class="bar"><div id="nitro-fill" class="fill"></div></div></div>
       <div id="drift" class="drift"></div>
       <div id="best" class="best"></div>
     </div>
+    <div id="weapon" class="weapon hidden">
+      <div id="weapon-name" class="weapon-name"></div>
+      <div class="bar"><div id="weapon-fill" class="fill"></div></div>
+    </div>
+    <div id="score" class="score hidden"></div>
+    <div id="trial" class="trial hidden"></div>
+    <div id="countdown" class="countdown"></div>
+    <div id="slowmo" class="slowmo hidden">SLOW MOTION</div>
+    <div id="fps" class="fps hidden"></div>
     <div id="toast" class="toast"></div>
     <div id="help" class="help hidden">
       <h2>Controls</h2>
@@ -29,18 +40,30 @@
         <dt>S / ↓</dt><dd>Brake / reverse</dd>
         <dt>A D / ← →</dt><dd>Steer</dd>
         <dt>Space</dt><dd>Handbrake (drift)</dd>
+        <dt>Shift</dt><dd>Nitro boost</dd>
+        <dt>E / click</dt><dd>Fire</dd>
+        <dt>Q / 1 2 3</dt><dd>Change weapon</dd>
+        <dt>T</dt><dd>Time trial (start / stop)</dd>
+        <dt>B</dt><dd>Slow motion</dd>
+        <dt>P</dt><dd>Photo mode</dd>
         <dt>C</dt><dd>Change camera</dd>
         <dt>G</dt><dd>Garage (customize)</dd>
         <dt>N</dt><dd>Day / night</dd>
         <dt>R</dt><dd>Back to start</dd>
+        <dt>Esc</dt><dd>Settings and graphics</dd>
         <dt>M</dt><dd>Sound on / off</dd>
         <dt>F</dt><dd>Fullscreen</dd>
         <dt>H</dt><dd>Show / hide this help</dd>
       </dl>
-      <p>Gamepads work too: right trigger to drive, left trigger to brake, A for handbrake.</p>
-      <p>The stunt park with ramps and cones is just ahead of the start, on your left.</p>
+      <p>Gamepads work too: right trigger to drive, left trigger to brake, A handbrake, B nitro, RB fire, LB change weapon.</p>
+      <p>The stunt park with ramps and cones is just ahead of the start, on your left. Blow things up for nitro; drifting and jumps fill it too.</p>
     </div>
-    <div id="hint" class="hint-bar hidden">H for help · G for garage · C camera · N night</div>
+    <div id="photo-bar" class="photo-bar hidden">
+      <span>Photo mode · drag to look around, scroll to zoom, right-drag to move</span>
+      <button id="photo-save" class="btn primary" type="button">Save photo</button>
+      <span class="muted">P to go back</span>
+    </div>
+    <div id="hint" class="hint-bar hidden">H help · G garage · Esc settings · E fire · Q weapon · Shift nitro · T time trial</div>
     <script type="module" src="./app.ts"></script>
   </body>
 </html>
