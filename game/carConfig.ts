@@ -1,45 +1,84 @@
-// Everything the player can customize about their car, plus saving/loading it.
+// Everything the player can customize about their car, plus saving, loading,
+// share codes, saved builds and the ready-made showcase builds.
 
-export type BodyShape = 'sports' | 'muscle' | 'hatch' | 'pickup';
-export type PaintFinish = 'gloss' | 'metallic' | 'matte' | 'pearl' | 'chrome';
+export type BodyShape = 'sports' | 'muscle' | 'hatch' | 'pickup' | 'van' | 'wedge';
+export type PaintFinish = 'gloss' | 'metallic' | 'matte' | 'pearl' | 'chrome' | 'carbon' | 'glow' | 'rainbow';
+export type Pattern = 'none' | 'twoTone' | 'flames' | 'checker' | 'camo' | 'tiger' | 'dots';
 export type StripeStyle = 'none' | 'racing' | 'side';
 export type WheelStyle = 'fiveSpoke' | 'multiSpoke' | 'dish' | 'offroad';
-export type SpoilerStyle = 'none' | 'lip' | 'wing' | 'gt';
+export type SpoilerStyle = 'none' | 'lip' | 'wing' | 'gt' | 'drag';
 export type PartColor = 'body' | 'accent' | 'black' | 'carbon';
-export type ExhaustStyle = 'single' | 'dual' | 'quad';
+export type ExhaustStyle = 'single' | 'dual' | 'quad' | 'stacks';
+export type Topper = 'none' | 'crown' | 'topHat' | 'cone' | 'horns' | 'sharkFin' | 'halo' | 'duck';
+export type Antenna = 'none' | 'whip' | 'flag' | 'ball';
+export type Underglow = 'off' | 'on' | 'rainbow';
+export type BoostTrail = 'flames' | 'rainbow' | 'sparkles' | 'smoke';
+export type Horn = 'classic' | 'truck' | 'clown' | 'tune' | 'train';
+export type EngineSound = 'v8' | 'v12' | 'diesel' | 'electric' | 'jet' | 'moped';
 
+/** How the car drives. Real units where there are some. */
 export interface Tuning {
-  power: number; // 1..10 acceleration
-  topSpeed: number; // 1..10
-  grip: number; // 1..10 cornering grip
-  brakes: number; // 1..10
-  steering: number; // 1..10 steering lock
-  drift: number; // 1..10 how loose the handbrake makes the rear
-  nitro: number; // 1..10 nitro boost strength and bottle size
+  horsepower: number;
+  topSpeed: number; // mph
+  grip: number; // × normal
+  brakes: number; // × normal
+  steering: number; // degrees of steering lock
+  drift: number; // 1..10, how far the back steps out with the handbrake
+  downforce: number; // 0..10, extra grip at speed
+  nitroPower: number; // × normal
+  nitroSeconds: number; // how long a full bottle lasts
+  infiniteNitro: boolean;
+  jump: number; // metres (0 = no jumping)
+  airControl: number; // 0..1, how much you can steer in the air
+  gravity: number; // × Earth
+  bounce: number; // 0..1.5, how much the car bounces off walls
 }
 
 export interface CarConfig {
+  // Body and size
   body: BodyShape;
+  size: number; // scale of the whole car (1 = normal, 25 = over 100 ft tall)
+  length: number; // body stretch, × normal
+  width: number;
+  height: number;
+  plate: string;
+  raceNumber: number; // 0 = none
+  // Paint
   paintColor: string;
   finish: PaintFinish;
   accentColor: string;
+  pattern: Pattern;
   stripes: StripeStyle;
   windowTint: number; // 0..1
+  // Wheels and suspension
   wheelStyle: WheelStyle;
   rimColor: string;
-  wheelSize: number; // 0.85..1.25
-  tireWidth: number; // 0.8..1.4
-  rideHeight: number; // -1..1
+  tireColor: string;
+  wheelSize: number; // × normal
+  tireWidth: number; // × normal
+  track: number; // how far out the wheels sit, × normal
+  camber: number; // degrees; negative tilts the tops in
+  lift: number; // metres the body is raised (negative lowers it)
+  // Parts
   spoiler: SpoilerStyle;
   spoilerColor: PartColor;
   exhaust: ExhaustStyle;
-  headlightColor: string;
-  underglow: boolean;
-  underglowColor: string;
-  nitroColor: string;
+  topper: Topper;
+  antenna: Antenna;
+  bullBar: boolean;
+  lightBar: boolean;
   /** Show the machine gun and rocket pod on the roof. */
   roofGuns: boolean;
-  plate: string;
+  // Lights, sound and effects
+  headlightColor: string;
+  underglow: Underglow;
+  underglowColor: string;
+  nitroColor: string;
+  boostTrail: BoostTrail;
+  tireSmoke: boolean;
+  tireSmokeColor: string;
+  horn: Horn;
+  engineSound: EngineSound;
   tuning: Tuning;
 }
 
@@ -53,6 +92,8 @@ export const BODY_OPTIONS: Option<BodyShape>[] = [
   { value: 'muscle', label: 'Muscle' },
   { value: 'hatch', label: 'Hatchback' },
   { value: 'pickup', label: 'Pickup' },
+  { value: 'van', label: 'Van' },
+  { value: 'wedge', label: 'Supercar' },
 ];
 
 export const FINISH_OPTIONS: Option<PaintFinish>[] = [
@@ -61,6 +102,19 @@ export const FINISH_OPTIONS: Option<PaintFinish>[] = [
   { value: 'matte', label: 'Matte' },
   { value: 'pearl', label: 'Pearl' },
   { value: 'chrome', label: 'Chrome' },
+  { value: 'carbon', label: 'Carbon' },
+  { value: 'glow', label: 'Glow' },
+  { value: 'rainbow', label: 'Rainbow' },
+];
+
+export const PATTERN_OPTIONS: Option<Pattern>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'twoTone', label: 'Two-tone' },
+  { value: 'flames', label: 'Flames' },
+  { value: 'checker', label: 'Checker' },
+  { value: 'camo', label: 'Camo' },
+  { value: 'tiger', label: 'Tiger' },
+  { value: 'dots', label: 'Dots' },
 ];
 
 export const STRIPE_OPTIONS: Option<StripeStyle>[] = [
@@ -81,6 +135,7 @@ export const SPOILER_OPTIONS: Option<SpoilerStyle>[] = [
   { value: 'lip', label: 'Lip' },
   { value: 'wing', label: 'Wing' },
   { value: 'gt', label: 'GT wing' },
+  { value: 'drag', label: 'Dragster' },
 ];
 
 export const PART_COLOR_OPTIONS: Option<PartColor>[] = [
@@ -94,6 +149,55 @@ export const EXHAUST_OPTIONS: Option<ExhaustStyle>[] = [
   { value: 'single', label: 'Single' },
   { value: 'dual', label: 'Dual' },
   { value: 'quad', label: 'Quad' },
+  { value: 'stacks', label: 'Truck stacks' },
+];
+
+export const TOPPER_OPTIONS: Option<Topper>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'crown', label: 'Crown' },
+  { value: 'topHat', label: 'Top hat' },
+  { value: 'cone', label: 'Traffic cone' },
+  { value: 'horns', label: 'Horns' },
+  { value: 'sharkFin', label: 'Shark fin' },
+  { value: 'halo', label: 'Halo' },
+  { value: 'duck', label: 'Rubber duck' },
+];
+
+export const ANTENNA_OPTIONS: Option<Antenna>[] = [
+  { value: 'none', label: 'None' },
+  { value: 'whip', label: 'Whip' },
+  { value: 'flag', label: 'Flag' },
+  { value: 'ball', label: 'Ball' },
+];
+
+export const UNDERGLOW_OPTIONS: Option<Underglow>[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'on', label: 'On' },
+  { value: 'rainbow', label: 'Rainbow' },
+];
+
+export const TRAIL_OPTIONS: Option<BoostTrail>[] = [
+  { value: 'flames', label: 'Flames' },
+  { value: 'rainbow', label: 'Rainbow' },
+  { value: 'sparkles', label: 'Sparkles' },
+  { value: 'smoke', label: 'Smoke' },
+];
+
+export const HORN_OPTIONS: Option<Horn>[] = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'truck', label: 'Air horn' },
+  { value: 'train', label: 'Train' },
+  { value: 'clown', label: 'Clown' },
+  { value: 'tune', label: 'Tune' },
+];
+
+export const ENGINE_OPTIONS: Option<EngineSound>[] = [
+  { value: 'v8', label: 'V8' },
+  { value: 'v12', label: 'V12' },
+  { value: 'diesel', label: 'Diesel' },
+  { value: 'electric', label: 'Electric' },
+  { value: 'jet', label: 'Jet' },
+  { value: 'moped', label: 'Moped' },
 ];
 
 export const PAINT_SWATCHES = [
@@ -103,95 +207,155 @@ export const PAINT_SWATCHES = [
 
 export const LIGHT_SWATCHES = ['#fff6e0', '#ffffff', '#cfe6ff', '#ffd27a', '#7af0ff', '#c58bff'];
 
-export const TUNING_LABELS: Record<keyof Tuning, string> = {
-  power: 'Power',
-  topSpeed: 'Top speed',
-  grip: 'Grip',
-  brakes: 'Brakes',
-  steering: 'Steering',
-  drift: 'Drift',
-  nitro: 'Nitro',
-};
-
 export const DEFAULT_CONFIG: CarConfig = {
   body: 'sports',
+  size: 1,
+  length: 1,
+  width: 1,
+  height: 1,
+  plate: 'DRIVE',
+  raceNumber: 0,
   paintColor: '#d7263d',
   finish: 'metallic',
   accentColor: '#f2f2f2',
+  pattern: 'none',
   stripes: 'racing',
   windowTint: 0.6,
   wheelStyle: 'fiveSpoke',
   rimColor: '#c9ccd1',
+  tireColor: '#1a1a1a',
   wheelSize: 1,
   tireWidth: 1,
-  rideHeight: 0,
+  track: 1,
+  camber: 0,
+  lift: 0,
   spoiler: 'wing',
   spoilerColor: 'carbon',
   exhaust: 'dual',
+  topper: 'none',
+  antenna: 'none',
+  bullBar: false,
+  lightBar: false,
+  roofGuns: true,
   headlightColor: '#fff6e0',
-  underglow: false,
+  underglow: 'off',
   underglowColor: '#7af0ff',
   nitroColor: '#4fb3ff',
-  roofGuns: true,
-  plate: 'DRIVE',
-  tuning: { power: 5, topSpeed: 5, grip: 5, brakes: 5, steering: 5, drift: 5, nitro: 5 },
+  boostTrail: 'flames',
+  tireSmoke: true,
+  tireSmokeColor: '#e8e8e8',
+  horn: 'classic',
+  engineSound: 'v8',
+  tuning: {
+    horsepower: 400,
+    topSpeed: 110,
+    grip: 1,
+    brakes: 1,
+    steering: 30,
+    drift: 5,
+    downforce: 0,
+    nitroPower: 1,
+    nitroSeconds: 3.5,
+    infiniteNitro: false,
+    jump: 0,
+    airControl: 0.15,
+    gravity: 1,
+    bounce: 0.35,
+  },
 };
 
-const STORAGE_KEY = 'carGame.config.v1';
+/** The allowed range of every number setting. The garage sliders use these too. */
+export const RANGES: Record<string, [number, number]> = {
+  size: [0.25, 25],
+  length: [0.5, 3],
+  width: [0.6, 2.5],
+  height: [0.5, 3],
+  raceNumber: [0, 99],
+  windowTint: [0, 1],
+  wheelSize: [0.5, 4],
+  tireWidth: [0.5, 3],
+  track: [0.8, 2],
+  camber: [-20, 20],
+  lift: [-0.08, 3],
+  horsepower: [50, 10000],
+  topSpeed: [20, 1000],
+  grip: [0.2, 3],
+  brakes: [0.3, 5],
+  steering: [10, 60],
+  drift: [1, 10],
+  downforce: [0, 10],
+  nitroPower: [0.5, 5],
+  nitroSeconds: [1, 30],
+  jump: [0, 30],
+  airControl: [0, 1],
+  gravity: [0.1, 3],
+  bounce: [0, 1.5],
+};
 
-function oneOf<T extends string>(value: unknown, options: Option<T>[], fallback: T): T {
-  return options.some((o) => o.value === value) ? (value as T) : fallback;
-}
-
-function color(value: unknown, fallback: string): string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback;
-}
-
-function num(value: unknown, min: number, max: number, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
-}
+/** The allowed choices for every text setting that isn't a colour or the plate. */
+const CHOICES: Record<string, Option<string>[]> = {
+  body: BODY_OPTIONS,
+  finish: FINISH_OPTIONS,
+  pattern: PATTERN_OPTIONS,
+  stripes: STRIPE_OPTIONS,
+  wheelStyle: WHEEL_OPTIONS,
+  spoiler: SPOILER_OPTIONS,
+  spoilerColor: PART_COLOR_OPTIONS,
+  exhaust: EXHAUST_OPTIONS,
+  topper: TOPPER_OPTIONS,
+  antenna: ANTENNA_OPTIONS,
+  underglow: UNDERGLOW_OPTIONS,
+  boostTrail: TRAIL_OPTIONS,
+  horn: HORN_OPTIONS,
+  engineSound: ENGINE_OPTIONS,
+};
 
 export function cleanPlate(text: string): string {
   return text.toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 8);
 }
 
-/** Turns anything (old saves, hand-edited data) into a valid config. */
-export function sanitizeConfig(raw: unknown): CarConfig {
-  const d = DEFAULT_CONFIG;
+/**
+ * Copies each setting from `raw` onto a copy of `defaults` if it is valid:
+ * numbers are kept in range, choices must be known ones and colours must be
+ * #rrggbb. Anything else keeps the default.
+ */
+function cleanFields<T extends object>(raw: unknown, defaults: T): T {
+  const result = { ...defaults } as Record<string, unknown>;
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const t = (r.tuning && typeof r.tuning === 'object' ? r.tuning : {}) as Record<string, unknown>;
-  const tuning = {} as Tuning;
-  for (const key of Object.keys(d.tuning) as (keyof Tuning)[]) {
-    tuning[key] = Math.round(num(t[key], 1, 10, d.tuning[key]));
+  for (const [key, fallback] of Object.entries(defaults)) {
+    const value = r[key];
+    if (typeof fallback === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+      const [min, max] = RANGES[key];
+      result[key] = Math.min(max, Math.max(min, value));
+    } else if (typeof fallback === 'boolean' && typeof value === 'boolean') {
+      result[key] = value;
+    } else if (typeof fallback === 'string' && typeof value === 'string') {
+      if (key === 'plate') result[key] = cleanPlate(value);
+      else if (CHOICES[key]) result[key] = CHOICES[key].some((o) => o.value === value) ? value : fallback;
+      else if (/^#[0-9a-f]{6}$/i.test(value)) result[key] = value.toLowerCase();
+    }
   }
-  return {
-    body: oneOf(r.body, BODY_OPTIONS, d.body),
-    paintColor: color(r.paintColor, d.paintColor),
-    finish: oneOf(r.finish, FINISH_OPTIONS, d.finish),
-    accentColor: color(r.accentColor, d.accentColor),
-    stripes: oneOf(r.stripes, STRIPE_OPTIONS, d.stripes),
-    windowTint: num(r.windowTint, 0, 1, d.windowTint),
-    wheelStyle: oneOf(r.wheelStyle, WHEEL_OPTIONS, d.wheelStyle),
-    rimColor: color(r.rimColor, d.rimColor),
-    wheelSize: num(r.wheelSize, 0.85, 1.25, d.wheelSize),
-    tireWidth: num(r.tireWidth, 0.8, 1.4, d.tireWidth),
-    rideHeight: num(r.rideHeight, -1, 1, d.rideHeight),
-    spoiler: oneOf(r.spoiler, SPOILER_OPTIONS, d.spoiler),
-    spoilerColor: oneOf(r.spoilerColor, PART_COLOR_OPTIONS, d.spoilerColor),
-    exhaust: oneOf(r.exhaust, EXHAUST_OPTIONS, d.exhaust),
-    headlightColor: color(r.headlightColor, d.headlightColor),
-    underglow: typeof r.underglow === 'boolean' ? r.underglow : d.underglow,
-    underglowColor: color(r.underglowColor, d.underglowColor),
-    nitroColor: color(r.nitroColor, d.nitroColor),
-    roofGuns: typeof r.roofGuns === 'boolean' ? r.roofGuns : d.roofGuns,
-    plate: typeof r.plate === 'string' ? cleanPlate(r.plate) : d.plate,
-    tuning,
-  };
+  return result as T;
+}
+
+/** Turns anything (old saves, share codes, hand-edited data) into a valid config. */
+export function sanitizeConfig(raw: unknown): CarConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  // Older saves stored the underglow as on/off.
+  if (typeof r.underglow === 'boolean') r.underglow = r.underglow ? 'on' : 'off';
+  const config = cleanFields(r, DEFAULT_CONFIG);
+  config.tuning = cleanFields(r.tuning, DEFAULT_CONFIG.tuning);
+  return config;
 }
 
 export function cloneConfig(config: CarConfig): CarConfig {
   return { ...config, tuning: { ...config.tuning } };
 }
+
+// ---------- saving ----------
+
+const STORAGE_KEY = 'carGame.config.v1';
+const BUILDS_KEY = 'carGame.builds.v1';
 
 export function loadConfig(): CarConfig {
   try {
@@ -211,6 +375,163 @@ export function saveConfig(config: CarConfig): void {
   }
 }
 
+/** A car the player saved under a name, in the Builds tab. */
+export interface SavedBuild {
+  name: string;
+  config: CarConfig;
+}
+
+export function loadBuilds(): SavedBuild[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(BUILDS_KEY) ?? '[]');
+    if (!Array.isArray(list)) return [];
+    return list.map((b) => ({ name: String(b?.name ?? 'My car').slice(0, 30), config: sanitizeConfig(b?.config) }));
+  } catch {
+    return [];
+  }
+}
+
+export function saveBuilds(builds: SavedBuild[]): void {
+  try {
+    localStorage.setItem(BUILDS_KEY, JSON.stringify(builds));
+  } catch {
+    // ignore
+  }
+}
+
+// ---------- share codes ----------
+// A share code is the car's settings that differ from the default car, as
+// JSON, in base64, after "CAR1-". Paste one into the Builds tab to load the car.
+
+export function shareCode(config: CarConfig): string {
+  const changed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (key !== 'tuning' && value !== (DEFAULT_CONFIG as unknown as Record<string, unknown>)[key]) changed[key] = value;
+  }
+  const tuning: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config.tuning)) {
+    if (value !== (DEFAULT_CONFIG.tuning as unknown as Record<string, unknown>)[key]) tuning[key] = value;
+  }
+  if (Object.keys(tuning).length > 0) changed.tuning = tuning;
+  // Every value is plain ASCII (the plate only allows A-Z, 0-9, space and -), so btoa is safe.
+  return 'CAR1-' + btoa(JSON.stringify(changed));
+}
+
+/** Reads a share code back into a car, or returns null if it isn't one. */
+export function readShareCode(code: string): CarConfig | null {
+  const match = /^CAR1-([A-Za-z0-9+/=]+)$/.exec(code.trim());
+  if (!match) return null;
+  try {
+    return sanitizeConfig(JSON.parse(atob(match[1])));
+  } catch {
+    return null;
+  }
+}
+
+// ---------- showcase builds ----------
+
+type BuildChanges = Partial<Omit<CarConfig, 'tuning'>> & { tuning?: Partial<Tuning> };
+
+/** Ready-made cars that show off what the garage can do. */
+export const SHOWCASE_BUILDS: { name: string; about: string; changes: BuildChanges }[] = [
+  {
+    name: 'Kaiju',
+    about: 'A 100 ft tall muscle car that flattens buildings.',
+    changes: {
+      body: 'muscle', size: 22, paintColor: '#2f4f2f', finish: 'matte', pattern: 'tiger', accentColor: '#0b0b0b', stripes: 'none',
+      topper: 'horns', underglow: 'on', underglowColor: '#39ff88', horn: 'train', engineSound: 'diesel', exhaust: 'stacks',
+      tuning: { horsepower: 3000, topSpeed: 140 },
+    },
+  },
+  {
+    name: '500 mph',
+    about: 'A low, long land-speed record car with a jet engine.',
+    changes: {
+      body: 'wedge', length: 1.6, width: 0.9, height: 0.8, paintColor: '#f2f2f2', finish: 'gloss', pattern: 'flames', accentColor: '#f46036',
+      stripes: 'none', spoiler: 'none', engineSound: 'jet', raceNumber: 1, wheelStyle: 'dish',
+      tuning: { horsepower: 10000, topSpeed: 500, grip: 2, downforce: 8, steering: 18, nitroPower: 2 },
+    },
+  },
+  {
+    name: 'Monster truck',
+    about: 'Giant wheels, a big lift, and bouncy landings.',
+    changes: {
+      body: 'pickup', wheelSize: 3.2, tireWidth: 2.2, track: 1.4, lift: 0.5, wheelStyle: 'offroad', rimColor: '#ffd23f',
+      paintColor: '#1b98e0', pattern: 'flames', accentColor: '#ffd23f', stripes: 'none', spoiler: 'none', exhaust: 'stacks',
+      bullBar: true, lightBar: true, horn: 'truck', tuning: { horsepower: 900, topSpeed: 90, jump: 4, bounce: 0.8, grip: 1.3 },
+    },
+  },
+  {
+    name: 'Pocket rocket',
+    about: 'A toy-sized car with a rubber duck on the roof.',
+    changes: {
+      body: 'hatch', size: 0.3, paintColor: '#ffd23f', pattern: 'dots', accentColor: '#1b98e0', stripes: 'none', topper: 'duck',
+      antenna: 'ball', horn: 'clown', engineSound: 'moped', roofGuns: false, tuning: { horsepower: 120, topSpeed: 45, grip: 1.5 },
+    },
+  },
+  {
+    name: 'Moon buggy',
+    about: 'Moon gravity, huge jumps and full control in the air.',
+    changes: {
+      body: 'hatch', lift: 0.4, wheelSize: 1.6, tireWidth: 1.5, wheelStyle: 'offroad', paintColor: '#f2f2f2', finish: 'matte',
+      stripes: 'side', accentColor: '#1b98e0', antenna: 'flag', engineSound: 'electric', spoiler: 'none',
+      tuning: { gravity: 0.17, jump: 6, airControl: 0.9, bounce: 0.9 },
+    },
+  },
+  {
+    name: 'Stretch limo',
+    about: 'Three times longer, with blacked-out windows.',
+    changes: {
+      body: 'muscle', length: 2.8, paintColor: '#0b0b0b', finish: 'gloss', stripes: 'none', windowTint: 1, rimColor: '#f2f2f2',
+      wheelStyle: 'multiSpoke', spoiler: 'none', antenna: 'whip', topper: 'topHat', horn: 'tune', engineSound: 'v12', roofGuns: false,
+    },
+  },
+  {
+    name: 'Aerial ace',
+    about: 'Jump, boost and fly: steer and boost freely in the air.',
+    changes: {
+      body: 'wedge', paintColor: '#2f6bff', finish: 'pearl', accentColor: '#ff70a6', stripes: 'racing', topper: 'halo',
+      underglow: 'rainbow', boostTrail: 'rainbow', roofGuns: false,
+      tuning: { jump: 3, airControl: 1, nitroPower: 2.5, nitroSeconds: 8, horsepower: 800 },
+    },
+  },
+  {
+    name: 'Low rider',
+    about: 'Slammed, wide and tilted, with rainbow neon.',
+    changes: {
+      body: 'muscle', lift: -0.08, camber: -14, track: 1.2, wheelSize: 0.9, paintColor: '#7b2cbf', finish: 'pearl', stripes: 'none',
+      underglow: 'rainbow', spoiler: 'none', exhaust: 'quad', horn: 'tune', rimColor: '#d4af37', wheelStyle: 'multiSpoke',
+      tireSmokeColor: '#ff70a6',
+    },
+  },
+  {
+    name: 'Drag racer',
+    about: 'A huge wing, 3,000 hp and almost no steering.',
+    changes: {
+      body: 'sports', spoiler: 'drag', spoilerColor: 'accent', paintColor: '#ffd23f', accentColor: '#0b0b0b', pattern: 'checker',
+      stripes: 'none', raceNumber: 7, tireWidth: 1.6, engineSound: 'v12',
+      tuning: { horsepower: 3000, topSpeed: 260, grip: 1.8, steering: 14, nitroPower: 3 },
+    },
+  },
+  {
+    name: 'Rainbow',
+    about: 'Everything that can be a rainbow, is.',
+    changes: {
+      body: 'sports', finish: 'rainbow', underglow: 'rainbow', boostTrail: 'rainbow', topper: 'crown', stripes: 'none',
+      tireSmokeColor: '#ff70a6', rimColor: '#f2f2f2', horn: 'clown',
+    },
+  },
+];
+
+/** The default car with a showcase build's changes on top. */
+export function showcaseConfig(changes: BuildChanges): CarConfig {
+  const config = cloneConfig(DEFAULT_CONFIG);
+  Object.assign(config, changes, { tuning: { ...DEFAULT_CONFIG.tuning, ...changes.tuning } });
+  return config;
+}
+
+// ---------- random cars ----------
+
 function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)];
 }
@@ -229,25 +550,35 @@ function randomColor(): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
+/**
+ * A new look for the car: body, paint, wheels and parts. Size and tuning are
+ * kept, so this is also used for the normal-sized parked cars around the city.
+ */
 export function randomConfig(current: CarConfig): CarConfig {
+  const sometimes = <T>(chance: number, value: T, otherwise: T) => (Math.random() < chance ? value : otherwise);
   return {
     ...current,
     body: pick(BODY_OPTIONS).value,
     paintColor: Math.random() < 0.5 ? pick(PAINT_SWATCHES) : randomColor(),
-    finish: pick(FINISH_OPTIONS).value,
+    // Rainbow paint only changes colour while it is being driven, so parked cars don't get it.
+    finish: pick(FINISH_OPTIONS.filter((o) => o.value !== 'rainbow')).value,
     accentColor: Math.random() < 0.5 ? pick(PAINT_SWATCHES) : randomColor(),
+    pattern: sometimes(0.35, pick(PATTERN_OPTIONS).value, 'none'),
     stripes: pick(STRIPE_OPTIONS).value,
     windowTint: Math.round(Math.random() * 10) / 10,
     wheelStyle: pick(WHEEL_OPTIONS).value,
     rimColor: pick(['#c9ccd1', '#1a1a1a', '#d4af37', '#ffffff', randomColor()]),
+    tireColor: sometimes(0.1, randomColor(), '#1a1a1a'),
     wheelSize: 0.85 + Math.round(Math.random() * 8) * 0.05,
     tireWidth: 0.8 + Math.round(Math.random() * 6) * 0.1,
-    rideHeight: Math.round((Math.random() * 2 - 1) * 10) / 10,
-    spoiler: pick(SPOILER_OPTIONS).value,
+    spoiler: pick(SPOILER_OPTIONS.filter((o) => o.value !== 'drag')).value,
     spoilerColor: pick(PART_COLOR_OPTIONS).value,
     exhaust: pick(EXHAUST_OPTIONS).value,
+    topper: sometimes(0.15, pick(TOPPER_OPTIONS).value, 'none'),
+    antenna: sometimes(0.15, pick(ANTENNA_OPTIONS).value, 'none'),
+    raceNumber: sometimes(0.2, 1 + Math.floor(Math.random() * 99), 0),
     headlightColor: pick(LIGHT_SWATCHES),
-    underglow: Math.random() < 0.4,
+    underglow: sometimes(0.4, 'on', 'off'),
     underglowColor: randomColor(),
     nitroColor: randomColor(),
     tuning: { ...current.tuning },

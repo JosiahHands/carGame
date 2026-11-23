@@ -511,6 +511,68 @@ input.text {
   color: var(--muted);
 }
 
+/* Live size and speed of the car, under the garage title. */
+.garage header p.stats {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A heading between groups of options. */
+.section {
+  margin: 20px 0 4px;
+  font-size: 15px;
+}
+
+/* Showcase builds: a grid of cards. */
+.build-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.build {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--chip);
+  text-align: left;
+}
+
+.build:hover {
+  background: var(--chip-hover);
+}
+
+.build span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* A text box with a button beside it, and a saved build's row. */
+.inline,
+.build-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.build-row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+input.text.code {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
 .garage footer {
   display: flex;
   gap: 8px;
