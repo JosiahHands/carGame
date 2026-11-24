@@ -448,7 +448,9 @@ function buildSpec(o: SpecOptions): EventSpec {
     // A spread of skills, from a bit below the level's to a bit above.
     rivals.push({ name: names[i], config: o.rivalCar(), skill: o.skill * (0.94 + 0.08 * (i / Math.max(1, o.rivals - 1))) });
   }
-  const twist = o.modifiers ? o.rand() : 1;
+  // A random roll for the twists: under 0.12 is no nitro, over 0.8 a combat
+  // race. Without twists (quick races) it's 0.5, in the middle: neither.
+  const twist = o.modifiers ? o.rand() : 0.5;
   const spec: EventSpec = {
     kind: o.kind, title: '', map: o.map, layout: o.layout, laps: 1, timeLimit: 0, rivals,
     targets: [3, 2, 1], night: o.night, weapons: false, noNitro: twist < 0.12, catchUp: o.catchUp ?? 0.6,
