@@ -18,6 +18,10 @@ import { World } from '../game/world';
 import { CHASSIS, awaitingChoice, careerCar, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
 import { EventRun, type EventSpec } from '../game/event';
 import { MenuUI } from '../game/menuUI';
+import { FreeRoam, type FreeRoamEvent } from '../game/freeRoam';
+import { Music } from '../game/music';
+import { addXp, bump, checkTrophies, driverLevel, record } from '../game/rewards';
+import { SKILLS, SkillChain, type SkillKind } from '../game/skills';
 import { el } from '../libs/dom';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 steps per second
@@ -55,6 +59,8 @@ const trial = new TimeTrial(scene);
 trial.setCourse(world.course, world.map);
 const minimap = new Minimap();
 document.body.append(minimap.canvas);
+const freeRoam = new FreeRoam(scene);
+const music = new Music();
 
 // ---------- the player's car ----------
 /** The garage build: what you drive in free roam, and the paint and parts on career cars. */
@@ -158,6 +164,15 @@ const standingsEl = $('standings');
 const healthEl = $('health');
 const healthFill = $('health-fill');
 const warningEl = $('warning');
+const chainEl = $('chain');
+const chainTotal = $('chain-total');
+const chainMult = $('chain-mult');
+const chainFill = $('chain-fill');
+const chainFeed = $('chain-feed');
+const boostsEl = $('boosts');
+const zoneEl = $('zone');
+const popupsEl = $('popups');
+const speedLinesEl = $('speedlines');
 let toastTimer = 0;
 
 function toast(text: string, ms = 1600): void {
@@ -165,6 +180,33 @@ function toast(text: string, ms = 1600): void {
   toastEl.classList.add('show');
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+
+/** A bigger message that slides in at the side: trophies, level ups, finds. */
+function popup(icon: string, title: string, text: string): void {
+  const box = el('div', 'popup');
+  const words = el('div', 'popup-text');
+  words.append(el('strong', undefined, title), el('span', undefined, text));
+  box.append(el('span', 'popup-icon', icon), words);
+  popupsEl.append(box);
+  window.setTimeout(() => box.remove(), 4600);
+  audio.chime(true);
+}
+
+/** The announcer: says a line out loud, if it's switched on and the sound isn't muted. */
+function speak(text: string): void {
+  if (!settings.announcer || audio.isMuted || !('speechSynthesis' in window)) return;
+  try {
+    // Countdown numbers cut off whatever is being said, so they stay on the beat.
+    if (/^(\d|Go!)$/.test(text)) speechSynthesis.cancel();
+    const line = new SpeechSynthesisUtterance(text);
+    line.rate = 1.15;
+    line.pitch = 0.9;
+    line.volume = 0.9;
+    speechSynthesis.speak(line);
+  } catch {
+    // No voices: carry on without the announcer.
+  }
 }
 
 let bestDrift = 0;
@@ -195,13 +237,16 @@ world.onDestroyed = (target) => {
     audio.explosion(2.5, distance);
     shake = Math.max(shake, Math.min(0.5, 12 / (distance + 10)));
     toast(`Building destroyed +$${target.value.toLocaleString()}`);
+    skill('smash', 300, 'Building smash');
   } else if (target.kind === 'car') {
     physics.nitro = Math.min(1, physics.nitro + 0.1);
     audio.explosion(1.4, distance);
     toast(`Car destroyed +$${target.value.toLocaleString()}`);
+    skill('smash', 150, 'Car smash');
   } else {
     physics.nitro = Math.min(1, physics.nitro + 0.05);
     audio.crash(6);
+    skill('smash', 25);
   }
 };
 
@@ -226,6 +271,7 @@ let slowMotion = false;
 const garage = new GarageUI(config, settings, {
   carChanged(change) {
     driveConfig = config;
+    roamingInCareerCar = false;
     // A much bigger or smaller car needs the garage camera moved to fit it.
     const resized = change === 'look' ? rebuildCar() : fitToCar();
     if (resized && mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
@@ -281,6 +327,8 @@ function updateHud(): void {
   scoreEl.classList.toggle('hidden', !driving || (event !== null && event.spec.kind !== 'destruction'));
   weaponPanel.classList.toggle('hidden', !driving || !weaponsOn());
   minimap.setVisible(driving && settings.minimap);
+  zoneEl.classList.toggle('hidden', !driving || event !== null || zoneEl.textContent === '');
+  freeRoam.setVisible(event === null);
   trialEl.classList.toggle('hidden', !driving || !trial.active);
   countdownEl.classList.toggle('hidden', !driving || !trial.active);
   raceEl.classList.toggle('hidden', !driving || !event);
@@ -341,6 +389,7 @@ function loadMap(): void {
   weapons.clear();
   effects.clear();
   world.load(settings.map);
+  freeRoam.load(world, career.found);
   trial.setCourse(world.course, world.map);
   ghost?.dispose();
   ghost = null;
@@ -361,6 +410,8 @@ function placeCar(x: number, z: number, heading: number): void {
   weapons.clear();
   cameraRig.snap(carPosition(), physics.heading);
   driftScore = 0;
+  driftHeld = 0;
+  chain.clear();
 }
 
 function startTimeTrial(): void {
@@ -537,6 +588,7 @@ function syncCar(dt: number): void {
  * on nitro. Particles are spawned at a steady rate, whatever the frame rate.
  */
 let smokeDue = 0;
+let sparksDue = 0;
 let grassDue = 0;
 let trailDue = 0;
 let lastTips: THREE.Vector3[] = []; // where the exhausts were last frame
@@ -554,6 +606,18 @@ function carEffects(dt: number, throttle: number): void {
     spot.y = physics.y + 0.15 * size;
     const drift = new THREE.Vector3((Math.random() - 0.5) * 2, 0.6 + Math.random(), (Math.random() - 0.5) * 2).multiplyScalar(size);
     effects.addSmoke({ at: spot.clone(), velocity: drift, life: 1.6, size: [0.5 * size, 2.6 * size], color: config.tireSmokeColor, opacity: 0.55, drag: 1.5 });
+  }
+
+  // Mini-turbo sparks from the back wheels while a drift is held: blue, then orange, then purple.
+  if (sparkTier > 0 && driftHeld > 0) {
+    sparksDue += dt * 70 * effects.amount;
+    while (sparksDue >= 1) {
+      sparksDue--;
+      car.wheels[2 + Math.floor(Math.random() * 2)].steer.getWorldPosition(spot);
+      spot.y = physics.y + 0.1 * size;
+      const fly = new THREE.Vector3(-physics.vx * 0.2 + (Math.random() - 0.5) * 4, 1 + Math.random() * 3, -physics.vz * 0.2 + (Math.random() - 0.5) * 4).multiplyScalar(size);
+      effects.addGlow({ at: spot.clone(), velocity: fly, life: 0.35, size: [0.22 * size, 0.04 * size], color: SPARK_COLORS[sparkTier - 1], rise: -12 });
+    }
   }
 
   // Dirt and grass thrown up by the wheels off the edge of a race track.
@@ -606,11 +670,164 @@ let driftTimer = 0;
 let airTime = 0;
 let shake = 0;
 
+// ---------- skill chains, mini-turbos, XP and trophies ----------
+const chain = new SkillChain();
+/** Seconds the chain panel stays up after a chain is banked or lost. */
+let chainShown = 0;
+/** Seconds the current drift has been held, and since it stopped (for the mini-turbo). */
+let driftHeld = 0;
+let driftGap = 0;
+/** 0, or 1-3 for the blue, orange and purple mini-turbo. */
+let sparkTier = 0;
+const SPARK_COLORS = [0x4fb3ff, 0xff9f40, 0xc77dff];
+const SPARK_NAMES = ['Blue', 'Orange', 'Purple'];
+/** Seconds counted towards the next slipstream and speed-demon points. */
+let draftTick = 0;
+let speedTick = 0;
+/** Free roam in the career car: only then do challenge stars count. */
+let roamingInCareerCar = false;
+
+/** Skills that are counted for trophies and the stats. */
+const COUNTED: SkillKind[] = ['nearMiss', 'takedown', 'overtake', 'perfectStart', 'driftBoost'];
+
+/** Adds a skill to the chain. */
+function skill(kind: SkillKind, points: number, label?: string): void {
+  if (event?.state === 'done') return; // after the finish (the chain is already banked)
+  chain.add(kind, points, label);
+  if (COUNTED.includes(kind)) bump(career, kind);
+}
+
+chain.onBank = (points) => {
+  physics.nitro = Math.min(1, physics.nitro + Math.min(0.4, points / 10000)); // a good chain refills the nitro
+  record(career, 'bestChain', points);
+  showChainEnd(`+${points.toLocaleString()} XP`, 'banked');
+  gainXp(points);
+};
+chain.onBreak = (lost) => {
+  showChainEnd(`Chain lost −${lost.toLocaleString()}`, 'broken');
+  if (lost > 1000) speak('Chain lost!');
+};
+
+function showChainEnd(text: string, cls: 'banked' | 'broken'): void {
+  chainShown = 1.4;
+  chainEl.classList.remove('banked', 'broken');
+  chainEl.classList.add(cls);
+  chainTotal.textContent = text;
+  chainMult.textContent = '';
+  chainFill.style.width = '0%';
+  chainFeed.replaceChildren();
+}
+
+/** Adds XP: a new driver level earns a spin of the prize wheel. Also awards any trophies just won. */
+function gainXp(xp: number): string[] {
+  const lines: string[] = [];
+  const levels = addXp(career, xp);
+  if (levels > 0) {
+    const level = driverLevel(career.xp).level;
+    popup('🎖️', `Driver level ${level}!`, `+${levels} prize spin${levels > 1 ? 's' : ''}: spin from the main menu`);
+    speak('Level up!');
+    lines.push(`🎖️ Driver level ${level}! Prize wheel spin earned`);
+  }
+  for (const t of checkTrophies(career)) {
+    popup(t.icon, `Trophy: ${t.name}`, `${t.about} · +🪙 ${t.reward.toLocaleString()}`);
+    lines.push(`${t.icon} Trophy: ${t.name} +🪙 ${t.reward.toLocaleString()}`);
+  }
+  saveCareer(career);
+  return lines;
+}
+
+/** Draws the chain panel: total, multiplier, time left and the latest skills. */
+let chainDrawn = '';
+function drawChain(dt: number): void {
+  if (chain.count === 0) {
+    chainShown -= dt;
+    chainEl.classList.toggle('hidden', chainShown <= 0 || mode !== 'drive');
+    chainDrawn = '';
+    return;
+  }
+  chainEl.classList.remove('hidden', 'banked', 'broken');
+  chainFill.style.width = `${Math.round((chain.timer / 4) * 100)}%`;
+  const key = `${chain.total}|${chain.feed.map((f) => f.points).join(',')}`;
+  if (key === chainDrawn) return;
+  chainDrawn = key;
+  chainTotal.textContent = chain.total.toLocaleString();
+  chainMult.textContent = `×${chain.multiplier}`;
+  chainFeed.replaceChildren(...chain.feed.map((f) => {
+    const row = el('li');
+    row.style.color = SKILLS[f.kind].color;
+    row.append(el('span', undefined, f.label), el('span', undefined, `+${f.points.toLocaleString()}`));
+    return row;
+  }));
+}
+
+/**
+ * The drift mini-turbo: a drift held for 1, 2 or 3 seconds charges a blue,
+ * orange or purple boost, fired when the drift ends.
+ */
+function miniTurbo(dt: number, drifting: boolean): void {
+  if (drifting) {
+    driftHeld += dt;
+    driftGap = 0;
+  } else if (driftHeld > 0) {
+    driftGap += dt;
+    // A moment's grace, so a wobble mid-drift doesn't end it.
+    if (driftGap > 0.15) {
+      if (sparkTier > 0 && physics.forwardSpeed > 5) {
+        physics.giveTurbo([0.6, 1, 1.5][sparkTier - 1], [1.15, 1.25, 1.35][sparkTier - 1]);
+        skill('driftBoost', 150 * sparkTier, `${SPARK_NAMES[sparkTier - 1]} boost`);
+        audio.chime();
+      }
+      driftHeld = 0;
+    }
+  }
+  sparkTier = driftHeld >= 3 ? 3 : driftHeld >= 2 ? 2 : driftHeld >= 1 ? 1 : 0;
+}
+
+/** Slipstream and flat-out driving earn points every second. */
+function steadySkills(dt: number): void {
+  if (physics.draft > 0.5 && physics.speed > 15) {
+    draftTick += dt;
+    bump(career, 'draft', dt);
+    if (draftTick >= 1) {
+      draftTick -= 1;
+      skill('draft', 60);
+    }
+  }
+  if (physics.speedFraction > 0.9 && !physics.airborne) {
+    speedTick += dt;
+    if (speedTick >= 1) {
+      speedTick -= 1;
+      skill('speed', 80);
+    }
+  } else {
+    speedTick = 0;
+  }
+  if (event) record(career, 'topSpeed', Math.round(physics.speed * 2.237));
+}
+
+/** The labels over the speedo: slipstream, turbo and the drift sparks. */
+let boostsDrawn = '';
+function drawBoosts(): void {
+  const parts: string[] = [];
+  if (sparkTier > 0) parts.push(`spark${sparkTier}|${'●'.repeat(sparkTier)}${'○'.repeat(3 - sparkTier)} ${SPARK_NAMES[sparkTier - 1].toUpperCase()}`);
+  if (physics.draft > 0.3) parts.push(`draft|SLIPSTREAM ${Math.round(physics.draft * 100)}%`);
+  if (physics.turbo > 0) parts.push('turbo|TURBO');
+  const key = mode === 'drive' ? parts.join('/') : '';
+  if (key === boostsDrawn) return;
+  boostsDrawn = key;
+  boostsEl.replaceChildren(...(key ? parts : []).map((p) => {
+    const [cls, text] = p.split('|');
+    return el('span', cls, text);
+  }));
+}
+
 function bankDrift(): void {
   const points = Math.round(driftScore);
   driftScore = 0;
   if (points < 50) return;
   event?.addDrift(points);
+  if (!event) freeRoam.addDrift(points);
+  skill('drift', points / 2, `Drift ${points.toLocaleString()}`);
   if (points > bestDrift) {
     bestDrift = points;
     try {
@@ -640,6 +857,8 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
       if (airTime > 0.7) {
         toast(`Air time ${airTime.toFixed(1)} s`);
         physics.nitro = Math.min(1, physics.nitro + airTime * 0.08); // jumps fill the nitro
+        skill('air', airTime * 300, `Air ${airTime.toFixed(1)} s`);
+        bump(career, 'air', airTime);
       }
       airTime = 0;
     }
@@ -648,8 +867,10 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
       shake = Math.min(0.6, ev.impact * 0.03);
       if (driftScore > 0) {
         driftScore = 0;
+        driftHeld = 0;
         toast('Crashed! Drift lost');
       }
+      if (ev.impact > 7) chain.break(); // a hard crash loses the skill chain
       // Ramming a parked car hard enough wrecks it.
       if (ev.hitTarget && ev.impact > 6) {
         world.damage(ev.hitTarget, ev.impact * 5, new THREE.Vector3(physics.vx, 0, physics.vz).normalize());
@@ -682,6 +903,8 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     driftTimer -= dt;
     if (driftTimer <= 0) bankDrift();
   }
+  miniTurbo(dt, drifting);
+  steadySkills(dt);
   if (event) {
     // Still sliding or flying when the time runs out? It counts.
     event.unbankedDrift = driftScore >= 50 ? Math.round(driftScore) : 0;
@@ -765,6 +988,15 @@ const menu = new MenuUI(career, config, {
     leaveEvents();
     setMode('drive');
   },
+  freeRoamCareer() {
+    leaveEvents();
+    driveConfig = careerCar(config, career.car, career.upgrades);
+    rebuildCar();
+    physics.allTerrain = CHASSIS[career.car].allTerrain ?? false;
+    roamingInCareerCar = true;
+    setMode('drive');
+    toast('Your career car: challenge stars count', 2500);
+  },
   garage() {
     leaveEvents();
     setMode('garage');
@@ -795,6 +1027,7 @@ const menu = new MenuUI(career, config, {
   chooseReset() {
     career = resetCareer(career, true);
     menu.save = career;
+    freeRoam.load(world, career.found);
     if (event) quitEvent();
     menu.showCareer('Levels', 1);
   },
@@ -841,6 +1074,18 @@ function startEvent(spec: EventSpec, drivenCar: CarConfig, level: Level | null, 
   endedFor = 0;
   resultsShown = false;
   event = new EventRun(spec, scene, world, effects, audio, physics, world.isNight);
+  chain.clear();
+  driftHeld = 0;
+  throttleAt = null;
+  wasCountdown = false;
+  wheelspin = 0;
+  celebrated = false;
+  // A rival who keeps beating you is your nemesis.
+  const nemesis = event.racers.filter((r) => r.rival && (career.nemesis[r.name] ?? 0) >= 2).map((r) => r.name)[0];
+  if (nemesis) {
+    event.notes.push(`😈 Your nemesis ${nemesis} is here. Beat them for revenge!`);
+    event.callouts.push(`Your nemesis, ${nemesis}, is here.`);
+  }
   syncCar(0);
   setMode('drive');
   cameraRig.setGarage(false, carPosition(), physics.heading);
@@ -866,6 +1111,7 @@ function leaveEvents(): void {
   playing = null;
   paused = false;
   physics.allTerrain = false;
+  roamingInCareerCar = false;
   if (driveConfig !== config) {
     driveConfig = config;
     rebuildCar();
@@ -876,6 +1122,7 @@ function leaveEvents(): void {
   }
   if (world.map !== settings.map || world.layout !== 0) loadMap();
   else placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+  freeRoam.load(world, career.found);
 }
 
 /** Quits an event (or finishes with one) and goes to the main menu. */
@@ -892,7 +1139,22 @@ function quitEvent(): void {
 /** Each frame of an event: messages, the HUD, and the results at the end. */
 function updateEvent(dt: number): void {
   const e = event!;
-  for (const note of e.notes.splice(0)) toast(note, note === 'GO!' ? 900 : 1800);
+  for (const note of e.notes.splice(0)) toast(note, note === 'GO!' ? 900 : note.startsWith('😈') ? 3000 : 1800);
+  for (const s of e.skills.splice(0)) skill(s.kind, s.points, s.label);
+  for (const line of e.callouts.splice(0)) speak(line);
+  if (e.state === 'done' && !celebrated) celebrate(e);
+  if (fireworks > 0) {
+    fireworks -= dt;
+    fireworkDue -= dt;
+    if (fireworkDue <= 0) {
+      fireworkDue = 0.3 + Math.random() * 0.3;
+      const colors = [0xff3b3b, 0xffd23f, 0x3bb273, 0x1b98e0, 0xc62f9e, 0x7af0ff];
+      const a = Math.random() * Math.PI * 2;
+      const s = cameraRig.size;
+      effects.firework(new THREE.Vector3(physics.x + Math.sin(a) * 12 * s, physics.y + (10 + Math.random() * 6) * s, physics.z + Math.cos(a) * 12 * s), colors[Math.floor(Math.random() * colors.length)], s);
+      audio.explosion(0.4, 30);
+    }
+  }
   eventHudTimer -= dt;
   if (eventHudTimer <= 0) {
     eventHudTimer = 0.1;
@@ -902,6 +1164,53 @@ function updateEvent(dt: number): void {
     endedFor += dt;
     if (endedFor > 1.5) showResults(e);
   }
+}
+
+// ---------- the start and the finish ----------
+/** The countdown time when the throttle went down (null while it's up), for the launch. */
+let throttleAt: number | null = null;
+let wasCountdown = false;
+/** Seconds of wheelspin left after a start that was too early. */
+let wheelspin = 0;
+let celebrated = false;
+let fireworks = 0;
+let fireworkDue = 0;
+
+/**
+ * Launch control: press the throttle in the last 0.6 seconds of the countdown
+ * for a perfect start with a turbo boost. Press it too early and the wheels
+ * spin for a moment at the start.
+ */
+function launch(e: EventRun, throttle: number): void {
+  if (e.state === 'countdown') {
+    wasCountdown = true;
+    if (throttle > 0.5) throttleAt ??= e.countdown;
+    else throttleAt = null;
+    return;
+  }
+  if (!wasCountdown) return;
+  wasCountdown = false;
+  if (throttleAt !== null && throttleAt <= 0.6) {
+    physics.giveTurbo(1.2, 1.3);
+    skill('perfectStart', 500);
+    toast('PERFECT START!', 1200);
+    speak('Perfect start!');
+  } else if (throttleAt !== null && throttleAt > 1.2) {
+    wheelspin = 0.7;
+    toast('Wheelspin! Too early', 1200);
+  }
+  throttleAt = null;
+}
+
+/** At the finish: bank the chain, and fireworks and an orbiting camera for a good result. */
+function celebrate(e: EventRun): void {
+  celebrated = true;
+  chain.bank();
+  if (!e.result || e.result.stars === 0) return;
+  fireworks = e.result.stars === 3 || e.result.position === 1 ? 4 : 2;
+  fireworkDue = 0;
+  effects.confetti(carPosition(), 60);
+  cameraRig.setGarage(true, carPosition(), physics.heading);
 }
 
 function drawEventHud(e: EventRun): void {
@@ -930,8 +1239,9 @@ function showResults(e: EventRun): void {
   resultsShown = true;
   const r = e.result!;
   if (r.stars > 0) audio.chime(true);
+  const extras = rewardEvent(e);
   if (!playing) {
-    menu.showResults(e.spec, r, null, null);
+    menu.showResults(e.spec, r, null, null, extras);
     return;
   }
   const level = playing;
@@ -948,7 +1258,77 @@ function showResults(e: EventRun): void {
     const n = level.number >= LEVELS ? (career.mode === 'sandbox' ? career.sandboxLevel : 0) : level.number + 1;
     if (n > LEVELS || (n > 0 && lockedReason(career, n) === '')) next = makeLevel(n);
   }
-  menu.showResults(e.spec, r, payout, next);
+  menu.showResults(e.spec, r, payout, next, extras);
+}
+
+/** XP for an event, and the nemesis: lines for the results screen. */
+function rewardEvent(e: EventRun): string[] {
+  const r = e.result!;
+  const lines: string[] = [];
+  let xp = 1000 + 1000 * r.stars;
+  if (e.isRace && r.standings.length > 1) {
+    const mine = r.standings.findIndex((s) => s.me);
+    // Revenge: finishing ahead of your nemesis.
+    for (const [i, s] of r.standings.entries()) {
+      if (s.me || (career.nemesis[s.name] ?? 0) < 2 || i < mine) continue;
+      career.nemesis[s.name] = 0;
+      bump(career, 'revenge');
+      xp += 1500;
+      lines.push(`😤 Revenge on ${s.name}! +1,500 XP`);
+      speak(`Revenge on ${s.name}!`);
+    }
+    // A rival who wins against you might become your nemesis.
+    const winner = r.standings[0];
+    if (!winner.me && mine >= 0) {
+      career.nemesis[winner.name] = (career.nemesis[winner.name] ?? 0) + 1;
+      if (career.nemesis[winner.name] === 2) lines.push(`😈 ${winner.name} has beaten you twice: they're your nemesis now`);
+    }
+  }
+  lines.unshift(`+${xp.toLocaleString()} XP`);
+  lines.push(...gainXp(xp));
+  return lines;
+}
+
+// ---------- free roam: gold wrenches and challenges ----------
+function updateFreeRoam(dt: number): void {
+  const found = freeRoam.update(dt, { x: physics.x, y: physics.y, z: physics.z, speed: physics.speed, airborne: physics.airborne }, driftScore, airTime, carRadius());
+  for (const f of found) freeRoamEvent(f);
+  const text = freeRoam.hud(physics, driftScore);
+  if (zoneEl.textContent !== text) {
+    zoneEl.textContent = text;
+    zoneEl.classList.toggle('hidden', text === '');
+  }
+}
+
+function freeRoamEvent(f: FreeRoamEvent): void {
+  if (f.type === 'wrench') {
+    if (career.found.includes(f.id)) return;
+    career.found.push(f.id);
+    career.coins += 500;
+    career.earned += 500;
+    skill('collect', 500, 'Gold wrench');
+    popup('🔧', `Gold wrench ${career.found.length} found!`, '+🪙 500 · +300 XP');
+    gainXp(300);
+    return;
+  }
+  const z = f.zone;
+  const stars = FreeRoam.stars(z, f.score);
+  const starText = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+  if (!roamingInCareerCar) {
+    toast(`${z.name}: ${f.text} ${starText} · stars only count in your career car`, 3000);
+    return;
+  }
+  const had = career.zones[z.id] ?? 0;
+  if (stars > had) {
+    const coins = 400 * (stars - had);
+    career.zones[z.id] = stars;
+    career.coins += coins;
+    career.earned += coins;
+    popup('🗺️', `${z.name}: ${starText}`, `${f.text} · +🪙 ${coins.toLocaleString()}`);
+    gainXp(250 * (stars - had));
+  } else {
+    toast(`${z.name}: ${f.text} ${starText}${had ? ` (best ${'★'.repeat(had)})` : ''}`, 2500);
+  }
 }
 
 let accumulator = 0;
@@ -997,9 +1377,12 @@ function frame(now: number): void {
   const dt = !driving ? 0 : slowMotion ? realDt * SLOW_MOTION : realDt;
   if (driving && event) {
     // In an event the car is held still for the countdown, while wrecked and after the finish.
-    const held = event.state !== 'running' || event.playerWrecked > 0;
+    const held = event.state !== 'running' || event.playerWrecked > 0 || wheelspin > 0;
     if (event.spec.noNitro) controls.boost = false;
-    drive(dt, held ? STOPPED : controls);
+    launch(event, controls.throttle);
+    wheelspin = Math.max(0, wheelspin - dt);
+    // After the finish, the handbrake stops the car for the cameras.
+    drive(dt, event.state === 'done' ? { ...STOPPED, handbrake: true } : held ? STOPPED : controls);
     if (weaponsOn() && !held) useWeapons(dt, controls.fire);
     event.update(realDt);
     updateEvent(realDt);
@@ -1007,13 +1390,28 @@ function frame(now: number): void {
     const waitingToStart = trial.active && trial.countdown > 0;
     if (!waitingToStart) drive(dt, controls);
     if (settings.weapons && !waitingToStart) useWeapons(dt, controls.fire);
+    updateFreeRoam(dt);
     // The lap clock and countdown use real time, so slow motion can't
     // make laps look faster or the countdown drag on.
     updateTimeTrial(realDt);
   }
 
+  if (driving) chain.update(dt);
+  drawChain(realDt);
+  drawBoosts();
+  // The music builds up with speed, and goes all out on a race's last lap.
+  music.enabled = settings.music;
+  music.intensity = !driving ? 0 : event?.state === 'countdown' ? 0.2 : event ? 0.55 + 0.45 * physics.speedFraction : 0.3 + 0.5 * physics.speedFraction;
+  music.update(realDt, audio.context, audio.output);
+  // Speed lines at the edges of the screen when flat out, slipstreaming or boosting.
+  const rush = driving && settings.speedLines ? Math.max(0, (physics.speedFraction - 0.65) / 0.35) * 0.5 + physics.draft * 0.4 + (physics.boosting ? 0.35 : 0) : 0;
+  speedLinesEl.style.opacity = rush > 0.02 ? String(Math.min(0.8, rush)) : '0';
+  if (rush > 0.02) speedLinesEl.style.transform = `rotate(${Math.random() * 6}deg)`;
+
   syncCar(dt);
   event?.sync(dt, world.isNight);
+  // The orbiting camera at the finish follows the car as it stops.
+  if (event?.state === 'done' && celebrated) cameraRig.orbit.target.lerp(new THREE.Vector3(physics.x, physics.y + 0.7 * cameraRig.size, physics.z), Math.min(1, realDt * 4));
   updateGhost();
   world.setStartLights(event ? event.startLights : trial.startLights);
   if (driving) carEffects(dt, controls.throttle);
@@ -1044,7 +1442,7 @@ function frame(now: number): void {
   boostGlow.classList.toggle('on', driving && physics.boosting);
   weaponBar.style.width = `${Math.round(weapons.readiness * 100)}%`;
   weaponBar.classList.toggle('hot', weapons.overheated);
-  if (driving && settings.minimap) minimap.update(realDt, world, physics.x, physics.z, physics.heading, event ? event.mapMarkers() : trial.mapMarkers());
+  if (driving && settings.minimap) minimap.update(realDt, world, physics.x, physics.z, physics.heading, event ? event.mapMarkers() : [...trial.mapMarkers(), ...freeRoam.mapMarkers(physics)]);
 
   renderer.render(scene, camera);
 }
@@ -1060,6 +1458,7 @@ window.addEventListener('resize', () => {
 for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(type, () => audio.unlock());
 
 weaponName.textContent = `1 · ${weapons.name}`;
+freeRoam.load(world, career.found);
 applySettings();
 applyNight();
 syncCar(0);

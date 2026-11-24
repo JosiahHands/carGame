@@ -389,6 +389,9 @@ export class GarageUI {
     );
     this.choice('Weapons', ON_OFF, () => onOff(s.weapons), (v) => ((s.weapons = v === 'on'), changed()));
     this.choice('Minimap', ON_OFF, () => onOff(s.minimap), (v) => ((s.minimap = v === 'on'), changed()));
+    this.choice('Music', ON_OFF, () => onOff(s.music), (v) => ((s.music = v === 'on'), changed()));
+    this.choice('Announcer', ON_OFF, () => onOff(s.announcer), (v) => ((s.announcer = v === 'on'), changed()));
+    this.choice('Speed lines', ON_OFF, () => onOff(s.speedLines), (v) => ((s.speedLines = v === 'on'), changed()));
     this.row('Destroyed buildings').append(button('Rebuild everything', 'btn', () => this.events.rebuildCity()));
     this.hint('If the game feels slow, try the Low or Medium preset and turn on the FPS counter to see the difference.');
   }

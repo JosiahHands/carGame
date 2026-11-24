@@ -34,6 +34,18 @@ export class EngineAudio {
     }
   }
 
+  get isMuted(): boolean {
+    return this.muted;
+  }
+
+  /** The sound system and its volume control, once sound has started (for the music). */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+  get output(): GainNode | null {
+    return this.ctx ? this.master : null;
+  }
+
   /** Browsers only allow sound after a key press or click. */
   unlock(): void {
     if (this.ctx) {

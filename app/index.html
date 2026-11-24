@@ -13,6 +13,7 @@
   <body>
     <div id="game"></div>
     <div id="boostfx" class="boostfx"></div>
+    <div id="speedlines" class="speedlines"></div>
     <div id="hud" class="hidden">
       <div class="speedo">
         <span id="speed">0</span>
@@ -41,6 +42,14 @@
     <div id="slowmo" class="slowmo hidden">SLOW MOTION</div>
     <div id="fps" class="fps hidden"></div>
     <div id="toast" class="toast"></div>
+    <div id="chain" class="chain hidden">
+      <div class="chain-top"><span id="chain-total" class="chain-total"></span><span id="chain-mult" class="chain-mult"></span></div>
+      <div class="chain-timer"><div id="chain-fill" class="fill"></div></div>
+      <ul id="chain-feed" class="chain-feed"></ul>
+    </div>
+    <div id="boosts" class="boosts"></div>
+    <div id="zone" class="zone hidden"></div>
+    <div id="popups" class="popups"></div>
     <div id="help" class="help hidden">
       <h2>Controls</h2>
       <dl>
@@ -49,6 +58,8 @@
         <dt>A D / ← →</dt><dd>Steer</dd>
         <dt>Space</dt><dd>Handbrake (drift)</dd>
         <dt>Shift</dt><dd>Nitro boost</dd>
+        <dt>Drift</dt><dd>Hold a drift for blue, orange then purple sparks: let go for a turbo boost</dd>
+        <dt>Start</dt><dd>Press the throttle just as the race starts for a perfect start (too early spins the wheels)</dd>
         <dt>X / Z</dt><dd>Gear up / down (pick a manual gearbox in Settings)</dd>
         <dt>J</dt><dd>Jump (set a jump height in the garage)</dd>
         <dt>V</dt><dd>Horn</dd>
@@ -68,6 +79,8 @@
       </dl>
       <p>Gamepads work too: right trigger to drive, left trigger to brake, A handbrake, B nitro, RB fire, LB change weapon, left stick click jump, right stick click horn, D-pad right / left gear up / down.</p>
       <p>The stunt park with ramps and cones is just ahead of the start, on your left. Blow things up for nitro; drifting and jumps fill it too.</p>
+      <p>Skill chains: drifts, near misses, slipstreams, jumps, overtakes, takedowns and smashes add to a chain. Mix different skills for a bigger multiplier; it banks as XP a few seconds after the last one. A hard crash loses it.</p>
+      <p>Free roam: find gold wrenches (look for the beams of light) and beat speed cameras, drift zones and jump zones.</p>
     </div>
     <div id="photo-bar" class="photo-bar hidden">
       <span>Photo mode · drag to look around, scroll to zoom, right-drag to move</span>

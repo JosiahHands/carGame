@@ -195,6 +195,22 @@ export interface CareerSave {
   events: number;
   wins: number;
   earned: number;
+  /** Driver XP, from skill chains and events (see rewards.ts for levels). */
+  xp: number;
+  /** Prize spins waiting to be spun (one per driver level). */
+  spins: number;
+  /** Coin rush tokens from the prize wheel: each one doubles an event's coins. */
+  coinRush: number;
+  /** Counts and records for the trophies: near misses, best chain, top speed... */
+  stats: Record<string, number>;
+  /** Trophies won (ids from rewards.ts). */
+  trophies: string[];
+  /** Collectibles found in free roam ("map:index"). */
+  found: string[];
+  /** Stars won on free-roam challenges ("map:index" -> 0..3). */
+  zones: Record<string, number>;
+  /** Rivals' wins over the player: the one with the most is the nemesis. */
+  nemesis: Record<string, number>;
 }
 
 const SAVE_KEY = 'carGame.career.v1';
@@ -204,6 +220,7 @@ export function newCareer(completions = 0): CareerSave {
   return {
     coins: 0, stars: new Array(LEVELS).fill(0), best: new Array(LEVELS).fill(''), bestScore: new Array(LEVELS).fill(0), upgrades: noUpgrades(), owned: [0], car: 0,
     mode: 'career', sandboxLevel: LEVELS + 1, sandboxBest: 0, completions, finished: false, daily: '', streak: 0, events: 0, wins: 0, earned: 0,
+    xp: 0, spins: 0, coinRush: 0, stats: {}, trophies: [], found: [], zones: {}, nemesis: {},
   };
 }
 
@@ -230,6 +247,20 @@ export function loadCareer(): CareerSave {
     save.events = num(raw.events, 0);
     save.wins = num(raw.wins, 0);
     save.earned = num(raw.earned, 0);
+    save.xp = num(raw.xp, 0);
+    save.spins = num(raw.spins, 0, 1000);
+    save.coinRush = num(raw.coinRush, 0, 1000);
+    const numbers = (v: unknown, max: number) => {
+      const out: Record<string, number> = {};
+      if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (typeof x === 'number' && Number.isFinite(x)) out[k.slice(0, 40)] = Math.max(0, Math.min(max, x));
+      return out;
+    };
+    const strings = (v: unknown) => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 40)))] : []);
+    save.stats = numbers(raw.stats, 1e12);
+    save.trophies = strings(raw.trophies);
+    save.found = strings(raw.found);
+    save.zones = numbers(raw.zones, 3);
+    save.nemesis = numbers(raw.nemesis, 1e6);
   } catch {
     // Unreadable save: start fresh.
   }
@@ -610,12 +641,21 @@ export function payLevel(save: CareerSave, level: Level, result: LevelResult): P
     coins += extra;
     lines.push(`Prestige ×${prestige(save).toFixed(2)}: +${extra}`);
   }
+  coins = useCoinRush(save, coins, lines);
   save.coins += coins;
   save.earned += coins;
   save.events++;
   if (position === 1) save.wins++;
   saveCareer(save);
   return { coins, lines, newStars, firstClear };
+}
+
+/** Doubles an event's coins if there's a coin rush token from the prize wheel (and uses it). */
+function useCoinRush(save: CareerSave, coins: number, lines: string[]): number {
+  if (save.coinRush <= 0 || coins <= 0) return coins;
+  save.coinRush--;
+  lines.push(`🎰 Coin rush ×2: +${coins}`);
+  return coins * 2;
 }
 
 /**
@@ -628,6 +668,8 @@ export function resetCareer(save: CareerSave, completed: boolean): CareerSave {
   fresh.wins = save.wins;
   fresh.earned = save.earned;
   fresh.sandboxBest = save.sandboxBest;
+  // The driver keeps their level, trophies and what they found in free roam.
+  Object.assign(fresh, { xp: save.xp, spins: save.spins, stats: save.stats, trophies: save.trophies, found: save.found, zones: save.zones, nemesis: save.nemesis });
   saveCareer(fresh);
   return fresh;
 }
@@ -685,6 +727,7 @@ export function payDaily(save: CareerSave, level: Level, stars: number): Payout 
       lines.push(`${save.streak}-day streak: +${bonus}`);
     }
   }
+  coins = useCoinRush(save, coins, lines);
   save.coins += coins;
   save.earned += coins;
   save.events++;
