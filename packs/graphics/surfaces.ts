@@ -30,12 +30,31 @@ const NOISE = /* glsl */ `
   }
 `;
 
+/** The ground materials given detail, with their own shader hooks to put back. */
 const patched = new Map<THREE.Material, { onBeforeCompile: THREE.Material['onBeforeCompile']; key: THREE.Material['customProgramCacheKey'] }>();
+
+/** A disposed material is gone for good: stop tracking it, so it (and its textures) can be freed. */
+function forgetDisposed(event: { target: THREE.Material }): void {
+  patched.delete(event.target);
+  event.target.removeEventListener('dispose', forgetDisposed);
+}
+
+/** Puts one material's own shader hooks back and stops tracking it. */
+function unpatch(material: THREE.Material): void {
+  const saved = patched.get(material);
+  if (!saved) return;
+  material.onBeforeCompile = saved.onBeforeCompile;
+  material.customProgramCacheKey = saved.key;
+  material.needsUpdate = true;
+  material.removeEventListener('dispose', forgetDisposed);
+  patched.delete(material);
+}
 
 /** Adds the ground detail to one material (once). */
 function patchGround(material: THREE.MeshStandardMaterial): void {
   if (patched.has(material)) return;
   patched.set(material, { onBeforeCompile: material.onBeforeCompile, key: material.customProgramCacheKey });
+  material.addEventListener('dispose', forgetDisposed);
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, groundUniforms);
     shader.vertexShader = shader.vertexShader
@@ -101,14 +120,24 @@ export function detailGround(root: THREE.Object3D): void {
   });
 }
 
+/**
+ * Lets go of ground materials the old map used that the new one (under
+ * `root`) doesn't, so the old map's materials and textures can be freed.
+ * Called before detailGround when a new map loads.
+ */
+export function forgetOldGround(root: THREE.Object3D): void {
+  const inUse = new Set<THREE.Material>();
+  root.traverse((object) => {
+    const material = (object as THREE.Mesh).material;
+    if (Array.isArray(material)) for (const m of material) inUse.add(m);
+    else if (material) inUse.add(material);
+  });
+  for (const material of [...patched.keys()]) if (!inUse.has(material)) unpatch(material);
+}
+
 /** Takes the detail off every ground material. */
 export function undoGround(): void {
-  for (const [material, saved] of patched) {
-    material.onBeforeCompile = saved.onBeforeCompile;
-    material.customProgramCacheKey = saved.key;
-    material.needsUpdate = true;
-  }
-  patched.clear();
+  for (const material of [...patched.keys()]) unpatch(material);
 }
 
 /** Sharper textures at a glancing angle (roads into the distance), for every texture under `root`. */

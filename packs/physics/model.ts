@@ -17,7 +17,7 @@
 //
 // Numbers are per kilogram of car (forces are accelerations), so a toy car
 // and a 100 ft monster drive by the same rules.
-import { CarPhysics, GEAR_TOPS, type CarDynamics, type CarInput } from '../../game/carPhysics';
+import { CarPhysics, GEAR_TOPS, MAX_REVERSE, type CarDynamics, type CarInput } from '../../game/carPhysics';
 import type { World } from '../../game/world';
 
 /** How much driving help a car gets. Rivals always get full help. */
@@ -236,15 +236,43 @@ export class RealisticDynamics implements CarDynamics {
     const delta = car.steerAngle;
 
     if (car.airborne) {
-      // In the air: no grip. Steer and throttle still nudge the car (air control), like the arcade model.
+      // In the air: no grip. Steer, throttle, brake and nitro still nudge the
+      // car (air control), the same amounts as the arcade model.
       const control = car.airControl;
       r += (input.steer * 2.5 * control - r) * Math.min(1, dt * 2);
+      // The gearbox keeps working in the air, as in the arcade model: an
+      // automatic changes gear with speed, and a manual's rev limiter cuts the
+      // power at the redline (and a high gear bogs down at low revs).
+      if (!car.manual) {
+        car.gear = 1;
+        while (car.gear < GEAR_TOPS.length && Math.abs(u) > GEAR_TOPS[car.gear - 1] * car.topSpeed) car.gear++;
+      }
+      car.revs = u < 0 ? -u / MAX_REVERSE : u / (GEAR_TOPS[car.gear - 1] * car.topSpeed);
+      s.rpm = Math.min(1.2, Math.abs(car.revs));
+      let pull = 1;
+      if (car.manual) {
+        if (car.revs >= 1) pull = 0;
+        else if (car.gear > 1) pull = 0.12 + 0.88 * Math.min(1, car.revs / 0.53) ** 2;
+      }
+      car.limiter = car.manual && car.revs >= 1 && input.throttle > 0;
+      car.braking = false;
+      if (input.throttle > 0) {
+        if (u < -0.5) {
+          u = Math.min(0, u + car.brakeDecel * input.throttle * dt * control);
+          car.braking = true;
+        } else u += car.accel * input.throttle * Math.max(0, 1 - (u / (car.topSpeed * (1 + 0.08 * car.draft))) ** 2) * pull * dt * control;
+      }
       const power = car.useBoost(dt, input, u);
-      if (power > 0) u += car.accel * 1.6 * power * dt * Math.max(0.4, control);
+      if (power > 0) u += car.accel * 1.6 * power * Math.max(0, 1 - (u / (car.topSpeed * (1 + 0.35 * power))) ** 2) * dt * Math.max(0.4, control);
+      if (input.brake > 0) {
+        if (u > 0.5) {
+          u = Math.max(0, u - car.brakeDecel * input.brake * dt * control);
+          car.braking = true;
+        } else if (u > -MAX_REVERSE) u -= car.accel * 0.6 * input.brake * dt * control;
+      }
       s.yawRate = r;
       for (let i = 0; i < 4; i++) s.spin[i] += (u / sp.radius - s.spin[i]) * Math.min(1, dt * 2);
       this.setVelocity(car, u, v, fx, fz, dt);
-      car.braking = false;
       return;
     }
 
