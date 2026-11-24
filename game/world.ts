@@ -678,6 +678,37 @@ export class World {
     this.targets.push(parked);
   }
 
+  /**
+   * Adds a car that drives around the city (see traffic.ts). It can be rammed
+   * and blown up like a parked car, and comes back at its home spot.
+   */
+  addTrafficCar(x: number, z: number, heading: number): CarTarget {
+    this.addParkedCar(x, z, heading);
+    const t = this.targets[this.targets.length - 1] as CarTarget;
+    t.value = 15000;
+    return t;
+  }
+
+  /** Moves a car (and its collision box) to a new spot. */
+  moveCar(t: CarTarget, x: number, z: number, heading: number): void {
+    t.rig.root.position.set(x, 0, z);
+    t.rig.root.rotation.set(0, heading, 0);
+    this.fitCarBox(t);
+  }
+
+  /** Takes a traffic car out of the world. */
+  removeCar(t: CarTarget): void {
+    const drop = <T>(list: T[], item: T) => {
+      const i = list.indexOf(item);
+      if (i >= 0) list.splice(i, 1);
+    };
+    drop(this.targets, t);
+    drop(this.boxes, t.box);
+    drop(this.parkedCars, t.rig);
+    t.rig.root.removeFromParent();
+    t.rig.dispose();
+  }
+
   private buildStuntPark(bx: number, bz: number): void {
     const rampMat = new THREE.MeshStandardMaterial({ color: 0xe0a03a, roughness: 0.7 });
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7 });

@@ -10,7 +10,7 @@ import { EngineAudio } from '../game/engineAudio';
 import { GarageUI } from '../game/garageUI';
 import { Input, type Action } from '../game/input';
 import { Minimap } from '../game/minimap';
-import { EFFECTS_AMOUNT, SHADOW_SIZES, loadSettings, saveSettings } from '../game/settings';
+import { EFFECTS_AMOUNT, SHADOW_SIZES, TRAFFIC_COUNTS, loadSettings, saveSettings } from '../game/settings';
 import { TimeTrial, formatTime } from '../game/timeTrial';
 import { Weapons } from '../game/weapons';
 import { venue } from '../game/venues';
@@ -20,6 +20,8 @@ import { EventRun, type EventSpec } from '../game/event';
 import { MenuUI } from '../game/menuUI';
 import { FreeRoam, type FreeRoamEvent } from '../game/freeRoam';
 import { Music } from '../game/music';
+import { Pedestrians } from '../game/pedestrians';
+import { Traffic } from '../game/traffic';
 import { addXp, bump, checkTrophies, driverLevel, record } from '../game/rewards';
 import { SKILLS, SkillChain, type SkillKind } from '../game/skills';
 import { el } from '../libs/dom';
@@ -61,6 +63,10 @@ const minimap = new Minimap();
 document.body.append(minimap.canvas);
 const freeRoam = new FreeRoam(scene);
 const music = new Music();
+// The city's NPCs: traffic and people on the pavements (free roam only).
+const traffic = new Traffic();
+traffic.onHonk = () => audio.trafficHorn();
+const people = new Pedestrians(scene);
 
 // ---------- the player's car ----------
 /** The garage build: what you drive in free roam, and the paint and parts on career cars. */
@@ -232,6 +238,7 @@ world.onDestroyed = (target) => {
   event?.addDamage(target.value);
   scoreEl.textContent = `$${damage.toLocaleString()} damage`;
   const distance = Math.hypot(target.x - physics.x, target.z - physics.z);
+  if (target.kind !== 'lamp' && target.kind !== 'tree') people.panic(target.x, target.z, 40);
   if (target.kind === 'building') {
     physics.nitro = Math.min(1, physics.nitro + 0.25);
     audio.explosion(2.5, distance);
@@ -281,6 +288,9 @@ const garage = new GarageUI(config, settings, {
   settingsChanged() {
     saveSettings(settings);
     applySettings();
+    // Traffic or pedestrians switched on or off: put the right ones in the city.
+    const npcs = `${settings.traffic}/${settings.pedestrians}`;
+    if (npcs !== npcSettings && !event) loadNpcs();
   },
   rebuildCity() {
     world.rebuildAll(physics.x, physics.z, carRadius());
@@ -388,8 +398,10 @@ function loadMap(): void {
   trial.stop();
   weapons.clear();
   effects.clear();
+  traffic.clear(); // before the world is cleared, while its cars are still there to remove
   world.load(settings.map);
   freeRoam.load(world, career.found);
+  loadNpcs();
   trial.setCourse(world.course, world.map);
   ghost?.dispose();
   ghost = null;
@@ -860,6 +872,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
         toast(`Air time ${airTime.toFixed(1)} s`);
         physics.nitro = Math.min(1, physics.nitro + airTime * 0.08); // jumps fill the nitro
         skill('air', airTime * 300, `Air ${airTime.toFixed(1)} s`);
+        if (airTime > 1.2) people.cheer(physics.x, physics.z, 45);
         bump(career, 'air', airTime);
       }
       airTime = 0;
@@ -874,6 +887,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
       }
       if (ev.impact > 7) chain.break(); // a hard crash loses the skill chain
       // Ramming a parked car hard enough wrecks it.
+      if (ev.hitTarget && traffic.owns(ev.hitTarget)) traffic.hit(ev.hitTarget);
       if (ev.hitTarget && ev.impact > 6) {
         world.damage(ev.hitTarget, ev.impact * 5, new THREE.Vector3(physics.vx, 0, physics.vz).normalize());
       }
@@ -923,6 +937,7 @@ function useWeapons(dt: number, firing: boolean): void {
   for (const blast of blasts) {
     const distance = blast.at.distanceTo(carPosition());
     audio.explosion(1.5, distance);
+    people.panic(blast.at.x, blast.at.z, blast.radius * 3 + 12);
     shake = Math.max(shake, Math.min(0.7, 6 / (distance + 4)));
     // Close explosions throw the car up and away (rocket jumps!).
     const reach = blast.radius * 1.3;
@@ -1055,6 +1070,9 @@ function playLevel(level: Level): void {
 /** Loads the venue, puts everyone on the grid and starts the countdown. */
 function startEvent(spec: EventSpec, drivenCar: CarConfig, level: Level | null, allTerrain: boolean): void {
   event?.dispose();
+  // No traffic or pedestrians in events.
+  traffic.clear();
+  people.load(world, false);
   playing = level;
   trial.stop();
   ghost?.dispose();
@@ -1125,9 +1143,34 @@ function leaveEvents(): void {
     night = false;
     applyNight();
   }
-  if (world.map !== settings.map || world.layout !== 0) loadMap();
-  else placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
-  freeRoam.load(world, career.found);
+  if (world.map !== settings.map || world.layout !== 0) {
+    loadMap();
+  } else {
+    placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+    freeRoam.load(world, career.found);
+    loadNpcs();
+  }
+}
+
+/** The Traffic and Pedestrians settings when the NPCs were last put in. */
+let npcSettings = '';
+
+/** Puts traffic and people in the city for free roam, as many as the settings say. */
+function loadNpcs(): void {
+  npcSettings = `${settings.traffic}/${settings.pedestrians}`;
+  traffic.load(world, TRAFFIC_COUNTS[settings.traffic], physics.x, physics.z);
+  people.load(world, settings.pedestrians);
+  people.setVisible(true);
+}
+
+/** Moves the traffic and people on, and scores near misses with traffic. */
+function updateNpcs(dt: number): void {
+  const player = { x: physics.x, z: physics.z, vx: physics.vx, vz: physics.vz, heading: physics.heading, width: car.width, length: car.length };
+  for (const points of traffic.update(dt, player, world.isNight)) {
+    skill('nearMiss', points, 'Near miss: traffic');
+    toast('Near miss!', 700);
+  }
+  people.update(dt, { x: physics.x, y: physics.y, z: physics.z, vx: physics.vx, vz: physics.vz, reach: carRadius() });
 }
 
 /** Quits an event (or finishes with one) and goes to the main menu. */
@@ -1395,6 +1438,7 @@ function frame(now: number): void {
     if (!waitingToStart) drive(dt, controls);
     if (settings.weapons && !waitingToStart) useWeapons(dt, controls.fire);
     updateFreeRoam(dt);
+    updateNpcs(dt);
     // The lap clock and countdown use real time, so slow motion can't
     // make laps look faster or the countdown drag on.
     updateTimeTrial(realDt);
@@ -1463,6 +1507,7 @@ for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(
 
 weaponName.textContent = `1 · ${weapons.name}`;
 freeRoam.load(world, career.found);
+loadNpcs();
 applySettings();
 applyNight();
 syncCar(0);

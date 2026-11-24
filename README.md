@@ -3,6 +3,26 @@
 A 3D driving game. Race AI rivals through a 100-level career, set up quick races
 with any car, or build your car in the garage and drive anywhere in free roam.
 
+## Install and update
+
+Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
+[Node.js](https://nodejs.org) 22.12 or newer. On Windows, run the commands in Git Bash.
+Installing adds Car Game to your apps: open it from Launchpad or Spotlight on macOS,
+the Start Menu or Desktop on Windows, or the app menu on Linux. Press H in the game
+to see the controls.
+
+**Install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
+```
+
+**Update:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
+```
+
 ## Career
 
 100 levels in ten chapters, from the Rookie Cup to the Legends, each with its own
@@ -94,6 +114,13 @@ X and Z (D-pad right and left on a gamepad). A rev counter turns into a flashing
 red shift light at the redline; hold a gear too long and you hit the rev limiter,
 change up too early and the engine bogs down.
 
+The city is alive in free roam: **traffic** drives the streets, keeps to its lane,
+takes turns at the crossings, queues, and honks if you block the road. Ram it or
+blow it up for points, or skim past for a near miss. **Pedestrians** walk the
+pavements, leap out of your way (nobody gets hurt), run from explosions, and
+cheer your big jumps. Set the traffic from Off to Busy, or turn pedestrians off,
+in Settings.
+
 Every map hides **gold wrenches** (68 in all; look for the beams of light, and
 some need a jump) and has **challenges**: speed cameras, drift zones and jump
 zones, each with three stars. Challenge stars count when you pick **Free roam in
@@ -132,21 +159,3 @@ sessions.
 If the game runs slowly, press Esc for the settings: pick a quality preset (Low to
 Ultra), or set the resolution, shadows, view distance, effects and a frame rate
 limit yourself, and turn on the FPS counter to see the difference.
-
-Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
-[Node.js](https://nodejs.org) 22.12 or newer. On Windows, run the commands in Git Bash.
-Installing adds Car Game to your apps: open it from Launchpad or Spotlight on macOS,
-the Start Menu or Desktop on Windows, or the app menu on Linux. Press H in the game
-to see the controls.
-
-Install:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
-```
-
-Update:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
-```
