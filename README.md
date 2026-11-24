@@ -36,6 +36,28 @@ each finished career).
 and a difficulty from Easy to Insane. Drive any car: your garage build, any career
 car (stock or fully upgraded), or a showcase build. Rivals get cars as quick as yours.
 
+## Skills, XP and rewards
+
+Stylish driving builds a **skill chain**: drifts, near misses, slipstreaming,
+jumps, overtakes, takedowns, smashes, flat-out speed and perfect starts all add
+to it. Mix different skills for a bigger multiplier (up to ×10). The chain banks
+a few seconds after your last skill, but a hard crash loses it all.
+
+- **Drift boosts:** hold a drift for blue, then orange, then purple sparks, and
+  let go for a turbo boost.
+- **Perfect starts:** press the throttle just as the countdown ends for a boost.
+  Press it too early and the wheels spin.
+- **Slipstream:** tuck in behind a rival for more top speed.
+- **Nemesis:** a rival who beats you twice becomes your nemesis. Finish ahead of
+  them for revenge and bonus XP.
+
+Banked chains and events earn XP. Every driver level gives a spin of the **prize
+wheel**: coins, free upgrades, coin rushes (double coins from your next events)
+or the jackpot. There are 57 **trophies**, each paying coins.
+
+Fireworks, an orbiting camera, synth music that builds with your speed, speed
+lines and an announcer finish it off. Each can be turned off in Settings.
+
 ## Venues
 
 Eight venues, each with its own main track. Any other track number makes a new
@@ -71,6 +93,11 @@ The gearbox is automatic, or pick Manual in Settings and change gear yourself wi
 X and Z (D-pad right and left on a gamepad). A rev counter turns into a flashing
 red shift light at the redline; hold a gear too long and you hit the rev limiter,
 change up too early and the engine bogs down.
+
+Every map hides **gold wrenches** (68 in all; look for the beams of light, and
+some need a jump) and has **challenges**: speed cameras, drift zones and jump
+zones, each with three stars. Challenge stars count when you pick **Free roam in
+your career car** from the main menu.
 
 ## The garage
 

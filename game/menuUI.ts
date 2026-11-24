@@ -10,6 +10,7 @@ import {
 } from './career';
 import { SHOWCASE_BUILDS, showcaseConfig, type CarConfig, type Tuning } from './carConfig';
 import { EVENT_KINDS, type EventKind, type EventResult, type EventSpec } from './event';
+import { PRIZES, TROPHIES, WRENCHES, ZONE_STARS, driverLevel, spinWheel } from './rewards';
 import { formatTime } from './timeTrial';
 import { VENUES, venue, type MapName } from './venues';
 
@@ -19,6 +20,8 @@ export interface MenuEvents {
   playLevel(level: Level): void;
   playQuick(spec: EventSpec, car: CarConfig): void;
   freeRoam(): void;
+  /** Free roam in the career car, where challenge stars count. */
+  freeRoamCareer(): void;
   garage(): void;
   /** The career may have changed (a car bought, chosen or upgraded): save it and show the car. */
   carChanged(): void;
@@ -32,7 +35,7 @@ export interface MenuEvents {
   units(): 'mph' | 'kmh';
 }
 
-type CareerTab = 'Levels' | 'Garage' | 'Daily' | 'Stats';
+type CareerTab = 'Levels' | 'Garage' | 'Daily' | 'Trophies' | 'Stats';
 
 const KIND_ORDER: EventKind[] = ['race', 'elimination', 'duel', 'timeAttack', 'takedown', 'drift', 'speedTrap', 'destruction', 'stunt'];
 
@@ -89,14 +92,83 @@ export class MenuUI {
       list.append(choose);
       career.classList.remove('primary');
     }
+    const zoneStars = Object.values(s.zones).reduce((a, b) => a + b, 0);
     list.append(
       career,
       this.bigButton('🏁 Quick race', 'Any car, any track, any difficulty', () => this.showQuick()),
-      this.bigButton('🗺️ Free roam', 'Drive anywhere. Weapons, stunts and time trials', () => this.events.freeRoam()),
+      this.bigButton('🗺️ Free roam', `Your garage build. Weapons, stunts, time trials · 🔧 ${s.found.length}/${WRENCHES} gold wrenches`, () => this.events.freeRoam()),
+      this.bigButton('🚗 Free roam in your career car', `Speed cameras, drift and jump zones · ${zoneStars}/${ZONE_STARS} ★`, () => this.events.freeRoamCareer()),
       this.bigButton('🔧 Garage & settings', 'Customize your car and the game', () => this.events.garage()),
     );
+    if (s.spins > 0) {
+      const spin = this.bigButton(`🎰 Prize wheel × ${s.spins}`, 'You levelled up! Spin for coins, upgrades and coin rushes', () => this.showWheel());
+      spin.classList.add('prize');
+      list.prepend(spin);
+    }
     const foot = el('p', 'menu-foot', daily);
-    this.open('main', title, list, foot);
+    this.open('main', title, this.driverCard(), list, foot);
+  }
+
+  /** The driver level, with a bar for the XP to the next one. */
+  private driverCard(): HTMLElement {
+    const s = this.save;
+    const d = driverLevel(s.xp);
+    const card = el('div', 'driver-card');
+    const bar = el('div', 'bar');
+    const fill = el('div', 'fill');
+    fill.style.width = `${Math.round((d.into / d.need) * 100)}%`;
+    bar.append(fill);
+    const extra = [`🏅 ${s.trophies.length}/${TROPHIES.length} trophies`];
+    if (s.coinRush > 0) extra.push(`⚡ Coin rush × ${s.coinRush}`);
+    card.append(
+      el('span', 'driver-level', `Driver level ${d.level}`),
+      bar,
+      el('span', 'driver-xp', `${d.into.toLocaleString()} / ${d.need.toLocaleString()} XP · ${extra.join(' · ')}`),
+    );
+    return card;
+  }
+
+  // ---------- the prize wheel ----------
+
+  /** The prize wheel: one spin for every driver level gained. */
+  showWheel(): void {
+    const box = el('div', 'overlay-box wheel-box');
+    box.append(el('h2', 'gold', '🎰 Prize wheel'), el('p', 'muted', 'You earn a spin every time your driver level goes up.'));
+    const holder = el('div', 'wheel-holder');
+    const wheel = el('div', 'wheel');
+    const slice = 360 / PRIZES.length;
+    wheel.style.background = `conic-gradient(${PRIZES.map((p, i) => `${p.color} ${i * slice}deg ${(i + 1) * slice}deg`).join(', ')})`;
+    PRIZES.forEach((p, i) => {
+      const label = el('span', 'wheel-label', p.label);
+      label.style.transform = `rotate(${i * slice + slice / 2}deg) translateY(-118px) rotate(-90deg)`;
+      wheel.append(label);
+    });
+    holder.append(wheel, el('div', 'wheel-pointer', '▼'));
+    const text = el('p', 'wheel-text', `Spins left: ${this.save.spins}`);
+    const actions = el('div', 'actions');
+    let turned = 0;
+    const spin = button('SPIN!', 'btn primary big', () => {
+      if (this.save.spins <= 0) return;
+      spin.disabled = true;
+      const { index, text: won } = spinWheel(this.save);
+      // Turn at least five times, then stop with the prize under the pointer (a bit off centre, for realism).
+      const centre = index * slice + slice / 2;
+      const jitter = (Math.random() - 0.5) * slice * 0.6;
+      turned += 360 * 5 + ((360 - centre - (turned % 360) + 360) % 360) + jitter;
+      wheel.style.transform = `rotate(${turned}deg)`;
+      turned -= jitter;
+      text.textContent = 'Spinning…';
+      window.setTimeout(() => {
+        text.textContent = won;
+        text.classList.add('won');
+        spin.disabled = this.save.spins <= 0;
+        spin.textContent = this.save.spins > 0 ? `SPIN AGAIN (${this.save.spins})` : 'No spins left';
+        this.events.carChanged(); // a free upgrade changes the car
+      }, 4200);
+    });
+    actions.append(spin, button('Done', 'btn big', () => this.showMain()));
+    box.append(holder, text, actions);
+    this.open('overlay', box);
   }
 
   private bigButton(label: string, sub: string, onClick: () => void): HTMLButtonElement {
@@ -123,7 +195,7 @@ export class MenuUI {
     head.append(back, titles, wallet);
 
     const nav = el('nav', 'tabs');
-    for (const t of ['Levels', 'Garage', 'Daily', 'Stats'] as CareerTab[]) {
+    for (const t of ['Levels', 'Garage', 'Daily', 'Trophies', 'Stats'] as CareerTab[]) {
       const b = button(t === 'Garage' ? 'Cars & upgrades' : t, 'tab', () => this.showCareer(t));
       b.classList.toggle('active', t === tab);
       nav.append(b);
@@ -132,6 +204,7 @@ export class MenuUI {
     if (tab === 'Levels') this.levelsTab(body);
     else if (tab === 'Garage') this.garageTab(body);
     else if (tab === 'Daily') this.dailyTab(body);
+    else if (tab === 'Trophies') this.trophiesTab(body);
     else this.statsTab(body);
     this.open('career', head, nav, body);
   }
@@ -365,10 +438,43 @@ export class MenuUI {
     body.append(card);
   }
 
+  /** Every trophy: the ones won, and how far along the others are. */
+  private trophiesTab(body: HTMLElement): void {
+    const s = this.save;
+    body.append(el('p', 'muted', `${s.trophies.length} of ${TROPHIES.length} won. Each one pays coins.`));
+    const grid = el('div', 'trophies');
+    // Won ones first, then the closest to being won.
+    const sorted = [...TROPHIES].sort((a, b) => {
+      const wa = s.trophies.includes(a.id) ? 2 : Math.min(1, a.value(s) / a.need);
+      const wb = s.trophies.includes(b.id) ? 2 : Math.min(1, b.value(s) / b.need);
+      return wb - wa;
+    });
+    for (const t of sorted) {
+      const won = s.trophies.includes(t.id);
+      const tile = el('div', `trophy${won ? ' won' : ''}`);
+      const bar = el('div', 'bar');
+      const fill = el('div', 'fill');
+      const value = Math.min(t.need, Math.floor(t.value(s)));
+      fill.style.width = `${Math.round((value / t.need) * 100)}%`;
+      bar.append(fill);
+      tile.append(
+        el('span', 'trophy-icon', t.icon),
+        el('span', 'trophy-name', t.name),
+        el('span', 'trophy-about', t.about),
+        bar,
+        el('span', 'trophy-reward', won ? `Won · 🪙 ${t.reward.toLocaleString()}` : `${value.toLocaleString()} / ${t.need.toLocaleString()} · 🪙 ${t.reward.toLocaleString()}`),
+      );
+      grid.append(tile);
+    }
+    body.append(grid);
+  }
+
   private statsTab(body: HTMLElement): void {
     const s = this.save;
     const facts = el('dl', 'facts');
     const fact = (k: string, v: string) => facts.append(el('dt', undefined, k), el('dd', undefined, v));
+    const stat = (key: string) => Math.round(s.stats[key] ?? 0).toLocaleString();
+    fact('Driver level', `${driverLevel(s.xp).level} (${s.xp.toLocaleString()} XP)`);
     fact('Levels cleared', `${s.stars.filter((x) => x > 0).length} / ${LEVELS}`);
     fact('Stars', `${totalStars(s)} / ${LEVELS * 3}`);
     fact('Events', s.events.toLocaleString());
@@ -377,6 +483,19 @@ export class MenuUI {
     fact('Cars owned', `${s.owned.length} / ${CHASSIS.length}`);
     fact('Careers finished', String(s.completions));
     if (s.sandboxBest) fact('Best sandbox level', String(s.sandboxBest));
+    fact('Best skill chain', stat('bestChain'));
+    fact('Near misses', stat('nearMiss'));
+    fact('Overtakes', stat('overtake'));
+    fact('Takedowns', stat('takedown'));
+    fact('Perfect starts', stat('perfectStart'));
+    fact('Drift boosts', stat('driftBoost'));
+    fact('Seconds in a slipstream', stat('draft'));
+    fact('Seconds in the air', stat('air'));
+    fact('Top speed in an event', `${stat('topSpeed')} mph`);
+    fact('Gold wrenches', `${s.found.length} / ${WRENCHES}`);
+    fact('Free-roam challenge stars', `${Object.values(s.zones).reduce((a, b) => a + b, 0)} / ${ZONE_STARS}`);
+    const nemesis = Object.entries(s.nemesis).sort((a, b) => b[1] - a[1])[0];
+    if (nemesis && nemesis[1] >= 2) fact('Nemesis', `${nemesis[0]} (beat you ${nemesis[1]} times)`);
     body.append(facts);
     body.append(el('h3', undefined, 'Start again'), el('p', 'muted', 'Resetting wipes your coins, cars, upgrades and stars. If you have finished the career, it counts as a completion: coins pay 25% more for each one.'));
     const reset = button('Reset career…', 'btn danger', () => {
@@ -492,7 +611,7 @@ export class MenuUI {
    * The results: stars, score, the finishing order and coins. `next` is the
    * next career level, if there is one to go on to.
    */
-  showResults(spec: EventSpec, result: EventResult, payout: Payout | null, next: Level | null): void {
+  showResults(spec: EventSpec, result: EventResult, payout: Payout | null, next: Level | null, extras: string[] = []): void {
     const box = el('div', 'overlay-box results');
     const won = result.position === 1 || (result.position === 0 && result.stars === 3);
     const heading = result.passed ? (won ? (spec.boss ? `${spec.boss} defeated!` : 'Victory!') : 'Finished!') : spec.kind === 'elimination' && result.position > 0 ? 'Knocked out!' : 'Not this time';
@@ -519,6 +638,11 @@ export class MenuUI {
       for (const line of payout.lines) coins.append(el('span', undefined, line));
       coins.append(el('span', 'muted', `Balance: 🪙 ${this.save.coins.toLocaleString()}`));
       box.append(coins);
+    }
+    if (extras.length) {
+      const more = el('div', 'payout extras');
+      for (const line of extras) more.append(el('span', undefined, line));
+      box.append(more);
     }
     const actions = el('div', 'actions');
     if (next) actions.append(button(`Next: level ${next.number} ▶`, 'btn primary big', () => this.events.playLevel(next)));

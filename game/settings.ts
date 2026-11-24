@@ -25,6 +25,12 @@ export interface Settings {
   map: MapName;
   /** Automatic changes gear by itself; manual is X / Z (or the D-pad). */
   transmission: 'auto' | 'manual';
+  /** The game's own synth music. */
+  music: boolean;
+  /** A voice that calls out the countdown, overtakes and results. */
+  announcer: boolean;
+  /** Streaks at the edge of the screen at high speed. */
+  speedLines: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +47,9 @@ export const DEFAULT_SETTINGS: Settings = {
   units: 'mph',
   map: 'city',
   transmission: 'auto',
+  music: true,
+  announcer: true,
+  speedLines: true,
 };
 
 /** The quality presets. Each one sets the four graphics settings at once. */

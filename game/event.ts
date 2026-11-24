@@ -22,6 +22,7 @@ import type { Effects } from './effects';
 import type { EngineAudio } from './engineAudio';
 import type { RaceTrack } from './raceTrack';
 import { Rival, type RacerPosition, type RivalSpec } from './rivals';
+import type { SkillKind } from './skills';
 import { formatTime } from './timeTrial';
 import type { MapName } from './venues';
 import type { HitBox, World } from './world';
@@ -154,6 +155,15 @@ export class EventRun {
   result: EventResult | null = null;
   /** Messages for the app to show (one-off toasts). */
   readonly notes: string[] = [];
+  /** Skills the player pulled off (near misses, overtakes, takedowns), for the app's skill chain. */
+  readonly skills: { kind: SkillKind; points: number; label?: string }[] = [];
+  /** Lines the announcer says (the app speaks them if the announcer is on). */
+  readonly callouts: string[] = [];
+  /** The player's place last frame, to spot overtakes. */
+  private lastPlace = 0;
+  /** When each rival was last near-missed (by clock), so one pass counts once. */
+  private nearMissAt = new Map<Racer, number>();
+  private finalLapCalled = false;
   /** The player's car is wrecked: seconds until it's put back on the track. */
   playerWrecked = 0;
   /** Points of the drift going on now, not yet banked: they still count if the time runs out mid-drift. */
@@ -390,7 +400,9 @@ export class EventRun {
       }
     }
     const impact = this.collideCars();
+    this.updateDrafts(dt);
     if (!racing) return impact;
+    if (impact === 0) this.nearMisses();
     for (const r of this.racers) {
       if (track) this.updateProgress(r, dt);
       // A camera only counts the first time past it each lap: only progress
@@ -407,6 +419,50 @@ export class EventRun {
       }
     }
     return impact;
+  }
+
+  /**
+   * Slipstream: a car tucked in close behind another one, going the same
+   * way, has less air to push through. Works for everyone, so packs form
+   * and the car behind can slingshot past.
+   */
+  private updateDrafts(dt: number): void {
+    const cars = this.racers.filter((r) => (!r.rival || (r.rival.active && r.rival.wrecked <= 0)));
+    for (const a of cars) {
+      const p = a.physics;
+      let target = 0;
+      if (p.speed > 15 && !p.airborne) {
+        const fx = Math.sin(p.heading);
+        const fz = Math.cos(p.heading);
+        for (const b of cars) {
+          if (b === a) continue;
+          const q = b.physics;
+          const dx = q.x - p.x;
+          const dz = q.z - p.z;
+          const ahead = dx * fx + dz * fz;
+          const side = Math.abs(dx * fz - dz * fx);
+          const sameWay = Math.sin(q.heading) * fx + Math.cos(q.heading) * fz;
+          if (ahead > 3 && ahead < 32 && side < 2.4 && sameWay > 0.9) target = Math.max(target, 1 - (ahead - 3) / 29);
+        }
+      }
+      p.draft += (target - p.draft) * Math.min(1, dt * 4);
+    }
+  }
+
+  /** Squeezing past a rival at speed without touching: a near miss. */
+  private nearMisses(): void {
+    const me = this.me.physics;
+    for (const r of this.racers) {
+      if (!r.rival || !r.rival.active || r.rival.wrecked > 0) continue;
+      const q = r.physics;
+      const gap = Math.hypot(q.x - me.x, q.z - me.z) - (me.width + q.width) / 2;
+      const closing = Math.hypot(me.vx - q.vx, me.vz - q.vz);
+      if (gap > 0.15 && gap < 1.4 && me.speed > 18 && closing > 4 && Math.abs(q.y - me.y) < 1.5) {
+        const last = this.nearMissAt.get(r) ?? -Infinity;
+        if (this.clock - last > 2.5) this.skills.push({ kind: 'nearMiss', points: 100 + me.speed * 3 });
+        this.nearMissAt.set(r, this.clock);
+      }
+    }
   }
 
   /** The rivals' catch-up: ease off when far ahead of the player, push harder when far behind. */
@@ -554,6 +610,8 @@ export class EventRun {
     } else {
       this.notes.push(`💥 ${r.name} wrecked`);
     }
+    this.skills.push({ kind: 'takedown', points: 400, label: `Takedown: ${r.name}` });
+    if (Math.random() < 0.5) this.callouts.push('Takedown!');
     this.me.physics.nitro = Math.min(1, this.me.physics.nitro + 0.35);
   }
 
@@ -629,11 +687,15 @@ export class EventRun {
     if (this.state === 'countdown') {
       const before = Math.ceil(this.countdown);
       this.countdown -= dt;
-      if (Math.ceil(this.countdown) < before && this.countdown > 0 && before <= 3) this.audio.chime();
+      if (Math.ceil(this.countdown) < before && this.countdown > 0 && before <= 4) {
+        this.audio.chime();
+        this.callouts.push(String(Math.ceil(this.countdown)));
+      }
       if (this.countdown <= 0) {
         this.state = 'running';
         this.audio.chime(true);
         this.notes.push('GO!');
+        this.callouts.push('Go!');
       }
       return;
     }
@@ -656,7 +718,26 @@ export class EventRun {
       }
     }
     if (this.spec.kind === 'elimination') this.eliminate();
+    this.watchPlaces();
     this.checkFinished();
+  }
+
+  /** Overtakes (for the skill chain) and the final-lap call. */
+  private watchPlaces(): void {
+    const track = this.track;
+    if (this.isRace) {
+      const place = this.order().indexOf(this.me) + 1;
+      if (this.lastPlace && place < this.lastPlace && this.me.outOrder === 0) {
+        this.skills.push({ kind: 'overtake', points: 250 * (this.lastPlace - place), label: `Overtake: P${place}` });
+        if (place === 1) this.callouts.push('You take the lead!');
+      }
+      this.lastPlace = place;
+    }
+    if (track && this.usesLaps && this.spec.laps > 1 && !this.finalLapCalled && this.me.distance > (this.spec.laps - 1) * track.length) {
+      this.finalLapCalled = true;
+      this.callouts.push('Final lap!');
+      this.notes.push('🏁 FINAL LAP');
+    }
   }
 
   /** Every `timeLimit` seconds, knocks out whoever is last. */
@@ -669,6 +750,7 @@ export class EventRun {
     last.outOrder = ++this.outCount;
     if (last === this.me) return; // checkFinished ends it
     this.notes.push(`❌ ${last.name} is out!`);
+    this.callouts.push(`${last.name} is out!`);
     this.audio.crash(4);
     const rival = last.rival!;
     rival.active = false;
@@ -749,6 +831,7 @@ export class EventRun {
     }
     const stars = finished ? this.starsFor(score) : 0;
     this.result = { stars, position, score, scoreText, passed: stars > 0, standings, bestLap: this.bestLap };
+    this.callouts.push(position === 1 ? 'Winner!' : stars === 3 ? 'Perfect!' : stars > 0 ? 'Finished!' : 'Better luck next time.');
   }
 
   /** A score as shown for this kind of event. */

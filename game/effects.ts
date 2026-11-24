@@ -180,6 +180,34 @@ export class Effects {
     d.resting = false;
   }
 
+  /** A firework: a ball of coloured sparks that fall and fade. */
+  firework(at: THREE.Vector3, color: THREE.ColorRepresentation, size = 1): void {
+    for (let i = 0; i < this.count(60); i++) {
+      // Even directions over a sphere.
+      const y = Math.random() * 2 - 1;
+      const r = Math.sqrt(1 - y * y);
+      const a = Math.random() * Math.PI * 2;
+      const v = new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r).multiplyScalar(14 * size * (0.8 + Math.random() * 0.4));
+      this.addGlow({ at: at.clone(), velocity: v, life: 1.2 + Math.random() * 0.5, size: [0.6 * size, 0.1 * size], color, endColor: 0xffffff, rise: -5, drag: 1.2 });
+    }
+  }
+
+  /** Confetti: little paper squares thrown up around a point. */
+  confetti(at: THREE.Vector3, count: number): void {
+    const colors = [0xff3b3b, 0xffd23f, 0x3bb273, 0x1b98e0, 0xc62f9e, 0xffffff];
+    for (let i = 0; i < this.count(count); i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 2 + Math.random() * 5;
+      this.addDebris(
+        new THREE.Vector3(at.x + random(1), at.y + 1, at.z + random(1)),
+        new THREE.Vector3(Math.cos(a) * s, 6 + Math.random() * 8, Math.sin(a) * s),
+        new THREE.Vector3(0.18, 0.02, 0.12),
+        colors[i % colors.length],
+        14,
+      );
+    }
+  }
+
   /** A burst of debris flying out from a point, in the given colours. */
   shatter(center: THREE.Vector3, count: number, colors: THREE.ColorRepresentation[], size: number, speed: number): void {
     for (let i = 0; i < this.count(count); i++) {

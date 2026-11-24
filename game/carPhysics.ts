@@ -112,6 +112,15 @@ export class CarPhysics {
    * half as much, and rain and snow take away less grip.
    */
   allTerrain = false;
+  /**
+   * Slipstream, 0..1: how well tucked in behind another car this is. Less
+   * air to push through means a higher top speed (up to 8%). Set every step
+   * by the race.
+   */
+  draft = 0;
+  /** Seconds of free boost left: a drift mini-turbo or a rocket start. It doesn't use the nitro bottle. */
+  turbo = 0;
+  private turboPower = 1;
   private lastForward = 0;
   private jumpHeld = false;
 
@@ -150,6 +159,8 @@ export class CarPhysics {
     this.airborne = false;
     this.nitro = 1;
     this.boosting = false;
+    this.turbo = 0;
+    this.draft = 0;
     this.gear = 1;
     this.revs = 0;
     this.limiter = false;
@@ -170,6 +181,12 @@ export class CarPhysics {
     if (this.gear <= 1 || this.forwardSpeed > GEAR_TOPS[this.gear - 2] * this.topSpeed * 1.01) return false;
     this.gear--;
     return true;
+  }
+
+  /** A free boost for `seconds` (on top of any already going), as strong as nitro × `power`. */
+  giveTurbo(seconds: number, power: number): void {
+    if (this.turbo <= 0 || power >= this.turboPower) this.turboPower = power;
+    this.turbo = Math.max(this.turbo, seconds);
   }
 
   /** Shoves the car, for example away from an explosion. */
@@ -255,17 +272,23 @@ export class CarPhysics {
         vf = Math.min(0, vf + this.brakeDecel * input.throttle * dt * control);
         this.braking = true;
       } else {
-        const headroom = Math.max(0, 1 - (vf / this.topSpeed) ** 2);
+        const top = this.topSpeed * (1 + 0.08 * this.draft);
+        const headroom = Math.max(0, 1 - (vf / top) ** 2);
         vf += this.accel * input.throttle * headroom * pull * dt * control;
       }
     }
-    // Nitro: extra push and a higher top speed while the bottle lasts.
-    this.boosting = input.boost && this.nitro > 0 && vf > -0.5;
+    // Nitro: extra push and a higher top speed while the bottle lasts. A
+    // turbo (drift boost, rocket start) does the same for free, for a moment.
+    const nitroOn = input.boost && this.nitro > 0;
+    const turboOn = this.turbo > 0;
+    this.turbo = Math.max(0, this.turbo - dt);
+    this.boosting = (nitroOn || turboOn) && vf > -0.5;
     if (this.boosting) {
-      if (!this.infiniteNitro) this.nitro = Math.max(0, this.nitro - this.nitroBurn * dt);
-      const top = this.topSpeed * (1 + 0.35 * this.nitroPower);
+      if (nitroOn && !this.infiniteNitro) this.nitro = Math.max(0, this.nitro - this.nitroBurn * dt);
+      const power = Math.max(nitroOn ? this.nitroPower : 0, turboOn ? this.turboPower : 0);
+      const top = this.topSpeed * (1 + 0.35 * power);
       const headroom = Math.max(0, 1 - (vf / top) ** 2);
-      vf += this.accel * 1.6 * this.nitroPower * headroom * dt * (this.airborne ? Math.max(0.4, this.airControl) : 1);
+      vf += this.accel * 1.6 * power * headroom * dt * (this.airborne ? Math.max(0.4, this.airControl) : 1);
     }
     if (input.brake > 0) {
       if (vf > 0.5) {

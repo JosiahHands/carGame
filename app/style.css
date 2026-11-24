@@ -826,8 +826,13 @@ input.text.code {
 }
 
 .menu.main .menu-panel {
-  justify-content: center;
-  padding: 32px;
+  /* Centred, but scrolls from the top when the menu is taller than the window. */
+  justify-content: safe center;
+  padding: 28px 32px;
+}
+
+.menu.main .menu-big {
+  padding: 12px 18px;
 }
 
 .menu-title h1 {
@@ -843,7 +848,7 @@ input.text.code {
 }
 
 .menu-title p {
-  margin: 4px 0 28px;
+  margin: 4px 0 18px;
   color: var(--muted);
   font-weight: 600;
 }
@@ -1432,4 +1437,348 @@ input.text.code {
   gap: 10px;
   margin-top: 16px;
   text-align: left;
+}
+
+/* ---------- Skill chains, boosts, free roam and popups ---------- */
+.chain {
+  position: fixed;
+  right: 24px;
+  bottom: 190px;
+  width: 230px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  pointer-events: none;
+}
+
+.chain-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.chain-total {
+  font-size: 26px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.chain-mult {
+  font-size: 20px;
+  font-weight: 900;
+  color: #ffd23f;
+}
+
+.chain-timer {
+  height: 4px;
+  margin: 6px 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.chain-timer .fill {
+  height: 100%;
+  background: #ffd23f;
+}
+
+.chain-feed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chain-feed li {
+  display: flex;
+  justify-content: space-between;
+  animation: slide-in 0.2s;
+}
+
+.chain-feed li:not(:first-child) {
+  opacity: 0.6;
+}
+
+.chain.banked {
+  border-color: #3bb273;
+  box-shadow: 0 0 24px rgba(59, 178, 115, 0.5);
+}
+
+.chain.broken {
+  border-color: #ff3b3b;
+  box-shadow: 0 0 24px rgba(255, 59, 59, 0.5);
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+}
+
+.boosts {
+  position: fixed;
+  left: 50%;
+  bottom: 90px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.boosts span {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.boosts .draft {
+  color: #7af0ff;
+}
+
+.boosts .turbo {
+  color: #ffd23f;
+}
+
+.boosts .spark1 {
+  color: #4fb3ff;
+}
+
+.boosts .spark2 {
+  color: #ff9f40;
+}
+
+.boosts .spark3 {
+  color: #c77dff;
+}
+
+.zone {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.popups {
+  position: fixed;
+  left: 18px;
+  bottom: 160px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.popup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 210, 63, 0.5);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  animation: popup 4.5s forwards;
+}
+
+.popup-icon {
+  font-size: 28px;
+}
+
+.popup-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.popup-text strong {
+  font-size: 15px;
+  color: #ffd23f;
+}
+
+@keyframes popup {
+  0% {
+    transform: translateX(-120%);
+  }
+  8%,
+  88% {
+    transform: none;
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 0;
+  }
+}
+
+.speedlines {
+  position: fixed;
+  inset: -10%;
+  opacity: 0;
+  pointer-events: none;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 3deg, rgba(255, 255, 255, 0.55) 3deg 3.3deg, transparent 3.3deg 7deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 38%, #000 80%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 38%, #000 80%);
+}
+
+/* ---------- Driver level, prize wheel and trophies (menus) ---------- */
+.driver-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--chip);
+}
+
+.driver-level {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.driver-card .bar,
+.trophy .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.driver-card .fill,
+.trophy .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1b98e0, #7af0ff);
+}
+
+.driver-xp {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.menu-big.prize {
+  background: linear-gradient(90deg, #7b2cbf, #c62f9e);
+  color: #fff;
+  animation: glow 1.6s infinite alternate;
+}
+
+.menu-big.prize .big-sub {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+@keyframes glow {
+  to {
+    box-shadow: 0 0 22px rgba(198, 47, 158, 0.7);
+  }
+}
+
+.wheel-holder {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 16px auto 8px;
+}
+
+.wheel {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 6px solid #ffd23f;
+  box-shadow: 0 0 30px rgba(255, 210, 63, 0.35);
+  transition: transform 4s cubic-bezier(0.12, 0.7, 0.18, 1);
+}
+
+.wheel-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 110px;
+  margin: -9px 0 0 -55px;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.wheel-pointer {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 30px;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+.wheel-text {
+  min-height: 24px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.wheel-text.won {
+  color: #ffd23f;
+  font-size: 20px;
+  animation: star-pop 0.45s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+
+.trophies {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.trophy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--chip);
+  opacity: 0.75;
+}
+
+.trophy.won {
+  opacity: 1;
+  background: rgba(255, 210, 63, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 210, 63, 0.4);
+}
+
+.trophy.won .fill {
+  background: #ffd23f;
+}
+
+.trophy-icon {
+  font-size: 26px;
+}
+
+.trophy-name {
+  font-weight: 800;
+}
+
+.trophy-about,
+.trophy-reward {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.payout.extras {
+  background: rgba(27, 152, 224, 0.12);
 }
