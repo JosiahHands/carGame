@@ -149,5 +149,6 @@ function isControl(target: EventTarget | null): boolean {
 }
 
 function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement && (target.type === 'text' || target.type === 'number');
+  if (target instanceof HTMLTextAreaElement) return true;
+  return target instanceof HTMLInputElement && ['text', 'number', 'password', 'search'].includes(target.type);
 }

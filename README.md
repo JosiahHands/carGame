@@ -33,6 +33,61 @@ curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
 ```
 
+## Packs
+
+Packs are optional add-ons. Each one changes a whole part of the game. Packs
+need the game installed from source, as above. Each command installs the game
+first if it isn't installed yet, then adds the pack.
+
+**🌅 Photo Real** (`graphics`): makes the game look real. It adds a physically
+based sky with a real sun and clouds, and light reflected from the sky onto
+every surface. Roads get wet and puddles in the rain. Cars get sculpted, rounded
+bodies that follow your garage settings, with clearcoat paint, metal flake,
+brake discs and calipers. It also adds ambient occlusion, soft bloom, street
+lamps that light the road at night, headlights, and a camera lens with
+film-style looks and photo-mode depth of field.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
+```
+
+**🧪 Real Physics** (`physics`): realistic driving. Each of the four tyres has
+real grip curves. Weight shifts under braking and cornering. The engine has a
+torque curve and gears, and every surface has its own grip. Glancing crashes
+spin the car and dent it, and a telemetry panel shows the tyres at work.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
+```
+
+**🧠 Living City** (`npc`): twelve people live in the city, each with a name
+over their head, a job, friends and a personality. They go about their day,
+meet up and talk, and remember what you do. Over time they change: they form
+opinions and pick up habits, and warm to you or hold a grudge. Among them are
+GUY, the cheerful bank teller in the blue shirt, and his best friend BUDDY, a
+police officer who goes everywhere with him and writes you tickets.
+
+Add an [Anthropic API key](https://console.anthropic.com) in the Packs tab and
+Claude writes what they say and think. The key is stored encrypted and never
+goes anywhere but Anthropic. Using the API costs money, and the Packs tab shows
+the spend. Without a key, a built-in brain keeps the city going. Press K next
+to someone to talk to them, and L for the city journal (city free roam).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc
+```
+
+**All three packs:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all
+```
+
+The update command above also updates your packs. To switch a pack off, change
+its options or remove it, open the garage (G) and go to the **Packs** tab. A
+removed pack stops straight away and is left out the next time the game
+updates. To make a pack of your own, see [packs/README.md](packs/README.md).
+
 ## Career
 
 100 levels in ten chapters, from the Rookie Cup to the Legends, each with its own

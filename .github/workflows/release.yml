@@ -122,6 +122,8 @@ jobs:
           ```bash
           curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
           ```
+
+          Packs (lifelike graphics, realistic physics, a living city) install from source too: see the [README](https://github.com/JosiahHands/carGame#packs).
           EOF
           gh release create "$VERSION" upload/* \
             --repo "$GITHUB_REPOSITORY" \

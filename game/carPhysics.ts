@@ -46,7 +46,32 @@ const GIANT_HEIGHT = 3;
  */
 export const GEAR_TOPS = [0.18, 0.34, 0.52, 0.72, 1.0];
 
+/**
+ * Another way to drive the cars, from a pack (the physics pack). It replaces
+ * the arcade model's engine, brakes, steering and tyres; the game still does
+ * crashes, jumps, ramps and slopes. Set CarPhysics.dynamics to use it.
+ */
+export interface CarDynamics {
+  /**
+   * One physics step of driving on the ground (or flying). Updates the car's
+   * vx, vz, heading, steerAngle, gear, revs, limiter and braking, and returns
+   * how fast it's turning (radians per second, positive is left).
+   */
+  drive(car: CarPhysics, dt: number, input: CarInput, world: World): number;
+  /** Most sideways acceleration the tyres can give at this speed, in m/s² (the AI plans its corner speeds with it). */
+  cornerGrip(car: CarPhysics, speed: number, surfaceGrip: number): number;
+  /** The car hit something: (nx, nz) points away from it, at a point `along` metres forward and `across` metres left of the centre. */
+  impact?(car: CarPhysics, nx: number, nz: number, along: number, across: number, lost: number): void;
+  /** The car was put somewhere new, standing still. */
+  reset?(car: CarPhysics): void;
+}
+
 export class CarPhysics {
+  /** A pack's driving model in place of the arcade one, or null. Shared by every car. */
+  static dynamics: CarDynamics | null = null;
+  /** Each car's own state for the pack's driving model. */
+  dynamicsState: unknown = null;
+
   x = 0;
   z = 0;
   y = 0;
@@ -85,22 +110,22 @@ export class CarPhysics {
   accel = 9;
   /** Top speed in m/s. */
   topSpeed = 50;
-  private gripMultiplier = 1;
-  private grip = 7; // how quickly sideways sliding dies away
+  gripMultiplier = 1;
+  grip = 7; // how quickly sideways sliding dies away
   /** How hard the brakes slow the car, in m/s². */
   brakeDecel = 20;
-  private maxSteer = 0.5; // radians
-  private driftGrip = 0.25;
-  private downforce = 0;
-  private nitroPower = 1;
-  private nitroBurn = 0.3; // bottle used per second
-  private infiniteNitro = false;
-  private jumpSpeed = 0; // m/s upwards
-  private airControl = 0.15;
-  private gravity = EARTH_GRAVITY;
-  private bounce = 0.35;
+  maxSteer = 0.5; // radians
+  driftGrip = 0.25;
+  downforce = 0;
+  nitroPower = 1;
+  nitroBurn = 0.3; // bottle used per second
+  infiniteNitro = false;
+  jumpSpeed = 0; // m/s upwards
+  airControl = 0.15;
+  gravity = EARTH_GRAVITY;
+  bounce = 0.35;
   // Set from the car's size by configure().
-  private wheelBase = 2.6;
+  wheelBase = 2.6;
   // The car's size in metres (from its model).
   length = 4.4;
   width = 1.9;
@@ -120,12 +145,15 @@ export class CarPhysics {
   draft = 0;
   /** Seconds of free boost left: a drift mini-turbo or a rocket start. It doesn't use the nitro bottle. */
   turbo = 0;
-  private turboPower = 1;
+  turboPower = 1;
+  /** The car's settings from the garage, from configure(). */
+  config: CarConfig | null = null;
   private lastForward = 0;
   private jumpHeld = false;
 
   configure(config: CarConfig, dims: { length: number; width: number; height: number; wheelBase: number }): void {
     const t = config.tuning;
+    this.config = config;
     // 400 hp gives the original 10 m/s²; more power has diminishing returns.
     this.accel = 10 * (t.horsepower / 400) ** 0.6;
     this.topSpeed = t.topSpeed * MPH;
@@ -164,6 +192,7 @@ export class CarPhysics {
     this.gear = 1;
     this.revs = 0;
     this.limiter = false;
+    CarPhysics.dynamics?.reset?.(this);
   }
 
   /** Changes up a gear (manual gearbox). Returns false in top gear. */
@@ -206,6 +235,7 @@ export class CarPhysics {
 
   /** Most sideways acceleration the tyres can give at this speed (m/s²), with downforce and the surface. */
   cornerGrip(speed: number): number {
+    if (CarPhysics.dynamics) return CarPhysics.dynamics.cornerGrip(this, speed, this.surfaceGrip);
     return TYRE_GRIP * this.gripMultiplier * this.surfaceGrip * (1 + (this.downforce / 10) * (speed / (100 * MPH)) ** 2);
   }
 
@@ -215,6 +245,18 @@ export class CarPhysics {
    * at any speed.
    */
   cornerSpeed(curve: number, surfaceGrip = this.surfaceGrip): number {
+    if (CarPhysics.dynamics) {
+      // The pack's grip changes with speed in its own way: find the speed where it just holds the bend.
+      let lo = 0;
+      let hi = 2000;
+      if (CarPhysics.dynamics.cornerGrip(this, hi, surfaceGrip) >= hi * hi * Math.abs(curve)) return Infinity;
+      for (let i = 0; i < 40; i++) {
+        const v = (lo + hi) / 2;
+        if (CarPhysics.dynamics.cornerGrip(this, v, surfaceGrip) >= v * v * Math.abs(curve)) lo = v;
+        else hi = v;
+      }
+      return lo;
+    }
     // Solve v² × curve = grip × (1 + k v²), where k is the downforce part.
     const g = TYRE_GRIP * this.gripMultiplier * surfaceGrip;
     const k = (this.downforce / 10) / (100 * MPH) ** 2;
@@ -241,121 +283,7 @@ export class CarPhysics {
     let vl = this.vx * fz - this.vz * fx;
     const control = this.airborne ? this.airControl : 1;
 
-    // Steering: smoothed, and less lock at high speed.
-    const steerTarget = input.steer * this.maxSteer / (1 + Math.abs(vf) / 28);
-    this.steerAngle += (steerTarget - this.steerAngle) * Math.min(1, dt * 10);
-
-    // The gearbox. An automatic picks the gear for the speed, changing up at
-    // each gear's redline. Revs grow with speed through each gear.
-    if (!this.manual) {
-      this.gear = 1;
-      while (this.gear < GEAR_TOPS.length && Math.abs(vf) > GEAR_TOPS[this.gear - 1] * this.topSpeed) this.gear++;
-    }
-    this.revs = vf < 0 ? -vf / MAX_REVERSE : vf / (GEAR_TOPS[this.gear - 1] * this.topSpeed);
-    // How hard the engine pulls in this gear. An automatic always uses the
-    // right gear, so it always pulls fully. In a manual, a high gear below
-    // about half revs bogs down (first gear never does: the clutch slips), and
-    // at the redline the rev limiter cuts the power until you change up.
-    // Changing up at the redline lands at least 0.53 up the next gear's revs,
-    // so it is exactly as quick as the automatic; changing up early is slower.
-    let pull = 1;
-    if (this.manual) {
-      if (this.revs >= 1) pull = 0;
-      else if (this.gear > 1) pull = 0.12 + 0.88 * Math.min(1, this.revs / 0.53) ** 2;
-    }
-    this.limiter = this.manual && this.revs >= 1 && input.throttle > 0;
-
-    // Throttle, brake and reverse.
-    this.braking = false;
-    if (input.throttle > 0) {
-      if (vf < -0.5) {
-        vf = Math.min(0, vf + this.brakeDecel * input.throttle * dt * control);
-        this.braking = true;
-      } else {
-        const top = this.topSpeed * (1 + 0.08 * this.draft);
-        const headroom = Math.max(0, 1 - (vf / top) ** 2);
-        vf += this.accel * input.throttle * headroom * pull * dt * control;
-      }
-    }
-    // Nitro: extra push and a higher top speed while the bottle lasts. A
-    // turbo (drift boost, rocket start) does the same for free, for a moment.
-    const nitroOn = input.boost && this.nitro > 0;
-    const turboOn = this.turbo > 0;
-    this.turbo = Math.max(0, this.turbo - dt);
-    this.boosting = (nitroOn || turboOn) && vf > -0.5;
-    if (this.boosting) {
-      if (nitroOn && !this.infiniteNitro) this.nitro = Math.max(0, this.nitro - this.nitroBurn * dt);
-      const power = Math.max(nitroOn ? this.nitroPower : 0, turboOn ? this.turboPower : 0);
-      const top = this.topSpeed * (1 + 0.35 * power);
-      const headroom = Math.max(0, 1 - (vf / top) ** 2);
-      vf += this.accel * 1.6 * power * headroom * dt * (this.airborne ? Math.max(0.4, this.airControl) : 1);
-    }
-    if (input.brake > 0) {
-      if (vf > 0.5) {
-        vf = Math.max(0, vf - this.brakeDecel * input.brake * dt * control);
-        this.braking = true;
-      } else if (vf > -MAX_REVERSE) {
-        vf -= this.accel * 0.6 * input.brake * dt * control;
-      }
-    }
-    if (input.handbrake && !this.airborne) {
-      const s = Math.sign(vf);
-      vf -= s * Math.min(Math.abs(vf), 7 * dt);
-      this.braking = true;
-    }
-    // Air drag and rolling resistance. On the throttle, air drag is already
-    // part of the engine's fade-out near top speed above, so it isn't added
-    // again; that way the car really reaches the top speed set in the garage.
-    if (!this.airborne) {
-      const coast = input.throttle === 0 && input.brake === 0 ? 1.2 : 0.3;
-      const air = input.throttle > 0 ? 0 : Math.abs(vf) * 0.012;
-      const s = Math.sign(vf);
-      vf -= s * Math.min(Math.abs(vf), (coast + air) * dt);
-    }
-    // Grass beside a race track drags the car back: a normal car manages about 75 mph on it.
-    this.onGrass = !this.airborne && world.offRoad(this.x, this.z);
-    if (this.onGrass) {
-      const s = Math.sign(vf);
-      const drag = (0.5 + Math.abs(vf) * 0.08) * (this.allTerrain ? 0.5 : 1);
-      vf -= s * Math.min(Math.abs(vf), drag * dt);
-    }
-
-    // Downforce presses the car onto the road harder the faster it goes,
-    // adding grip: none at a standstill, double the grip at 10/10 and 100 mph.
-    const downforceGrip = 1 + (this.downforce / 10) * (vf / (100 * MPH)) ** 2;
-    this.surfaceGrip = world.gripAt(this.x, this.z);
-    if (this.allTerrain) this.surfaceGrip = 1 - (1 - this.surfaceGrip) * 0.4;
-
-    // Sideways grip: low grip with the handbrake lets the car slide.
-    if (!this.airborne) {
-      const g = (input.handbrake ? this.grip * this.driftGrip : this.grip) * downforceGrip * this.surfaceGrip;
-      vl *= Math.exp(-g * dt);
-    }
-
-    // Turning, limited to what the tyres can hold: too fast for a corner and
-    // the car runs wide. The handbrake lets it swing round further and slide.
-    let yawRate = (vf / this.wheelBase) * Math.tan(this.steerAngle) * control;
-    if (input.handbrake && Math.abs(vf) > 3) yawRate *= 1.5;
-    const maxYaw = (this.cornerGrip(vf) * (input.handbrake ? DRIFT_TURN : 1)) / Math.max(1, Math.abs(vf));
-    yawRate = Math.max(-maxYaw, Math.min(maxYaw, yawRate));
-    const dYaw = yawRate * dt;
-    this.heading += dYaw;
-
-    // Rebuild velocity. Grippy tyres carry most of the speed round the turn;
-    // a sliding car keeps going the old way, which makes it drift.
-    const carry = input.handbrake ? 0.25 : 0.85;
-    const oldFx = fx;
-    const oldFz = fz;
-    let vx = oldFx * vf + oldFz * vl;
-    let vz = oldFz * vf - oldFx * vl;
-    if (!this.airborne) {
-      const a = dYaw * carry;
-      const c = Math.cos(a);
-      const s = Math.sin(a);
-      [vx, vz] = [vx * c + vz * s, -vx * s + vz * c];
-    }
-    this.vx = vx;
-    this.vz = vz;
+    const yawRate = CarPhysics.dynamics ? CarPhysics.dynamics.drive(this, dt, input, world) : this.arcade(dt, input, world, vf, vl, fx, fz, control);
 
     // Move, checking for crashes along the way. At hundreds of mph the car
     // moves several metres a step, so it moves in smaller pieces then, or it
@@ -432,6 +360,143 @@ export class CarPhysics {
     this.roll += (rollTarget - this.roll) * Math.min(1, dt * 6);
     this.bodyPitch += (pitchTarget - this.bodyPitch) * Math.min(1, dt * 6);
     return events;
+  }
+
+  /**
+   * The arcade driving model: one step of engine, brakes, steering and grip.
+   * Updates the velocity and heading, and returns the turn rate (rad/s).
+   */
+  private arcade(dt: number, input: CarInput, world: World, vf: number, vl: number, fx: number, fz: number, control: number): number {
+    // Steering: smoothed, and less lock at high speed.
+    const steerTarget = input.steer * this.maxSteer / (1 + Math.abs(vf) / 28);
+    this.steerAngle += (steerTarget - this.steerAngle) * Math.min(1, dt * 10);
+
+    // The gearbox. An automatic picks the gear for the speed, changing up at
+    // each gear's redline. Revs grow with speed through each gear.
+    if (!this.manual) {
+      this.gear = 1;
+      while (this.gear < GEAR_TOPS.length && Math.abs(vf) > GEAR_TOPS[this.gear - 1] * this.topSpeed) this.gear++;
+    }
+    this.revs = vf < 0 ? -vf / MAX_REVERSE : vf / (GEAR_TOPS[this.gear - 1] * this.topSpeed);
+    // How hard the engine pulls in this gear. An automatic always uses the
+    // right gear, so it always pulls fully. In a manual, a high gear below
+    // about half revs bogs down (first gear never does: the clutch slips), and
+    // at the redline the rev limiter cuts the power until you change up.
+    // Changing up at the redline lands at least 0.53 up the next gear's revs,
+    // so it is exactly as quick as the automatic; changing up early is slower.
+    let pull = 1;
+    if (this.manual) {
+      if (this.revs >= 1) pull = 0;
+      else if (this.gear > 1) pull = 0.12 + 0.88 * Math.min(1, this.revs / 0.53) ** 2;
+    }
+    this.limiter = this.manual && this.revs >= 1 && input.throttle > 0;
+
+    // Throttle, brake and reverse.
+    this.braking = false;
+    if (input.throttle > 0) {
+      if (vf < -0.5) {
+        vf = Math.min(0, vf + this.brakeDecel * input.throttle * dt * control);
+        this.braking = true;
+      } else {
+        const top = this.topSpeed * (1 + 0.08 * this.draft);
+        const headroom = Math.max(0, 1 - (vf / top) ** 2);
+        vf += this.accel * input.throttle * headroom * pull * dt * control;
+      }
+    }
+    // Nitro: extra push and a higher top speed while the bottle lasts. A
+    // turbo (drift boost, rocket start) does the same for free, for a moment.
+    const power = this.useBoost(dt, input, vf);
+    if (power > 0) {
+      const top = this.topSpeed * (1 + 0.35 * power);
+      const headroom = Math.max(0, 1 - (vf / top) ** 2);
+      vf += this.accel * 1.6 * power * headroom * dt * (this.airborne ? Math.max(0.4, this.airControl) : 1);
+    }
+    if (input.brake > 0) {
+      if (vf > 0.5) {
+        vf = Math.max(0, vf - this.brakeDecel * input.brake * dt * control);
+        this.braking = true;
+      } else if (vf > -MAX_REVERSE) {
+        vf -= this.accel * 0.6 * input.brake * dt * control;
+      }
+    }
+    if (input.handbrake && !this.airborne) {
+      const s = Math.sign(vf);
+      vf -= s * Math.min(Math.abs(vf), 7 * dt);
+      this.braking = true;
+    }
+    // Air drag and rolling resistance. On the throttle, air drag is already
+    // part of the engine's fade-out near top speed above, so it isn't added
+    // again; that way the car really reaches the top speed set in the garage.
+    if (!this.airborne) {
+      const coast = input.throttle === 0 && input.brake === 0 ? 1.2 : 0.3;
+      const air = input.throttle > 0 ? 0 : Math.abs(vf) * 0.012;
+      const s = Math.sign(vf);
+      vf -= s * Math.min(Math.abs(vf), (coast + air) * dt);
+    }
+    // Grass beside a race track drags the car back: a normal car manages about 75 mph on it.
+    this.feelSurface(world);
+    if (this.onGrass) {
+      const s = Math.sign(vf);
+      const drag = (0.5 + Math.abs(vf) * 0.08) * (this.allTerrain ? 0.5 : 1);
+      vf -= s * Math.min(Math.abs(vf), drag * dt);
+    }
+
+    // Downforce presses the car onto the road harder the faster it goes,
+    // adding grip: none at a standstill, double the grip at 10/10 and 100 mph.
+    const downforceGrip = 1 + (this.downforce / 10) * (vf / (100 * MPH)) ** 2;
+
+    // Sideways grip: low grip with the handbrake lets the car slide.
+    if (!this.airborne) {
+      const g = (input.handbrake ? this.grip * this.driftGrip : this.grip) * downforceGrip * this.surfaceGrip;
+      vl *= Math.exp(-g * dt);
+    }
+
+    // Turning, limited to what the tyres can hold: too fast for a corner and
+    // the car runs wide. The handbrake lets it swing round further and slide.
+    let yawRate = (vf / this.wheelBase) * Math.tan(this.steerAngle) * control;
+    if (input.handbrake && Math.abs(vf) > 3) yawRate *= 1.5;
+    const maxYaw = (this.cornerGrip(vf) * (input.handbrake ? DRIFT_TURN : 1)) / Math.max(1, Math.abs(vf));
+    yawRate = Math.max(-maxYaw, Math.min(maxYaw, yawRate));
+    const dYaw = yawRate * dt;
+    this.heading += dYaw;
+
+    // Rebuild velocity. Grippy tyres carry most of the speed round the turn;
+    // a sliding car keeps going the old way, which makes it drift.
+    const carry = input.handbrake ? 0.25 : 0.85;
+    const oldFx = fx;
+    const oldFz = fz;
+    let vx = oldFx * vf + oldFz * vl;
+    let vz = oldFz * vf - oldFx * vl;
+    if (!this.airborne) {
+      const a = dYaw * carry;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      [vx, vz] = [vx * c + vz * s, -vx * s + vz * c];
+    }
+    this.vx = vx;
+    this.vz = vz;
+    return yawRate;
+  }
+
+  /**
+   * Nitro and turbo: uses up the bottle (or the free turbo) and returns how
+   * strong the boost is this step, or 0 when not boosting. Sets `boosting`.
+   */
+  useBoost(dt: number, input: CarInput, forwardSpeed: number): number {
+    const nitroOn = input.boost && this.nitro > 0;
+    const turboOn = this.turbo > 0;
+    this.turbo = Math.max(0, this.turbo - dt);
+    this.boosting = (nitroOn || turboOn) && forwardSpeed > -0.5;
+    if (!this.boosting) return 0;
+    if (nitroOn && !this.infiniteNitro) this.nitro = Math.max(0, this.nitro - this.nitroBurn * dt);
+    return Math.max(nitroOn ? this.nitroPower : 0, turboOn ? this.turboPower : 0);
+  }
+
+  /** Looks at the ground under the car: grass beside a track, and how grippy it is. */
+  feelSurface(world: World): void {
+    this.onGrass = !this.airborne && world.offRoad(this.x, this.z);
+    this.surfaceGrip = world.gripAt(this.x, this.z);
+    if (this.allTerrain) this.surfaceGrip = 1 - (1 - this.surfaceGrip) * 0.4;
   }
 
   /**
@@ -552,6 +617,14 @@ export class CarPhysics {
     this.vz -= vn * dz * (1 + this.bounce);
     this.vx *= 0.85;
     this.vz *= 0.85;
+    if (CarPhysics.dynamics?.impact) {
+      // Where on the car it hit, so the pack can spin the car from a glancing blow.
+      const fx = Math.sin(this.heading);
+      const fz = Math.cos(this.heading);
+      const along = (cx - this.x) * fx + (cz - this.z) * fz;
+      const across = (cx - this.x) * fz - (cz - this.z) * fx;
+      CarPhysics.dynamics.impact(this, dx, dz, along, across, -vn);
+    }
     return -vn;
   }
 }
