@@ -61,6 +61,8 @@ interface TrafficCar {
 /** Where the player's car is, for the traffic to avoid and to spot near misses. */
 export interface TrafficPlayer {
   x: number;
+  /** Height of the bottom of the player's car above the ground. */
+  y: number;
   z: number;
   vx: number;
   vz: number;
@@ -181,10 +183,14 @@ export class Traffic {
     check(player.x, player.z, 1.4 + player.width / 2, true);
     if (gap < Infinity) want = Math.min(want, Math.max(0, (gap - 7) * 1.2));
 
-    // Waiting for a crossing that another car is going through.
+    // Waiting for a crossing that another car is going through. A car only
+    // claims a crossing when nothing ahead stops it driving in, so a car held
+    // up (by you, say) never blocks the crossing for everyone else.
     if (!car.onCrossing) {
       const left = car.seg.length - car.at;
-      if (left < 14 && !this.reserve(car)) want = Math.min(want, Math.max(0, (left - 0.3) * 1.5));
+      const blocked = gap < left + STOP * 2;
+      if (blocked) this.release(car);
+      if (left < 14 && (blocked || !this.reserve(car))) want = Math.min(want, Math.max(0, (left - 0.3) * 1.5));
     }
 
     // Speed up gently, brake hard.
@@ -287,6 +293,8 @@ export class Traffic {
     const t = car.target;
     const speed = Math.hypot(player.vx, player.vz);
     if (speed < 18 || this.clock - car.nearMissAt < 2.5) return 0;
+    // Flying over the top doesn't count: it has to be alongside.
+    if (player.y > t.rig.height + 0.5) return 0;
     const heading = t.rig.root.rotation.y;
     const fx = Math.sin(heading);
     const fz = Math.cos(heading);

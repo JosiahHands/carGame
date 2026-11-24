@@ -102,8 +102,14 @@ export class Pedestrians {
       this.legs.setColorAt(i * 2, trousers);
       this.legs.setColorAt(i * 2 + 1, trousers);
     });
+    // Stand everyone in their place now, not only once driving starts (the menu shows the city too).
+    this.people.forEach((p, i) => {
+      const at = this.loopPoint(p);
+      this.pose(i, p, at.x, 0, at.z, Math.atan2(at.dx * p.way, at.dz * p.way));
+    });
     for (const mesh of this.meshes) {
       mesh.count = mesh === this.legs || mesh === this.arms ? this.people.length * 2 : this.people.length;
+      mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
   }
@@ -144,7 +150,9 @@ export class Pedestrians {
       p.dodging = Math.max(0, p.dodging - dt);
       p.fleeing = Math.max(0, p.fleeing - dt);
       p.cheering = Math.max(0, p.cheering - dt);
-      const walking = p.dodging <= 0 && p.cheering <= 0;
+      // A slow or stopped car right by them: wait at the side until it's gone.
+      const blocked = speed <= 3 && Math.hypot(this.loopPoint(p).x + p.off.x - car.x, this.loopPoint(p).z + p.off.z - car.z) < car.reach + 2.5;
+      const walking = p.dodging <= 0 && p.cheering <= 0 && !blocked;
       const pace = p.fleeing > 0 ? 4.5 : p.pace;
       if (walking) {
         p.along = (p.along + p.way * pace * dt + PERIMETER) % PERIMETER;
@@ -157,7 +165,21 @@ export class Pedestrians {
       // A car coming: work out how close it will pass in the next second, and
       // leap clear in time. Anyone back on their feet and still in the way jumps again.
       const grounded = p.off.y <= 0 && p.vel.y <= 0;
-      if (grounded && speed > 3) {
+      if (grounded && speed <= 3) {
+        // Too slow to dodge in time: step out of the way of a car creeping into them.
+        const dx = x - car.x;
+        const dz = z - car.z;
+        const near = Math.hypot(dx, dz);
+        if (near < car.reach + 0.8) {
+          const ax = near > 0.01 ? dx / near : 1;
+          const az = near > 0.01 ? dz / near : 0;
+          const up = 3;
+          const push = (car.reach + 1.5 - near) / ((2 * up) / GRAVITY);
+          p.vel.set(ax * push, up, az * push);
+          p.dodging = 0.8;
+          p.lean = 0;
+        }
+      } else if (grounded) {
         const dx = x - car.x;
         const dz = z - car.z;
         const near = Math.hypot(dx, dz);
@@ -185,8 +207,8 @@ export class Pedestrians {
           p.off.y = 0;
           p.vel.set(0, 0, 0);
         }
-      } else if (p.dodging <= 0) {
-        p.off.multiplyScalar(Math.exp(-dt * 1.5));
+      } else if (p.dodging <= 0 && !blocked) {
+        p.off.multiplyScalar(Math.exp(-dt * 1.5)); // back onto the pavement
       }
       x = at.x + p.off.x;
       z = at.z + p.off.z;
