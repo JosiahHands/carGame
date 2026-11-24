@@ -35,13 +35,14 @@ import {
 } from './carConfig';
 import { button, el } from '../libs/dom';
 import { PRESETS, type Settings } from './settings';
+import type { PanelUI } from './packs';
 import { bestLapFor, formatTime } from './timeTrial';
 import { VENUES, type MapName } from './venues';
 
 /** 'look' changes need the car rebuilt; 'tuning' changes (driving, sound) don't. */
 type Change = 'look' | 'tuning';
 
-const TABS = ['Builds', 'Maps', 'Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Sound & FX', 'Engine', 'Physics', 'Settings'] as const;
+const TABS = ['Builds', 'Maps', 'Body', 'Paint', 'Wheels', 'Parts', 'Lights', 'Sound & FX', 'Engine', 'Physics', 'Settings', 'Packs'] as const;
 export type Tab = (typeof TABS)[number];
 
 const ON_OFF: Option<'on' | 'off'>[] = [
@@ -68,6 +69,8 @@ export interface GarageEvents {
   honk(): void;
   /** A line about the car: its size and speed. */
   describeCar(): string;
+  /** Fills in the Packs tab (see game/packsUI.ts). */
+  showPacks(panel: PanelUI): void;
 }
 
 export class GarageUI {
@@ -235,6 +238,9 @@ export class GarageUI {
         tuning('Gravity', 'gravity', 0.01, (v) => (Math.abs(v - 0.17) < 0.02 ? 'Moon' : Math.abs(v - 1) < 0.02 ? 'Earth' : Math.abs(v - 2.5) < 0.05 ? 'Jupiter' : times(v)), true);
         tuning('Wall bounce', 'bounce', 0.05, (v) => `${Math.round(v * 100)}%`);
         this.hint('Press J to jump (when jump height is above zero). Air control lets you steer and boost in the air.');
+        break;
+      case 'Packs':
+        this.events.showPacks(this.panel());
         break;
       case 'Settings':
         this.showSettings();
@@ -425,6 +431,23 @@ export class GarageUI {
     }
     this.body.append(grid);
     this.hint('Press T while driving for a timed lap. Beat your best and a ghost of that lap races you next time.');
+  }
+
+  /** The garage's controls, for a pack's options on the Packs tab. */
+  private panel(): PanelUI {
+    return {
+      heading: (text) => this.heading(text),
+      hint: (text) => this.hint(text),
+      choice: (label, options, get, set) => this.choice(label, options, get, set),
+      slider: (label, min, max, step, get, set, format) => this.slider(label, min, max, step, get, set, format),
+      row: (label, ...content) => this.row(label).append(...content),
+      append: (...content) => this.body.append(...content),
+      refresh: () => {
+        const top = this.body.scrollTop;
+        this.show('Packs');
+        this.body.scrollTop = top;
+      },
+    };
   }
 
   // ---------- controls ----------

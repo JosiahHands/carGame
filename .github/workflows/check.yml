@@ -1,4 +1,5 @@
-# Checks every pull request (and every push to main) still type-checks and builds.
+# Checks every pull request (and every push to main) still type-checks and
+# builds, without packs and with all of them.
 name: Check
 
 on:
@@ -22,3 +23,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # And with every pack in it.
+      - run: npm run build
+        env:
+          CAR_GAME_PACKS: all

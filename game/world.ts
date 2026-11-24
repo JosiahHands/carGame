@@ -222,6 +222,8 @@ export class World {
   course: Course = CITY_COURSE;
   /** Called whenever something is destroyed (for the score and sounds). */
   onDestroyed: (target: Target) => void = () => {};
+  /** Called after a new map (or track) has been built. */
+  onLoaded: () => void = () => {};
   private buildings: BuildingTarget[] = [];
   private cones: Cone[] = [];
   private parkedCars: CarRig[] = [];
@@ -308,6 +310,7 @@ export class World {
     this.buildWeather();
     this.buildCells();
     this.setNight(this.night);
+    this.onLoaded();
   }
 
   /** Fills the lookup grid. Posts and walls never move, so this is done once per map. */

@@ -33,6 +33,75 @@ curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
 ```
 
+## Packs
+
+Packs are optional add-ons. Each one changes a whole part of the game. Packs
+need the game installed from source, as above. Each command installs the game
+first if it isn't installed yet, then adds the pack.
+
+**🌅 Photo Real** (`graphics`): makes the game look real. It adds a physically
+based sky with a real sun and clouds, and light reflected from the sky onto
+every surface. Roads get wet and puddles in the rain. Cars get sculpted, rounded
+bodies that follow your garage settings, with clearcoat paint, metal flake,
+brake discs and calipers. It also adds ambient occlusion, soft bloom, street
+lamps that light the road at night, headlights, and a camera lens with
+film-style looks and photo-mode depth of field.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
+```
+
+**🧪 Real Physics** (`physics`): realistic driving. Each of the four tyres has
+real grip curves. Weight shifts under braking and cornering. The engine has a
+torque curve and gears, and every surface has its own grip. Glancing crashes
+spin the car and dent it, and a telemetry panel shows the tyres at work.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
+```
+
+**🧠 Living City** (`npc`): a whole city of 48 people, each with a name over
+their head, a job, a home, friends and a personality of their own. They live
+through the city's days: they get up, grab a coffee, go to work, have lunch,
+meet friends in the evening and go home to sleep. They stop to talk when they
+run into each other, gossip about each other and about you, and make plans to
+meet again, which they keep. Over time they change: they form beliefs, pick up
+habits, make friends and hold grudges, and write their own life stories. Among
+them are GUY, the cheerful bank teller in the blue shirt, and his best friend
+BUDDY, a police officer who goes everywhere with him and writes you tickets.
+
+Their conversations and thoughts are written by a free, open-source AI model
+(Qwen3.5, Apache 2.0) that runs on your own computer through
+[llama.cpp](https://github.com/ggml-org/llama.cpp). Nothing is sent anywhere
+and it costs nothing. The first time the pack runs, it downloads the model that
+suits your computer, once: Qwen3.5 4B (2.7 GB) with 16 GB of memory or more,
+otherwise Qwen3.5 2B (1.3 GB). You can pick a smaller or larger model, or run
+it on the processor instead of the graphics chip, in the Packs tab. Until the
+model is ready, a simpler built-in brain keeps the city going.
+
+Click on anyone (or pull up next to them and press K) to talk to them. Talk to
+people often and treat them well, and they become your friends: they wave when
+you drive by, greet you by name and remember what you talked about. Everyone's
+memories, friendships and life stories are saved in the game's data folder,
+which updates leave alone, so they last as long as the game is installed. L
+opens the city journal: what everyone is doing, what they've been saying to each
+other, their plans, and your friends (city free roam).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc
+```
+
+**All three packs:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all
+```
+
+The update command above also updates your packs. To switch a pack off, change
+its options or remove it, open the garage (G) and go to the **Packs** tab. A
+removed pack stops straight away and is left out the next time the game
+updates. To make a pack of your own, see [packs/README.md](packs/README.md).
+
 ## Career
 
 100 levels in ten chapters, from the Rookie Cup to the Legends, each with its own

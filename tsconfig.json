@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["app/**/*.ts", "game/**/*.ts", "libs/**/*.ts"],
-  "exclude": ["app/electron"]
+  "include": ["app/**/*.ts", "game/**/*.ts", "libs/**/*.ts", "packs/**/*.ts"],
+  "exclude": ["app/electron", "packs/*/main.ts"]
 }

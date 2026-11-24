@@ -14,6 +14,14 @@ npm ci --no-audit --no-fund
 echo "==> Downloading Electron"
 node node_modules/electron/install.js
 
+# The build puts in the packs listed in packs/installed.json, so updating the
+# game updates its packs too. Packs that were taken out of the game are dropped.
+node scripts/packs.mjs check
+PACKS="$(node scripts/packs.mjs list | tr '\n' ' ')"
+if [ -n "$PACKS" ]; then
+  echo "==> Packs: $PACKS"
+fi
+
 echo "==> Building the app"
 npm run build --silent
 PKG="$ROOT/$(node scripts/package.mjs | tail -n 1)"

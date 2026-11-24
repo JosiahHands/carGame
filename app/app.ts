@@ -1,8 +1,9 @@
 // Game entry point: sets up the 3D scene, the HUD and the game loop.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import installedPacks, { buildId } from 'virtual:installed-packs';
 import { loadConfig, saveConfig, type CarConfig } from '../game/carConfig';
-import { buildCar, type CarRig } from '../game/carModel';
+import { buildCar, carBuiltHooks, type CarRig } from '../game/carModel';
 import { CarPhysics, GEAR_TOPS } from '../game/carPhysics';
 import { CameraRig } from '../game/cameraRig';
 import { Effects } from '../game/effects';
@@ -24,6 +25,8 @@ import { Pedestrians } from '../game/pedestrians';
 import { Traffic } from '../game/traffic';
 import { addXp, bump, checkTrophies, driverLevel, record } from '../game/rewards';
 import { SKILLS, SkillChain, type SkillKind } from '../game/skills';
+import { PackHost } from '../game/packs';
+import { showPacksTab } from '../game/packsUI';
 import { el } from '../libs/dom';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 steps per second
@@ -67,6 +70,16 @@ const music = new Music();
 const traffic = new Traffic();
 traffic.onHonk = () => audio.trafficHorn();
 const people = new Pedestrians(scene);
+
+// ---------- game packs (see packs/README.md) ----------
+// Started further down, once the rest of the game is set up.
+const packOverlay = el('div', 'pack-overlay');
+document.body.append(packOverlay);
+let packs: PackHost | null = null;
+/** Tells the packs about something that happened (once they've started). */
+const tellPacks: PackHost['emit'] = (type, e) => packs?.emit(type, e);
+carBuiltHooks.push((rig) => packs?.carBuilt(rig));
+world.onLoaded = () => packs?.mapLoaded();
 
 // ---------- the player's car ----------
 /** The garage build: what you drive in free roam, and the paint and parts on career cars. */
@@ -234,6 +247,7 @@ showBest();
 let damage = 0;
 
 world.onDestroyed = (target) => {
+  tellPacks('destroyed', { x: target.x, z: target.z, kind: target.kind });
   damage += target.value;
   event?.addDamage(target.value);
   scoreEl.textContent = `$${damage.toLocaleString()} damage`;
@@ -317,6 +331,9 @@ const garage = new GarageUI(config, settings, {
     const giant = car.height >= 3 ? ` · Flattens anything under ${showLength(car.height * 2)} tall` : '';
     return `${showLength(car.height)} tall · ${showLength(car.length)} long · top speed ${Math.round(top)} ${settings.units === 'mph' ? 'mph' : 'km/h'}${giant}`;
   },
+  showPacks(panel) {
+    if (packs) showPacksTab(packs, panel);
+  },
 });
 document.body.append(garage.root);
 
@@ -383,7 +400,7 @@ function updateViewOffset(): void {
 /** Saves the picture on screen (without the HUD, which is HTML) as a PNG download. */
 function savePhoto(): void {
   // Draw a fresh frame first: the canvas is cleared after each frame is shown.
-  renderer.render(scene, camera);
+  draw();
   const link = document.createElement('a');
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
   link.href = renderer.domElement.toDataURL('image/png');
@@ -542,6 +559,7 @@ function handleAction(action: Action): void {
       break;
     case 'horn':
       audio.horn(config.horn);
+      tellPacks('horn', { x: physics.x, z: physics.z });
       break;
     case 'shiftUp':
     case 'shiftDown':
@@ -840,6 +858,7 @@ function bankDrift(): void {
   const points = Math.round(driftScore);
   driftScore = 0;
   if (points < 50) return;
+  tellPacks('drift', { x: physics.x, z: physics.z, points });
   event?.addDrift(points);
   if (!event) freeRoam.addDrift(points);
   skill('drift', points / 2, `Drift ${points.toLocaleString()}`);
@@ -870,6 +889,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
     else if (wasAirborne) {
       if (airTime > 0.5) event?.addAir(airTime);
       if (airTime > 0.7) {
+        tellPacks('jump', { x: physics.x, z: physics.z, airTime });
         toast(`Air time ${airTime.toFixed(1)} s`);
         physics.nitro = Math.min(1, physics.nitro + airTime * 0.08); // jumps fill the nitro
         skill('air', airTime * 300, `Air ${airTime.toFixed(1)} s`);
@@ -879,6 +899,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
       airTime = 0;
     }
     if (ev.impact > 3) {
+      tellPacks('crash', { x: physics.x, z: physics.z, impact: ev.impact });
       audio.crash(ev.impact);
       shake = Math.min(0.6, ev.impact * 0.03);
       if (driftScore > 0) {
@@ -939,6 +960,7 @@ function useWeapons(dt: number, firing: boolean): void {
     const distance = blast.at.distanceTo(carPosition());
     audio.explosion(1.5, distance);
     people.panic(blast.at.x, blast.at.z, blast.radius * 3 + 12);
+    tellPacks('explosion', { x: blast.at.x, z: blast.at.z, size: blast.radius });
     shake = Math.max(shake, Math.min(0.7, 6 / (distance + 4)));
     // Close explosions throw the car up and away (rocket jumps!).
     const reach = blast.radius * 1.3;
@@ -995,6 +1017,7 @@ function weaponsOn(): boolean {
 function applyNight(): void {
   world.setNight(night);
   scene.environmentIntensity = world.isNight ? 0.2 : 1;
+  packs?.nightChanged(world.isNight);
 }
 
 const menu = new MenuUI(career, config, {
@@ -1169,6 +1192,7 @@ function updateNpcs(dt: number): void {
   const player = { x: physics.x, y: physics.y, z: physics.z, vx: physics.vx, vz: physics.vz, heading: physics.heading, width: car.width, length: car.length };
   for (const points of traffic.update(dt, player, world.isNight)) {
     skill('nearMiss', points, 'Near miss: traffic');
+    tellPacks('nearMiss', { x: physics.x, z: physics.z });
     toast('Near miss!', 700);
   }
   people.update(dt, { x: physics.x, y: physics.y, z: physics.z, vx: physics.vx, vz: physics.vz, reach: carRadius() });
@@ -1493,7 +1517,34 @@ function frame(now: number): void {
   weaponBar.classList.toggle('hot', weapons.overheated);
   if (driving && settings.minimap) minimap.update(realDt, world, physics.x, physics.z, physics.heading, event ? event.mapMarkers() : [...trial.mapMarkers(), ...freeRoam.mapMarkers(physics)]);
 
-  renderer.render(scene, camera);
+  packs?.frame(dt, realDt);
+  draw();
+}
+
+/** Draws the frame: a pack can draw it instead (the graphics pack adds its effects). */
+function draw(): void {
+  if (!packs?.render()) renderer.render(scene, camera);
+}
+
+/** Starts the installed packs, giving them the parts of the game they can use. */
+function startPacks(): void {
+  packs = new PackHost(installedPacks, buildId, {
+    renderer,
+    scene,
+    camera,
+    world,
+    effects,
+    settings,
+    pedestrians: people,
+    traffic,
+    player: physics,
+    playerCar: () => car,
+    mode: () => mode,
+    inEvent: () => event !== null,
+    paused: () => mode !== 'drive' || paused,
+    toast,
+  }, packOverlay);
+  packs.startAll();
 }
 
 // ---------- startup ----------
@@ -1502,6 +1553,12 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   updateViewOffset();
+  packs?.resize(window.innerWidth, window.innerHeight);
+});
+// Keys the packs use (while driving, and not while typing in a box).
+window.addEventListener('keydown', (e) => {
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+  if (!e.repeat && !typing && mode === 'drive' && !paused) packs?.key(e.code);
 });
 // Sound can only start after the player presses something.
 for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(type, () => audio.unlock());
@@ -1512,6 +1569,7 @@ loadNpcs();
 applySettings();
 applyNight();
 syncCar(0);
+startPacks();
 setMode('menu');
 menu.showMain();
 requestAnimationFrame(frame);

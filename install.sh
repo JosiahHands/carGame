@@ -4,6 +4,13 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
 #
+# Add --pack NAME (as many times as you like) to install game packs as well,
+# installing the game first if it isn't installed yet:
+#
+#   curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
+#
+# --pack all installs every pack.
+#
 # The game's files go in ~/carGame. Set CAR_GAME_DIR to use another folder.
 # Run from a folder that is already a copy of the game, it installs that copy.
 # Works on macOS, Linux and Windows (Git Bash or WSL).
@@ -20,6 +27,23 @@ fail() {
 # command starts. That keeps `curl ... | bash` safe.
 main() {
   exec </dev/null
+
+  # The packs to install, from --pack NAME.
+  local packs=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pack)
+        [ $# -ge 2 ] || fail "--pack needs a pack name, like --pack graphics."
+        packs+=("$2")
+        shift 2
+        ;;
+      --pack=*)
+        packs+=("${1#--pack=}")
+        shift
+        ;;
+      *) fail "Unknown option $1. The only option is --pack NAME." ;;
+    esac
+  done
 
   command -v git >/dev/null 2>&1 || fail "Git is not installed. Get it from https://git-scm.com and run this again."
   command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 ||
@@ -47,6 +71,12 @@ main() {
     echo "==> Downloading Car Game into $dir"
     git clone "$REPO_URL" "$dir"
   fi
+
+  # Packs are added to the list before the build, so it puts them in.
+  local pack
+  for pack in ${packs[@]+"${packs[@]}"}; do
+    node "$dir/scripts/packs.mjs" add "$pack"
+  done
 
   bash "$dir/scripts/setup.sh"
 }

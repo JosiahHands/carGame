@@ -5,9 +5,9 @@ import type { BodyShape, CarConfig, PaintFinish, PartColor, Topper, WheelStyle }
 import { carbonTexture, liveryTexture, plateTexture, raceNumberTexture } from './textures';
 import { radialGlowTexture } from '../libs/canvasTexture';
 
-type P = [number, number]; // (z, y) point on the car's side profile
+export type P = [number, number]; // (z, y) point on the car's side profile
 
-interface BodySpec {
+export interface BodySpec {
   width: number;
   /** Top outline from the rear bottom corner over the car to the front bottom corner. */
   top: P[];
@@ -143,13 +143,26 @@ function stretchBody(spec: BodySpec, long: number, wide: number, tall: number): 
   };
 }
 
-const BEVEL = 0.05;
+export const BEVEL = 0.05;
 
 export interface WheelRig {
   steer: THREE.Group;
   spin: THREE.Group;
   front: boolean;
   radius: number;
+}
+
+/** A car body's shape after its length, width and height settings (see CarRig.shape). */
+export interface CarShape {
+  spec: BodySpec;
+  /** Wheel centre height, wheel arch radius, wheel centre distance from the middle, tyre width. */
+  wheelY: number;
+  archR: number;
+  wheelX: number;
+  tireWidth: number;
+  /** The body's front and rear ends. */
+  frontZ: number;
+  rearZ: number;
 }
 
 export interface CarRig {
@@ -168,6 +181,14 @@ export interface CarRig {
   /** Where bullets and rockets leave the car, in the car's own coordinates (+z is forward). */
   gunMuzzle: THREE.Vector3;
   rocketMuzzle: THREE.Vector3;
+  /**
+   * What the car was built from, for packs that redraw it: the settings, and
+   * the body's shape in body coordinates (y up from the ground, +z forward).
+   * The body's own parts are named: 'shell' (body, cabin glass and roof),
+   * 'shell-stripe', 'headlight', 'taillight', and each wheel's 'tyre'.
+   */
+  config: CarConfig;
+  shape: CarShape;
   setLights(state: { night: boolean; braking: boolean }): void;
   /** Shows flickering nitro flames out of the exhausts. Call every frame. */
   setNitro(on: boolean): void;
@@ -309,6 +330,7 @@ function buildWheel(
   const tire = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 28, 1), rubber);
   tire.rotation.z = Math.PI / 2;
   tire.castShadow = true;
+  tire.name = 'tyre';
   g.add(tire);
 
   const face = width / 2 + 0.006;
@@ -464,6 +486,12 @@ function buildTopper(kind: Topper, paint: THREE.Material, accent: THREE.Material
  * Builds a car. `withLights` adds a real headlight beam and underglow light;
  * only the player's car needs them, because every light costs rendering time.
  */
+/**
+ * Called with every car model as it's built (the player's, rivals', traffic and
+ * parked cars), so packs can change how cars look.
+ */
+export const carBuiltHooks: ((rig: CarRig) => void)[] = [];
+
 export function buildCar(config: CarConfig, envNight = false, withLights = true): CarRig {
   const spec = stretchBody(BODIES[config.body], config.length, config.width, config.height);
   const disposables: { dispose(): void }[] = [];
@@ -548,8 +576,10 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
 
   // ---------- main body and cabin ----------
   const lowerShape = lowerProfile(spec, archR, wheelY);
-  add(extrudeProfile(lowerShape, spec.width, BEVEL, BEVEL, true), bodyPaint);
-  add(extrudeProfile(polyShape(spec.cabin), spec.cabinWidth, 0.03), glass).castShadow = false;
+  add(extrudeProfile(lowerShape, spec.width, BEVEL, BEVEL, true), bodyPaint).name = 'shell';
+  const cabinGlass = add(extrudeProfile(polyShape(spec.cabin), spec.cabinWidth, 0.03), glass);
+  cabinGlass.castShadow = false;
+  cabinGlass.name = 'shell';
   const [, roofRear, roofFront] = spec.cabin;
   const roofLen = roofFront[0] - roofRear[0];
   const roofY = Math.max(roofRear[1], roofFront[1]);
@@ -557,6 +587,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   const roofTop = roofY + 0.045;
   const roof = add(new THREE.BoxGeometry(spec.cabinWidth * 0.97, 0.05, roofLen + 0.06), paint);
   roof.position.set(0, roofY + 0.02, roofMid);
+  roof.name = 'shell';
 
   if (spec.bed) {
     const bed = add(new THREE.BoxGeometry(spec.width - 0.22, 0.02, spec.bed.z1 - spec.bed.z0), blackPlastic);
@@ -570,8 +601,10 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
       // stripe uses the same profile pushed slightly further, sitting on top of the paint.
       const stripe = add(extrudeProfile(lowerShape, 0.22, 0.004, BEVEL + 0.006), accent);
       stripe.position.x = side * 0.2;
+      stripe.name = 'shell-stripe';
       const roofStripe = add(new THREE.BoxGeometry(0.22, 0.012, roofLen + 0.06), accent);
       roofStripe.position.set(side * 0.2, roofY + 0.05, roof.position.z);
+      roofStripe.name = 'shell-stripe';
     }
   } else if (config.stripes === 'side') {
     const z0 = spec.axleRear + archR;
@@ -633,12 +666,14 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   const [hz, hy] = spec.headlight;
   for (const side of [-1, 1]) {
     const h = add(new THREE.BoxGeometry(0.34, 0.1, 0.1), headMat);
+    h.name = 'headlight';
     h.position.set(side * (spec.width / 2 - 0.3), hy, hz + BEVEL);
     h.castShadow = false;
   }
   const [tz, ty] = spec.taillight;
   for (const side of [-1, 1]) {
     const t = add(new THREE.BoxGeometry(0.34, 0.08, 0.06), tailMat);
+    t.name = 'taillight';
     t.position.set(side * (spec.width / 2 - 0.26), ty, tz - BEVEL);
     t.castShadow = false;
   }
@@ -893,6 +928,8 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   const rig: CarRig = {
     root,
     body,
+    config,
+    shape: { spec, wheelY, archR, wheelX, tireWidth: tireW, frontZ, rearZ },
     wheels,
     length: length * config.size,
     width: Math.max(spec.width, 2 * (wheelX + tireW / 2)) * config.size,
@@ -959,5 +996,6 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     },
   };
   rig.setLights({ night: envNight, braking: false });
+  for (const hook of carBuiltHooks) hook(rig);
   return rig;
 }
