@@ -56,6 +56,8 @@ export class FreeRoam {
   private beamMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending });
   /** The zone the car is in (drift and jump zones), with the score so far. */
   private inside: { zone: Zone; score: number } | null = null;
+  /** Drift points the car already had when it entered a drift zone: they don't count there. */
+  private carried = 0;
   /** Cameras passed recently: not counted again until the car has left. */
   private cooldown = new Set<string>();
   private clock = 0;
@@ -261,12 +263,19 @@ export class FreeRoam {
         continue;
       }
       const inside = distance < z.radius;
-      if (inside && !this.inside) this.inside = { zone: z, score: 0 };
+      if (inside && !this.inside) {
+        this.inside = { zone: z, score: 0 };
+        this.carried = drift;
+      }
       if (this.inside?.zone !== z) continue;
+      if (drift < this.carried) this.carried = 0; // that drift ended (or was lost): a new one counts in full
       if (z.kind === 'jump' && car.airborne) this.inside.score = Math.max(this.inside.score, airTime);
+      // A jump from inside the zone counts in full, even if it lands outside.
+      if (!inside && z.kind === 'jump' && car.airborne && this.inside.score > 0) continue;
       if (!inside) {
-        // Left the zone: that's the result. A drift still going counts.
-        const score = z.kind === 'drift' ? this.inside.score + drift : this.inside.score;
+        // Left the zone: that's the result. The part of a drift still going
+        // that was scored inside the zone counts.
+        const score = z.kind === 'drift' ? this.inside.score + Math.max(0, drift - this.carried) : this.inside.score;
         this.inside = null;
         if (score > 0) events.push({ type: 'zone', zone: z, score, text: z.kind === 'drift' ? `${Math.round(score).toLocaleString()} pts` : `${score.toFixed(1)} s air` });
       }
@@ -276,14 +285,17 @@ export class FreeRoam {
 
   /** A finished drift while inside a drift zone counts towards it. */
   addDrift(points: number): void {
-    if (this.inside?.zone.kind === 'drift') this.inside.score += points;
+    if (this.inside?.zone.kind !== 'drift') return;
+    // Only the part scored after entering the zone.
+    this.inside.score += Math.max(0, points - this.carried);
+    this.carried = 0;
   }
 
   /** What to show on the HUD: the zone the car is in (or close to), and its targets. */
   hud(car: { x: number; z: number }, drift: number): string {
     if (this.inside) {
       const z = this.inside.zone;
-      const score = z.kind === 'drift' ? `${Math.round(this.inside.score + drift).toLocaleString()} pts` : `${this.inside.score.toFixed(1)} s`;
+      const score = z.kind === 'drift' ? `${Math.round(this.inside.score + Math.max(0, drift - this.carried)).toLocaleString()} pts` : `${this.inside.score.toFixed(1)} s`;
       return `${ZONE_LOOK[z.kind].icon} ${z.name}: ${score} · ${this.targetsText(z)}`;
     }
     for (const z of this.zones) {

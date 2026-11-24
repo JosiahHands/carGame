@@ -692,7 +692,9 @@ const COUNTED: SkillKind[] = ['nearMiss', 'takedown', 'overtake', 'perfectStart'
 
 /** Adds a skill to the chain. */
 function skill(kind: SkillKind, points: number, label?: string): void {
-  if (event?.state === 'done') return; // after the finish (the chain is already banked)
+  // After the finish the chain has been banked. Skills from the finishing
+  // frame itself still count: they're added before the chain is banked.
+  if (event?.state === 'done' && celebrated) return;
   chain.add(kind, points, label);
   if (COUNTED.includes(kind)) bump(career, kind);
 }
@@ -887,6 +889,7 @@ function drive(dt: number, controls: ReturnType<Input['read']>): void {
         audio.crash(bump);
         shake = Math.max(shake, Math.min(0.5, bump * 0.03));
       }
+      if (bump > 7) chain.break(); // as hard a crash as hitting a wall
     }
   }
   if (accumulator > STEP) accumulator = 0; // fell behind: drop the backlog
@@ -1080,6 +1083,8 @@ function startEvent(spec: EventSpec, drivenCar: CarConfig, level: Level | null, 
   wasCountdown = false;
   wheelspin = 0;
   celebrated = false;
+  fireworks = 0; // a Retry during the celebration stops the fireworks
+  fireworkDue = 0;
   // A rival who keeps beating you is your nemesis.
   const nemesis = event.racers.filter((r) => r.rival && (career.nemesis[r.name] ?? 0) >= 2).map((r) => r.name)[0];
   if (nemesis) {
@@ -1277,11 +1282,10 @@ function rewardEvent(e: EventRun): string[] {
       lines.push(`😤 Revenge on ${s.name}! +1,500 XP`);
       speak(`Revenge on ${s.name}!`);
     }
-    // A rival who wins against you might become your nemesis.
-    const winner = r.standings[0];
-    if (!winner.me && mine >= 0) {
-      career.nemesis[winner.name] = (career.nemesis[winner.name] ?? 0) + 1;
-      if (career.nemesis[winner.name] === 2) lines.push(`😈 ${winner.name} has beaten you twice: they're your nemesis now`);
+    // Every rival who finishes ahead of you might become your nemesis.
+    for (const s of r.standings.slice(0, Math.max(0, mine))) {
+      career.nemesis[s.name] = (career.nemesis[s.name] ?? 0) + 1;
+      if (career.nemesis[s.name] === 2) lines.push(`😈 ${s.name} has beaten you twice: they're your nemesis now`);
     }
   }
   lines.unshift(`+${xp.toLocaleString()} XP`);
