@@ -401,13 +401,14 @@ function loadMap(): void {
   traffic.clear(); // before the world is cleared, while its cars are still there to remove
   world.load(settings.map);
   freeRoam.load(world, career.found);
-  loadNpcs();
   trial.setCourse(world.course, world.map);
   ghost?.dispose();
   ghost = null;
   damage = 0;
   scoreEl.textContent = '';
   placeCar(world.spawn.x, world.spawn.z, world.spawn.heading);
+  // After the car is at the new map's start: traffic is placed away from it.
+  loadNpcs();
   syncCar(0);
   if (mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
   showBest();
@@ -1165,7 +1166,7 @@ function loadNpcs(): void {
 
 /** Moves the traffic and people on, and scores near misses with traffic. */
 function updateNpcs(dt: number): void {
-  const player = { x: physics.x, z: physics.z, vx: physics.vx, vz: physics.vz, heading: physics.heading, width: car.width, length: car.length };
+  const player = { x: physics.x, y: physics.y, z: physics.z, vx: physics.vx, vz: physics.vz, heading: physics.heading, width: car.width, length: car.length };
   for (const points of traffic.update(dt, player, world.isNight)) {
     skill('nearMiss', points, 'Near miss: traffic');
     toast('Near miss!', 700);
