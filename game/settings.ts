@@ -31,6 +31,10 @@ export interface Settings {
   announcer: boolean;
   /** Streaks at the edge of the screen at high speed. */
   speedLines: boolean;
+  /** How many cars drive round the city in free roam. */
+  traffic: 'off' | 'light' | 'normal' | 'busy';
+  /** People walking on the city's pavements in free roam. */
+  pedestrians: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -50,7 +54,12 @@ export const DEFAULT_SETTINGS: Settings = {
   music: true,
   announcer: true,
   speedLines: true,
+  traffic: 'normal',
+  pedestrians: true,
 };
+
+/** Traffic cars for each Traffic setting. */
+export const TRAFFIC_COUNTS = { off: 0, light: 16, normal: 32, busy: 56 };
 
 /** The quality presets. Each one sets the four graphics settings at once. */
 export const PRESETS = {
@@ -94,6 +103,7 @@ export function loadSettings(): Settings {
   if (!['mph', 'kmh'].includes(settings.units)) settings.units = DEFAULT_SETTINGS.units;
   if (!MAP_NAMES.includes(settings.map)) settings.map = DEFAULT_SETTINGS.map;
   if (!['auto', 'manual'].includes(settings.transmission)) settings.transmission = DEFAULT_SETTINGS.transmission;
+  if (!(settings.traffic in TRAFFIC_COUNTS)) settings.traffic = DEFAULT_SETTINGS.traffic;
   return settings;
 }
 

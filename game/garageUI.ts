@@ -389,6 +389,18 @@ export class GarageUI {
     );
     this.choice('Weapons', ON_OFF, () => onOff(s.weapons), (v) => ((s.weapons = v === 'on'), changed()));
     this.choice('Minimap', ON_OFF, () => onOff(s.minimap), (v) => ((s.minimap = v === 'on'), changed()));
+    this.choice(
+      'City traffic',
+      [
+        { value: 'off', label: 'Off' },
+        { value: 'light', label: 'Light' },
+        { value: 'normal', label: 'Normal' },
+        { value: 'busy', label: 'Busy' },
+      ],
+      () => s.traffic,
+      (v) => ((s.traffic = v), changed()),
+    );
+    this.choice('Pedestrians', ON_OFF, () => onOff(s.pedestrians), (v) => ((s.pedestrians = v === 'on'), changed()));
     this.choice('Music', ON_OFF, () => onOff(s.music), (v) => ((s.music = v === 'on'), changed()));
     this.choice('Announcer', ON_OFF, () => onOff(s.announcer), (v) => ((s.announcer = v === 'on'), changed()));
     this.choice('Speed lines', ON_OFF, () => onOff(s.speedLines), (v) => ((s.speedLines = v === 'on'), changed()));

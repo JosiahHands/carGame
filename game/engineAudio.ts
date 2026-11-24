@@ -233,6 +233,11 @@ export class EngineAudio {
     }
   }
 
+  /** Another driver's horn: two short, quieter beeps. */
+  trafficHorn(): void {
+    this.notes('square', [[440, 0, 0.18], [440, 0.26, 0.3]], 0.035);
+  }
+
   horn(kind: Horn): void {
     switch (kind) {
       case 'classic': // two notes together, like most car horns
