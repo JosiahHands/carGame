@@ -1,10 +1,13 @@
 // The people of the city: who they are, how they look, and what they start
-// out like. Just data (no 3D, no browser), because the main process uses it
-// too, to tell the AI who everyone is.
+// out like. The main cast is written here; the other residents are made in
+// residents.ts. Just data (no 3D, no browser), because the main process uses
+// it too, to check who the AI is asked about.
 //
 // They don't stay like this: their traits drift with what happens to them,
 // they pick up habits, change their minds about each other (and about you),
 // and learn which places they enjoy. See mind.ts.
+
+import { makeResidents } from './residents';
 
 /** Five sides of a personality, each 0..1. */
 export interface Traits {
@@ -18,7 +21,8 @@ export const TRAIT_NAMES = ['kindness', 'courage', 'curiosity', 'humour', 'energ
 export type TraitName = (typeof TRAIT_NAMES)[number];
 
 /** Kinds of place in the city (see city.ts for where they are). */
-export type PlaceKind = 'coffee' | 'bank' | 'diner' | 'gym' | 'music' | 'news' | 'garage' | 'park' | 'stunts';
+export const PLACE_KINDS = ['coffee', 'bank', 'diner', 'gym', 'music', 'news', 'garage', 'park', 'stunts', 'bakery', 'library', 'office', 'market'] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
 
 export interface Look {
   skin: number;
@@ -56,9 +60,12 @@ export interface CastMember {
   bond?: string;
   /** People they already know and like. */
   friends: string[];
+  /** One of the main cast (written by hand), rather than a resident. */
+  star?: boolean;
 }
 
-export const CAST: CastMember[] = [
+/** The main cast. */
+const STARS: CastMember[] = [
   {
     id: 'guy',
     name: 'GUY',
@@ -210,8 +217,16 @@ export const CAST: CastMember[] = [
   },
 ];
 
+/** Everyone in the city: the main cast, then the residents. */
+export const CAST: CastMember[] = [
+  ...STARS.map((member) => ({ ...member, star: true })),
+  ...makeResidents(STARS.map((member) => member.name)),
+];
+
+const BY_ID = new Map(CAST.map((member) => [member.id, member]));
+
 export function castMember(id: string): CastMember | undefined {
-  return CAST.find((c) => c.id === id);
+  return BY_ID.get(id);
 }
 
 /** Feelings a line of speech can carry (shown as the mood face, and in the journal). */

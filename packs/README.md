@@ -8,7 +8,7 @@ is for anyone writing a pack.
 | --- | --- | --- |
 | 🌅 Photo Real | `graphics/` | Sky and sunlight, image-based lighting, wet roads, sculpted car bodies, post-processing |
 | 🧪 Real Physics | `physics/` | Tyre model, weight transfer, engine and gears, crash spins and dents, telemetry |
-| 🧠 Living City | `npc/` | Twelve city people with memories, feelings and personalities, written by Claude |
+| 🧠 Living City | `npc/` | A city of 48 people with routines, memories, friendships and conversations, written by a local open-source AI |
 
 ## How packs get into the game
 
@@ -97,10 +97,16 @@ come from the page) can add `packs/<name>/main.ts` exporting
 and offers functions with `host.handle(name, fn)`. The page calls them with
 `game.callMain(name, ...args)`. Only the game's own page can call them.
 
-The Living City pack works this way. The API key is encrypted with Electron's
-`safeStorage` in the pack's data folder and never reaches the page. The page
-sends a request (`npc/protocol.ts`), and the main process checks it,
-rate-limits it and calls Claude with structured outputs.
+The Living City pack works this way. Its main part runs the local AI model with
+[node-llama-cpp](https://node-llama-cpp.withcat.ai) and keeps the city's saved
+memories in its data folder (`userData/packs/npc`), which updates don't touch.
+The page sends a request (`npc/protocol.ts`), and the main process checks it,
+queues it (your chats first) and has the model answer in a JSON schema.
+
+A package that loads native code can't be bundled into one file. List it for
+your pack in `scripts/native.mjs`: the build leaves it out of the bundle, and
+packaging copies it (and what it depends on) into the app, with its native
+files outside the archive.
 
 ## The packs in more detail
 
@@ -127,15 +133,21 @@ rate-limits it and calls Claude with structured outputs.
 
 ### npc
 
-- `cast.ts`: who everyone is. Looks, traits, jobs, friends.
+- `cast.ts`: who everyone is. The twelve main characters, written by hand,
+  and `residents.ts`, which makes the other 36 (the same people every time):
+  looks, traits, jobs, friends, ways of talking.
 - `mind.ts`: memory (scored by recency, importance and relevance), feelings,
-  needs, mood, learned likes, and reflection into beliefs and habits.
-- `brain.ts`: what they say. `AiBrain` asks Claude. `RuleBrain` runs without a
-  key and covers conversations out of earshot.
+  needs, mood, learned likes, reflection into beliefs, habits and a life
+  story, talks with you, and friendship with you.
+- `brain.ts`: what they say. `LocalBrain` asks the local AI. `RuleBrain` needs
+  nothing, and covers whatever the AI hasn't time for.
 - `protocol.ts`: the request and answer shapes, the models, the standing
   instructions, and the JSON schemas.
-- `city.ts`: the places and walking routes. `body.ts`: their bodies and
-  animation. `labels.ts`: name tags and speech bubbles.
-- `index.ts`: the simulation, reactions to the player, BUDDY's tickets, the chat
-  box (K), the journal (L), and the Packs tab options.
-- `main.ts`: the main-process side that keeps the key and calls Claude.
+- `city.ts`: the places, homes and walking routes. `body.ts`: their bodies and
+  animation. `labels.ts`: name tags (click one to talk) and speech bubbles.
+- `index.ts`: the simulation. The city's clock and daily routines, who talks
+  to whom, plans to meet, reactions to the player, BUDDY's tickets, making
+  friends, clicking on people, and saving.
+- `ui.ts`: the chat box, the journal (L) and the Packs tab options.
+- `main.ts`: the main-process side. It downloads and runs the model, queues
+  requests, and saves the city.

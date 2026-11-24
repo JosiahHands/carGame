@@ -1,16 +1,17 @@
-// How the cast think. Two brains with the same job:
-//  - AiBrain asks Claude (through the main process, see main.ts): real,
-//    surprising conversations that build on everything they remember.
+// How the city's people think. Two brains with the same job:
+//  - LocalBrain asks the local AI (an open-source model running on this
+//    computer, see main.ts): real conversations, between the people and with
+//    you, that build on who they are and everything they remember.
 //  - RuleBrain needs nothing: it fills in phrases from what they remember
-//    and how they feel. It's used with no API key, when the AI is busy or
-//    declines, and for conversations too far away to hear.
+//    and how they feel. It keeps the city going while the model downloads or
+//    loads, when the AI is busy, and when it's switched off.
 // Both return the same things, and everything they return is checked and
 // trimmed before the city uses it.
-import { castMember, EMOTIONS, TRAIT_NAMES, type CastMember, type Emotion, type TraitName } from './cast';
-import { feelingWord, moodWord, recall, traitWords, type Mind } from './mind';
-import type { ModelChoice, ThinkKind, ThinkResponse } from './protocol';
+import { castMember, EMOTIONS, PLACE_KINDS, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName } from './cast';
+import { feelingWord, friendship, moodWord, recall, traitWords, type Mind } from './mind';
+import type { ThinkKind, ThinkResponse } from './protocol';
 
-/** A cast member as the brain sees them. */
+/** A person as the brain sees them. */
 export interface Person {
   member: CastMember;
   mind: Mind;
@@ -22,7 +23,8 @@ export interface Person {
 /** The moment: time of day, what's been happening, who the driver is. */
 export interface Moment {
   now: number;
-  night: boolean;
+  /** The time in the city, in words ("Tuesday, late afternoon"). */
+  time: string;
   /** The player's car, in words ("a red sports car"). */
   car: string;
   /** Things that happened in the city lately, newest first. */
@@ -35,10 +37,17 @@ export interface Line {
   emotion: Emotion;
 }
 
+/** A plan two people make to meet again. */
+export interface MeetPlan {
+  place: PlaceKind;
+  when: 'soon' | 'later' | 'tomorrow';
+}
+
 export interface ConversationResult {
   lines: Line[];
   memories: { who: string; text: string; importance: number }[];
   feelings: { from: string; about: string; change: number }[];
+  plan: MeetPlan | null;
   /** Whether the AI wrote it (shown in the journal). */
   ai: boolean;
 }
@@ -58,6 +67,8 @@ export interface ReflectResult {
   insights: string[];
   trait: { name: TraitName; up: boolean } | null;
   habit: string;
+  /** Their life story so far, rewritten ('' to keep the old one). */
+  story: string;
   ai: boolean;
 }
 
@@ -69,31 +80,28 @@ export interface Brain {
 
 const IMPORTANCE: Record<string, number> = { low: 3, medium: 5, high: 8 };
 
-// ---------- the AI brain ----------
+// ---------- the local AI ----------
 
-export interface AiSettings {
-  model: ModelChoice;
+export interface LocalSettings {
   /** Calls the pack's main-process part. */
   call: (request: unknown) => Promise<unknown>;
-  /** Told the cost of each answer, and why a request failed. */
-  spent: (dollars: number) => void;
+  /** Told why a request didn't work out. */
   failed: (reason: string, message: string) => void;
 }
 
-export class AiBrain implements Brain {
+export class LocalBrain implements Brain {
   constructor(
-    private settings: AiSettings,
+    private settings: LocalSettings,
     private fallback: Brain,
   ) {}
 
   private async ask(kind: ThinkKind, ids: string[], prompt: string): Promise<unknown | null> {
     try {
-      const answer = (await this.settings.call({ kind, ids, prompt, model: this.settings.model })) as ThinkResponse;
+      const answer = (await this.settings.call({ kind, ids, prompt })) as ThinkResponse;
       if (!answer.ok) {
         this.settings.failed(answer.reason, answer.message);
         return null;
       }
-      this.settings.spent(answer.cost);
       return answer.data;
     } catch (error) {
       this.settings.failed('error', error instanceof Error ? error.message : String(error));
@@ -102,110 +110,145 @@ export class AiBrain implements Brain {
   }
 
   async conversation(a: Person, b: Person, moment: Moment): Promise<ConversationResult> {
+    const A = a.member;
+    const B = b.member;
+    const together = a.mind.met[B.id] ?? 0;
     const prompt = [
-      scene(moment, a.where),
-      describe(a, moment, [b.member.id]),
-      describe(b, moment, [a.member.id]),
-      `${a.member.name} and ${b.member.name} run into each other at ${a.where}. Write their conversation: 2 to 4 short lines, taking turns, starting with ${a.member.name}. ` +
-        'They might catch up, share gossip or something they saw (maybe the driver), tease each other, make plans, or disagree, whatever fits who they are now and what they remember. ' +
-        'Then give one new memory for each of them, and any change in how either feels about the other or anyone they talked about.',
+      scene(moment, a.where, false),
+      describe(a, moment, [B.id]),
+      describe(b, moment, [A.id]),
+      `${A.name} and ${B.name} run into each other at ${a.where}. ${together === 0 ? 'They have never really talked before.' : `They have talked ${together} time${together === 1 ? '' : 's'} before.`}`,
+      `Write their conversation: 2 to 4 short lines, taking turns, starting with ${A.name}. Make it real: they might catch up, ask about each other's lives, share gossip about other people, talk about the driver, tease, comfort, flirt a little, argue, or make a plan to meet again. ` +
+        `Then: one new memory for each of them (first person), any change in how either feels about the other (or about someone they discussed), and a plan if they agreed to meet somewhere (place "none" if not).`,
     ].join('\n\n');
-    const data = (await this.ask('conversation', [a.member.id, b.member.id], prompt)) as {
+    const data = (await this.ask('conversation', [A.id, B.id], prompt)) as {
       lines?: { speaker: string; text: string; emotion: string }[];
       memories?: { who: string; text: string; importance: string }[];
       feelings?: { from: string; about: string; change: string }[];
+      plan?: { place: string; when: string };
     } | null;
-    const ids = [a.member.id, b.member.id];
+    const ids = [A.id, B.id];
     if (!data?.lines?.length) return this.fallback.conversation(a, b, moment);
+    const place = data.plan?.place;
     return {
       lines: data.lines
-        .filter((l) => ids.includes(l.speaker))
+        .filter((l) => ids.includes(l.speaker) && typeof l.text === 'string')
         .slice(0, 5)
         .map((l) => ({ speaker: l.speaker, text: short(l.text), emotion: emotion(l.emotion) })),
-      memories: (data.memories ?? []).filter((m) => ids.includes(m.who)).slice(0, 4).map((m) => ({ who: m.who, text: m.text.slice(0, 160), importance: IMPORTANCE[m.importance] ?? 4 })),
+      memories: (data.memories ?? []).filter((m) => ids.includes(m.who)).slice(0, 4).map((m) => ({ who: m.who, text: String(m.text).slice(0, 160), importance: IMPORTANCE[m.importance] ?? 4 })),
       feelings: (data.feelings ?? [])
         .filter((f) => ids.includes(f.from) && f.from !== f.about)
         .slice(0, 6)
         .map((f) => ({ from: f.from, about: f.about, change: f.change === 'warmer' ? 1 : -1 })),
+      plan:
+        place && place !== 'none' && PLACE_KINDS.includes(place as PlaceKind)
+          ? { place: place as PlaceKind, when: data.plan?.when === 'tomorrow' ? 'tomorrow' : data.plan?.when === 'later' ? 'later' : 'soon' }
+          : null,
       ai: true,
     };
   }
 
   async chat(person: Person, said: string, moment: Moment): Promise<ChatResult> {
+    const { member, mind } = person;
+    const history = mind.chats
+      .slice(-6)
+      .map((c) => `The driver: "${c.you}"\n${member.name}: "${c.them}"`)
+      .join('\n');
     const prompt = [
-      scene(moment, person.where),
+      scene(moment, person.where, true),
       describe(person, moment, ['driver']),
-      `The driver has pulled up next to ${person.member.name} and says: "${said.slice(0, 300)}"\n\n` +
-        `Write ${person.member.name}'s reply (at most 15 words, in their voice, shaped by how they feel about the driver and what they remember). ` +
-        'Say how their opinion of the driver changes, and what they will remember about this. If the driver said their name, give it as driverName; otherwise driverName is "".',
+      `How ${member.name} sees the driver: ${friendship(mind)}${mind.driverName ? `, knows them as ${mind.driverName}` : ''}. They have talked ${mind.met.driver ?? 0} time${mind.met.driver === 1 ? '' : 's'}.`,
+      history ? `Their last talks:\n${history}` : 'They have never talked before.',
+      `The driver pulls up next to ${member.name} and says: "${said.slice(0, 300)}"\n\n` +
+        `Write ${member.name}'s reply: at most 2 short sentences, in their own voice, shaped by their mood, their feelings about the driver and what they remember (they may bring up something they remember, ask the driver something back, or invite the driver somewhere). ` +
+        'Say how their opinion of the driver changes, and what they will remember about this talk. If the driver said their own name, give it as driverName; otherwise "".',
     ].join('\n\n');
-    const data = (await this.ask('chat', [person.member.id], prompt)) as {
+    const data = (await this.ask('chat', [member.id], prompt)) as {
       reply?: string; emotion?: string; opinion?: string; memory?: string; importance?: string; driverName?: string;
     } | null;
     if (!data?.reply) return this.fallback.chat(person, said, moment);
     return {
-      reply: short(data.reply),
+      reply: String(data.reply).replace(/\s+/g, ' ').trim().slice(0, 220),
       emotion: emotion(data.emotion),
       opinion: data.opinion === 'warmer' ? 1 : data.opinion === 'cooler' ? -1 : 0,
-      memory: (data.memory ?? '').slice(0, 160),
+      memory: String(data.memory ?? '').slice(0, 160),
       importance: IMPORTANCE[data.importance ?? ''] ?? 5,
-      driverName: (data.driverName ?? '').replace(/[^\p{L}\p{N} '-]/gu, '').slice(0, 24).trim(),
+      driverName: String(data.driverName ?? '').replace(/[^\p{L}\p{N} '-]/gu, '').slice(0, 24).trim(),
       ai: true,
     };
   }
 
   async reflect(person: Person, moment: Moment): Promise<ReflectResult> {
-    const memories = recall(person.mind, moment.now, [], [], 14)
+    const { member, mind } = person;
+    const memories = recall(mind, moment.now, [], [], 16)
       .map((m) => `- ${m.text}`)
       .join('\n');
     const prompt = [
       describe(person, moment, []),
-      `${person.member.name} takes a quiet moment to think over lately:\n${memories}\n\n` +
-        'What one or two new beliefs do they form (about themselves, a friend, the city or the driver), each a short sentence in their own words? ' +
-        'Does this experience nudge one personality trait up or down (or "none")? And is there a small new habit they pick up (or "" for none)?',
+      `${member.name} has a quiet moment and thinks over lately:\n${memories || '- nothing much'}`,
+      'What one or two new beliefs do they form (about themselves, a friend, the city or the driver), each a short sentence in their own words? ' +
+        'Does this nudge one personality trait up or down ("none" if not)? Is there a small new habit they pick up ("" for none)? ' +
+        `Finally, rewrite their life story so far in the first person, at most 90 words: keep what mattered from their old story, add what matters now (people, the driver, hopes, worries).`,
     ].join('\n\n');
-    const data = (await this.ask('reflect', [person.member.id], prompt)) as { insights?: string[]; trait?: string; direction?: string; habit?: string } | null;
+    const data = (await this.ask('reflect', [member.id], prompt)) as { insights?: string[]; trait?: string; direction?: string; habit?: string; story?: string } | null;
     if (!data?.insights) return this.fallback.reflect(person, moment);
     return {
-      insights: data.insights.slice(0, 2).map((s) => s.slice(0, 140)),
+      insights: data.insights.slice(0, 2).map((s) => unquote(String(s)).slice(0, 140)),
       trait: TRAIT_NAMES.includes(data.trait as TraitName) ? { name: data.trait as TraitName, up: data.direction === 'up' } : null,
-      habit: (data.habit ?? '').slice(0, 100),
+      habit: String(data.habit ?? '').slice(0, 100),
+      story: String(data.story ?? '').slice(0, 700),
       ai: true,
     };
   }
 }
 
-/** The time and place, and the latest news. */
-function scene(moment: Moment, where: string): string {
-  const news = moment.news.length ? `Lately in the city:\n${moment.news.slice(0, 5).map((n) => `- ${n}`).join('\n')}` : 'A quiet spell in the city.';
-  return `It's ${moment.night ? 'night' : 'daytime'} at ${where}. The driver is in ${moment.car}.\n${news}`;
+/** The time and place, where the driver is, and the latest news. */
+function scene(moment: Moment, where: string, driverHere: boolean): string {
+  const news = moment.news.length ? `Lately in the city:\n${moment.news.slice(0, 4).map((n) => `- ${n}`).join('\n')}` : '';
+  const driver = driverHere ? `The driver has pulled up here in ${moment.car}.` : `The driver (in ${moment.car}) is not here: they are out driving somewhere in the city.`;
+  return [`${moment.time}, at ${where}. ${driver}`, news].filter(Boolean).join('\n');
+}
+
+/** How someone's needs feel, in words. */
+function needsWords(mind: Mind): string {
+  const n = mind.needs;
+  const words = [n.food < 0.3 ? 'hungry' : '', n.rest < 0.3 ? 'tired' : '', n.social < 0.3 ? 'lonely' : '', n.fun < 0.3 ? 'bored' : ''].filter(Boolean);
+  return words.length ? ` and ${words.join(', ')}` : '';
 }
 
 /** One person as they are now, with what they remember about these people. */
 function describe(person: Person, moment: Moment, about: string[]): string {
   const { member, mind } = person;
   const feelings = Object.entries(mind.feelings)
-    .filter(([id, v]) => Math.abs(v) > 0.12 || about.includes(id))
+    .filter(([id, v]) => Math.abs(v) > 0.2 || about.includes(id))
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .slice(0, 6)
+    .slice(0, 5)
     .map(([id, v]) => `${feelingWord(v)} ${id === 'driver' ? 'the driver' + (mind.driverName ? ` (${mind.driverName})` : '') : (castMember(id)?.name ?? id)}`);
-  const memories = recall(mind, moment.now, about, [], 6).map((m) => `- ${m.text}`);
+  // The same thing remembered twice is only worth saying once.
+  const memories = [...new Set(recall(mind, moment.now, about, [], 12).map((m) => m.text))].slice(0, 6).map((text) => `- ${text}`);
   return [
-    `${member.name} (${member.role}). Right now: ${person.doing}, feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? ` and ${mind.emotion}` : ''}.`,
+    `${member.name}, ${member.role}. ${member.bio} Talks: ${member.voice}.`,
     `Personality now: ${traitWords(mind.traits)}.`,
-    mind.insights.length ? `Has come to believe: ${mind.insights.join(' ')}` : '',
+    mind.story ? `Their life so far: ${mind.story}` : '',
+    mind.insights.length ? `Believes: ${mind.insights.slice(-3).join(' ')}` : '',
     mind.habits.length ? `Habits: ${mind.habits.join('; ')}.` : '',
-    feelings.length ? `Feelings: ${member.name} ${feelings.join(', ')}.` : '',
-    memories.length ? `${member.name} remembers:\n${memories.join('\n')}` : `${member.name} has nothing much on their mind.`,
+    feelings.length ? `${member.name} ${feelings.join(', ')}.` : '',
+    `Right now: ${person.doing}, feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}${needsWords(mind)}.`,
+    memories.length ? `${member.name} remembers:\n${memories.join('\n')}` : '',
   ]
     .filter(Boolean)
     .join('\n');
 }
 
-/** At most 15 words, as the speech bubbles promise. */
+/** At most 20 words, so a speech bubble stays readable. */
 function short(text: string): string {
-  const words = text.replace(/\s+/g, ' ').trim().split(' ');
-  return words.length <= 15 ? words.join(' ') : words.slice(0, 15).join(' ').replace(/[,;:]$/, '') + '…';
+  const words = String(text).replace(/\s+/g, ' ').trim().split(' ');
+  return words.length <= 20 ? words.join(' ') : words.slice(0, 20).join(' ').replace(/[,;:]$/, '') + '…';
+}
+
+/** Takes off quote marks wrapped round a whole sentence. */
+function unquote(text: string): string {
+  return text.trim().replace(/^["“'](.*)["”']$/s, '$1').trim();
 }
 
 function emotion(value: unknown): Emotion {
@@ -214,7 +257,7 @@ function emotion(value: unknown): Emotion {
 
 // ---------- the rule brain ----------
 
-const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
 
 export class RuleBrain implements Brain {
   async conversation(a: Person, b: Person, moment: Moment): Promise<ConversationResult> {
@@ -271,7 +314,15 @@ export class RuleBrain implements Brain {
       feelings.push({ from: A.id, about: B.id, change: 1 }, { from: B.id, about: A.id, change: 1 });
     }
     memories.push({ who: A.id, text: `Chatted with ${B.name} at ${a.where}.`, importance: 2 });
-    return { lines: lines.slice(0, 4), memories, feelings, ai: false };
+    // Friends sometimes agree to meet again, somewhere one of them likes.
+    let plan: MeetPlan | null = null;
+    const liked = A.likes.filter((kind) => B.likes.includes(kind))[0] ?? A.likes[0];
+    if (fondness > 0.35 && liked && Math.random() < 0.3 && lines.length < 4) {
+      plan = { place: liked, when: pick(['soon', 'later', 'tomorrow'] as const) };
+      lines.push({ speaker: A.id, text: `Meet me at the ${liked} ${plan.when === 'tomorrow' ? 'tomorrow' : 'later'}?`, emotion: 'happy' });
+      lines.push({ speaker: B.id, text: pick(["It's a date!", "I'll be there.", 'Wouldn\'t miss it.']), emotion: 'happy' });
+    }
+    return { lines: lines.slice(0, 5), memories, feelings, plan, ai: false };
   }
 
   async chat(person: Person, said: string): Promise<ChatResult> {
@@ -313,6 +364,7 @@ export class RuleBrain implements Brain {
       insights: insights.slice(0, 2),
       trait: scared >= 3 ? { name: 'courage', up: person.member.traits.courage > 0.6 } : mind.mood > 0.4 ? { name: 'humour', up: true } : null,
       habit: favourite && (favourite[1] ?? 0) > 0.5 ? `heads to the ${favourite[0]} whenever there's a spare moment` : '',
+      story: '',
       ai: false,
     };
   }

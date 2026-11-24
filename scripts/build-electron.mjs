@@ -2,11 +2,13 @@
 // (main.js), the bridge between it and the game page (preload.js), and the
 // main-process part of any installed pack that has one (packs/<name>.js,
 // from packs/<name>/main.ts). Each file is bundled with what it uses, because
-// the packaged app doesn't ship node_modules.
+// the packaged app doesn't ship node_modules, apart from the few packages that
+// load native code (see native.mjs), which packaging copies in as they are.
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
+import { ALL_NATIVE } from './native.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,10 +36,10 @@ await build({
     minify: false,
     rollupOptions: {
       input,
-      external: ['electron'],
+      external: ['electron', ...ALL_NATIVE],
       output: { format: 'cjs', entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' },
     },
   },
-  // Bundle every package in (only Electron and Node's own modules stay outside).
-  ssr: { noExternal: true, target: 'node' },
+  // Bundle every package in (only Electron, Node's own modules and the native packages stay outside).
+  ssr: { noExternal: true, external: ALL_NATIVE, target: 'node' },
 });

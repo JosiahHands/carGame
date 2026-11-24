@@ -28,8 +28,10 @@ export class Label {
   private bubble: HTMLElement;
   private bubbleUntil = 0;
   private point = new THREE.Vector3();
+  private friend = false;
 
-  constructor(layer: HTMLElement, name: string, style: string) {
+  /** `onClick` runs when the name is clicked (to start a chat). */
+  constructor(layer: HTMLElement, name: string, style: string, onClick: () => void) {
     this.tag = document.createElement('div');
     this.tag.className = `npc-tag ${style}`;
     this.bubble = document.createElement('div');
@@ -37,6 +39,13 @@ export class Label {
     this.name = document.createElement('span');
     this.name.className = 'npc-name';
     this.name.textContent = name;
+    this.name.title = `Talk to ${name}`;
+    // Clicks on the name go to the chat, never through to the game (where a click fires weapons).
+    this.name.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (e.button === 0) onClick();
+    });
     this.face = document.createElement('span');
     this.face.className = 'npc-face';
     this.tag.append(this.bubble, this.face, this.name);
@@ -46,6 +55,13 @@ export class Label {
   setEmotion(emotion: Emotion): void {
     const face = FACES[emotion];
     if (this.face.textContent !== face) this.face.textContent = face;
+  }
+
+  /** Marks the people who count you as a friend. */
+  setFriend(friend: boolean): void {
+    if (friend === this.friend) return;
+    this.friend = friend;
+    this.tag.classList.toggle('friend', friend);
   }
 
   /** Shows a line over their head for a while. A thought is shown in italics. */

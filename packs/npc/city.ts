@@ -31,6 +31,10 @@ const LABELS: Record<PlaceKind, string> = {
   garage: 'the garage',
   park: 'the park',
   stunts: 'the stunt park',
+  bakery: 'the bakery',
+  library: 'the library',
+  office: 'the office',
+  market: 'the market',
 };
 
 /** A point on the routes: a pavement corner. */
@@ -44,6 +48,8 @@ export class CityMap {
   places: Place[] = [];
   private nodes: Node[] = [];
   private props = new THREE.Group();
+  /** The blocks with buildings, where people live. */
+  private homes: { x: number; z: number }[] = [];
 
   constructor(scene: THREE.Scene) {
     scene.add(this.props);
@@ -93,20 +99,21 @@ export class CityMap {
     const lots = world.blocks.filter((b) => b.kind === 'lot').sort((a, b) => near(a) - near(b));
     const stunts = world.blocks.find((b) => b.kind === 'stunt');
     // Each shop on a different side of one of the nearest blocks: (block, side).
-    const shops: PlaceKind[] = ['coffee', 'bank', 'diner', 'gym', 'music', 'news'];
+    const shops: PlaceKind[] = ['coffee', 'bank', 'diner', 'gym', 'music', 'news', 'bakery', 'library', 'office', 'market'];
     const sides: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
     shops.forEach((kind, i) => {
       const block = cityBlocks[Math.floor(i / 2) % cityBlocks.length];
       if (!block) return;
       const [sx, sz] = sides[(i * 3 + Math.floor(i / 2)) % 4];
-      this.places.push({ id: kind, kind, label: LABELS[kind], x: block.x + sx * LOOP, z: block.z + sz * LOOP, spread: 1.6, block });
+      this.places.push({ id: kind, kind, label: LABELS[kind], x: block.x + sx * LOOP, z: block.z + sz * LOOP, spread: 2.6, block });
     });
     const garage = lots[0] ?? cityBlocks[4];
-    if (garage) this.places.push({ id: 'garage', kind: 'garage', label: LABELS.garage, x: garage.x + 18, z: garage.z - LOOP + 4, spread: 2, block: garage });
+    if (garage) this.places.push({ id: 'garage', kind: 'garage', label: LABELS.garage, x: garage.x + 18, z: garage.z - LOOP + 4, spread: 2.4, block: garage });
     parks.slice(0, 2).forEach((park, i) => {
-      this.places.push({ id: `park${i}`, kind: 'park', label: i === 0 ? 'the park' : 'the north park', x: park.x - 6 + i * 12, z: park.z + 4, spread: 2.4, block: park });
+      this.places.push({ id: `park${i}`, kind: 'park', label: i === 0 ? 'the park' : 'the north park', x: park.x - 6 + i * 12, z: park.z + 4, spread: 5, block: park });
     });
-    if (stunts) this.places.push({ id: 'stunts', kind: 'stunts', label: LABELS.stunts, x: stunts.x - LOOP + 3, z: stunts.z, spread: 2.2, block: stunts });
+    if (stunts) this.places.push({ id: 'stunts', kind: 'stunts', label: LABELS.stunts, x: stunts.x - LOOP + 3, z: stunts.z, spread: 3, block: stunts });
+    this.homes = cityBlocks.map((b) => ({ x: b.x, z: b.z }));
     for (const place of this.places) this.props.add(propFor(place));
   }
 
@@ -185,6 +192,21 @@ export class CityMap {
     }
     path.push(new THREE.Vector2(tx, tz));
     return path;
+  }
+
+  /**
+   * Someone's front door: a spot on the pavement of one of the city's blocks,
+   * the same for them every time (from their id).
+   */
+  home(id: string): { x: number; z: number; label: string } | null {
+    if (this.homes.length === 0) return null;
+    let hash = 2166136261;
+    for (const c of id) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619) >>> 0;
+    const block = this.homes[hash % this.homes.length];
+    const side = (hash >>> 8) % 4;
+    const along = (((hash >>> 12) % 1000) / 1000 - 0.5) * 2 * (LOOP - 6);
+    const [x, z] = [[along, -LOOP], [LOOP, along], [along, LOOP], [-LOOP, along]][side];
+    return { x: block.x + x, z: block.z + z, label: 'home' };
   }
 
   /** A random spot on a pavement near (x, z), for wandering. */
@@ -266,6 +288,32 @@ function propFor(place: Place): THREE.Group {
       box(0.6, 0.02, 0.4, 0x6b4226, 0.7, 0.01, 0.3); // an open guitar case
       break;
     }
+    case 'bakery':
+      box(2.4, 1, 0.8, 0xf3e1c7, 0, 0.5, 0); // the counter
+      box(2.6, 0.3, 1, 0xe76f51, 0, 2.5, 0.1); // a striped awning
+      box(0.08, 2.4, 0.08, 0xdddddd, -1.25, 1.2, 0.5);
+      box(0.08, 2.4, 0.08, 0xdddddd, 1.25, 1.2, 0.5);
+      for (const x of [-0.7, 0, 0.7]) box(0.4, 0.25, 0.4, 0xc68642, x, 1.13, 0); // loaves
+      break;
+    case 'library':
+      box(3, 2.6, 0.3, 0x6d597a, 0, 1.3, 0);
+      box(2.2, 0.4, 0.08, 0xf2e8cf, 0, 2.3, -0.2);
+      for (const x of [-0.9, -0.3, 0.3, 0.9]) box(0.12, 0.9, 0.6, [0xd62828, 0x003049, 0xf77f00, 0x2a9d8f][Math.round((x + 0.9) / 0.6)], x, 0.45, -0.5);
+      break;
+    case 'office':
+      box(3.2, 3.2, 0.2, 0x8ecae6, 0, 1.6, 0); // a glass front
+      box(1.2, 2.2, 0.06, 0x264653, 0, 1.1, -0.12); // the door
+      box(2, 0.3, 0.08, 0x264653, 0, 3, -0.12);
+      break;
+    case 'market':
+      for (const x of [-1.3, 1.3]) {
+        box(1.8, 0.9, 0.9, 0x8a5a33, x, 0.45, 0); // a stall
+        box(1.6, 0.25, 0.7, x < 0 ? 0xe63946 : 0x80b918, x, 1.02, 0); // fruit and veg
+        box(2, 0.08, 1.2, 0xf1faee, x, 2.2, 0); // its canopy
+        box(0.06, 1.3, 0.06, 0xbbbbbb, x - 0.9, 1.55, 0.5);
+        box(0.06, 1.3, 0.06, 0xbbbbbb, x + 0.9, 1.55, 0.5);
+      }
+      break;
     case 'garage':
       box(4, 3, 0.2, 0x55595f, 0, 1.5, 0);
       box(2.4, 0.5, 0.1, 0xf46036, 0, 3.2, -0.1);

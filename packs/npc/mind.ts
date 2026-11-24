@@ -54,9 +54,26 @@ export interface Mind {
   pending: number;
   /** The driver's name, once the driver has told them. */
   driverName?: string;
+  /**
+   * Their life so far, in their own words: rewritten now and then as they
+   * reflect, so what older memories meant stays with them after the details
+   * fade. Kept for the life of the game's install.
+   */
+  story: string;
+  /** Their talks with the driver, newest last. */
+  chats: ChatLine[];
 }
 
-const MAX_MEMORIES = 80;
+/** One exchange with the driver. */
+export interface ChatLine {
+  t: number;
+  you: string;
+  them: string;
+}
+
+const MAX_MEMORIES = 200;
+const MAX_CHATS = 40;
+const MAX_STORY = 700;
 const MAX_INSIGHTS = 6;
 const MAX_HABITS = 4;
 
@@ -81,6 +98,8 @@ export function newMind(member: CastMember): Mind {
     mood: 0.3,
     emotion: 'calm',
     pending: 0,
+    story: '',
+    chats: [],
   };
 }
 
@@ -206,6 +225,39 @@ export function moodWord(mind: Mind): string {
   return mind.mood > 0.5 ? 'great' : mind.mood > 0.15 ? 'good' : mind.mood > -0.15 ? 'okay' : mind.mood > -0.5 ? 'low' : 'awful';
 }
 
+/** Writes down a talk with the driver. */
+export function logChat(mind: Mind, now: number, you: string, them: string): void {
+  mind.chats.push({ t: now, you: you.slice(0, 300), them: them.slice(0, 300) });
+  if (mind.chats.length > MAX_CHATS) mind.chats.shift();
+  mind.met.driver = (mind.met.driver ?? 0) + 1;
+}
+
+/** Their life story, rewritten after reflecting. */
+export function setStory(mind: Mind, story: string): void {
+  const text = story.replace(/\s+/g, ' ').trim().slice(0, MAX_STORY);
+  if (text.length > 20) mind.story = text;
+}
+
+/** Where you stand with them, from strangers to best friends. */
+export type Friendship = 'enemy' | 'wary' | 'stranger' | 'acquaintance' | 'friend' | 'close friend' | 'best friend';
+
+export function friendship(mind: Mind): Friendship {
+  const like = mind.feelings.driver ?? 0;
+  const talks = mind.met.driver ?? 0;
+  if (like < -0.5) return 'enemy';
+  if (like < -0.15) return 'wary';
+  if (talks === 0) return 'stranger';
+  if (like < 0.3 || talks < 3) return 'acquaintance';
+  if (like < 0.55 || talks < 6) return 'friend';
+  if (like < 0.8 || talks < 12) return 'close friend';
+  return 'best friend';
+}
+
+/** Friends and better. */
+export function isFriend(mind: Mind): boolean {
+  return ['friend', 'close friend', 'best friend'].includes(friendship(mind));
+}
+
 /** Keeps saved minds sound when loading (old saves, or a cast that changed). */
 export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined): Mind {
   const fresh = newMind(member);
@@ -221,5 +273,8 @@ export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined
     likes: { ...fresh.likes, ...(saved.likes ?? {}) },
     mood: typeof saved.mood === 'number' ? saved.mood : fresh.mood,
     driverName: typeof saved.driverName === 'string' ? saved.driverName.slice(0, 24) : undefined,
+    story: typeof saved.story === 'string' ? saved.story.slice(0, MAX_STORY) : '',
+    chats: Array.isArray(saved.chats) ? saved.chats.filter((c) => c && typeof c.you === 'string' && typeof c.them === 'string').slice(-MAX_CHATS) : [],
+    needs: { ...fresh.needs, ...(saved.needs ?? {}) },
   };
 }

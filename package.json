@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.13.0",
+    "node-llama-cpp": "^3.22.3",
     "three": "^0.187.0"
   },
   "devDependencies": {

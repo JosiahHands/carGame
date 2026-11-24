@@ -60,18 +60,32 @@ spin the car and dent it, and a telemetry panel shows the tyres at work.
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
 ```
 
-**🧠 Living City** (`npc`): twelve people live in the city, each with a name
-over their head, a job, friends and a personality. They go about their day,
-meet up and talk, and remember what you do. Over time they change: they form
-opinions and pick up habits, and warm to you or hold a grudge. Among them are
-GUY, the cheerful bank teller in the blue shirt, and his best friend BUDDY, a
-police officer who goes everywhere with him and writes you tickets.
+**🧠 Living City** (`npc`): a whole city of 48 people, each with a name over
+their head, a job, a home, friends and a personality of their own. They live
+through the city's days: they get up, grab a coffee, go to work, have lunch,
+meet friends in the evening and go home to sleep. They stop to talk when they
+run into each other, gossip about each other and about you, and make plans to
+meet again, which they keep. Over time they change: they form beliefs, pick up
+habits, make friends and hold grudges, and write their own life stories. Among
+them are GUY, the cheerful bank teller in the blue shirt, and his best friend
+BUDDY, a police officer who goes everywhere with him and writes you tickets.
 
-Add an [Anthropic API key](https://console.anthropic.com) in the Packs tab and
-Claude writes what they say and think. The key is stored encrypted and never
-goes anywhere but Anthropic. Using the API costs money, and the Packs tab shows
-the spend. Without a key, a built-in brain keeps the city going. Press K next
-to someone to talk to them, and L for the city journal (city free roam).
+Their conversations and thoughts are written by a free, open-source AI model
+(Qwen3.5, Apache 2.0) that runs on your own computer through
+[llama.cpp](https://github.com/ggml-org/llama.cpp). Nothing is sent anywhere
+and it costs nothing. The first time the pack runs, it downloads the model that
+suits your computer, once: Qwen3.5 4B (2.7 GB) with 16 GB of memory or more,
+otherwise Qwen3.5 2B (1.3 GB). You can pick a smaller or larger model, or run
+it on the processor instead of the graphics chip, in the Packs tab. Until the
+model is ready, a simpler built-in brain keeps the city going.
+
+Click on anyone (or pull up next to them and press K) to talk to them. Talk to
+people often and treat them well, and they become your friends: they wave when
+you drive by, greet you by name and remember what you talked about. Everyone's
+memories, friendships and life stories are saved in the game's data folder,
+which updates leave alone, so they last as long as the game is installed. L
+opens the city journal: what everyone is doing, what they've been saying to each
+other, their plans, and your friends (city free roam).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc

@@ -1856,6 +1856,26 @@ input.text.code {
   box-shadow: inset 0 -2px 0 #e8c14a;
 }
 
+.npc-tag.resident .npc-name {
+  font-size: 12px;
+  background: rgba(10, 14, 22, 0.5);
+}
+
+/* Names can be clicked to talk (the rest of the layer lets clicks through to the game). */
+.npc-name {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.npc-name:hover {
+  background: rgba(90, 168, 255, 0.85);
+}
+
+/* People who count you as a friend. */
+.npc-tag.friend .npc-name::after {
+  content: ' 💙';
+}
+
 .npc-tag.no-name .npc-name,
 .npc-tag.no-name .npc-face {
   display: none;
@@ -1949,6 +1969,12 @@ input.text.code {
 
 .npc-chat-line.mine {
   color: var(--muted);
+}
+
+/* What you said to each other last time. */
+.npc-chat-line.old {
+  opacity: 0.55;
+  font-size: 13px;
 }
 
 .npc-chat-form {
@@ -2134,4 +2160,37 @@ input.text.npc-key {
   border-top: 1px solid var(--panel-border);
   color: var(--muted);
   font-size: 12px;
+}
+
+.npc-ai-status {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.npc-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #5aa8ff;
+}
+
+.npc-story {
+  font-style: italic;
+}
+
+.npc-talk {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--chip);
+}
+
+.npc-talk small {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+}
+
+.npc-friends .npc-person {
+  display: block;
+  width: 100%;
 }

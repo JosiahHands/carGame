@@ -1,29 +1,38 @@
-// 🧠 Living City: twelve people with names, jobs, friends and minds of their
-// own live in the city. They go about their day (coffee, work, lunch, the
-// park), meet up and talk, gossip about each other and about you, remember
-// what they've seen, and slowly change: forming beliefs, picking up habits,
-// growing braver or warier, warming to you or holding a grudge.
+// 🧠 Living City: a whole city of people with names, jobs, homes, friends
+// and minds of their own. They live through the city's days: they get up,
+// grab a coffee, go to work, have lunch, meet friends in the evening and go
+// home to sleep. They stop to talk when they run into each other, gossip
+// about each other and about you, make plans to meet again (and keep them),
+// remember what they've seen, and slowly change: forming beliefs, picking up
+// habits, growing braver or warier, making friends and holding grudges.
 //
-// With an Anthropic API key (Packs tab), Claude writes what they say and
-// think, from who they are now and what they remember. Without one, a
-// simpler built-in brain keeps them going.
+// What they say and think is written by a free, open-source AI model that
+// runs on this computer (see main.ts): nothing is sent anywhere. Until it's
+// downloaded (or when it's busy or switched off) a simpler built-in brain
+// keeps them going.
+//
+// Click on anyone (or pull up next to them and press K) to talk to them.
+// Talk to people often and treat them well and they become your friends:
+// they wave when you drive by, greet you by name and remember your talks.
+// Everything they remember is saved in the game's data folder, which
+// updates leave alone, so it lasts as long as the game is installed.
 //
 // GUY, the cheerful bank teller in the blue shirt, and his best friend
 // BUDDY, a police officer who goes everywhere with him (and writes you
-// tickets), are among them. Press K by someone to talk to them, and L for
-// the city journal.
+// tickets), are among them. L opens the city journal.
 //
-// The parts: cast.ts (who they are), mind.ts (memory, feelings, needs),
-// brain.ts (what they say), city.ts (places and walking routes), body.ts
-// (how they look and move), labels.ts (name tags and speech bubbles), and
-// main.ts (the main-process side that talks to Claude).
+// The parts: cast.ts and residents.ts (who they are), mind.ts (memory,
+// feelings, needs, friendship), brain.ts (what they say), city.ts (places,
+// homes and walking routes), body.ts (how they look and move), labels.ts
+// (name tags and speech bubbles), ui.ts (chat, journal and settings), and
+// main.ts (the main-process side: the local AI and the saved city).
 import * as THREE from 'three';
 import type { CarConfig } from '../../game/carConfig';
-import type { GameApi, Pack, PackInstance, PanelUI } from '../../game/packs';
-import { button, el } from '../../libs/dom';
+import type { GameApi, Pack, PackInstance } from '../../game/packs';
+import { el } from '../../libs/dom';
 import { Body, type Action } from './body';
-import { AiBrain, RuleBrain, type Brain, type Line, type Moment, type Person } from './brain';
-import { CAST, castMember, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind } from './cast';
+import { LocalBrain, RuleBrain, type Brain, type ConversationResult, type Line, type MeetPlan, type Moment, type Person } from './brain';
+import { CAST, type CastMember, type Emotion, type PlaceKind } from './cast';
 import { CityMap, type Place } from './city';
 import { Label } from './labels';
 import {
@@ -31,43 +40,53 @@ import {
   addInsight,
   feel,
   feelingWord,
+  friendship,
+  isFriend,
   jolt,
   learnPlace,
-  moodWord,
+  logChat,
   nudge,
   remember,
   restoreMind,
+  setStory,
   tickNeeds,
-  traitWords,
-  type Memory,
+  type Friendship,
   type Mind,
 } from './mind';
-import { MODELS, type ModelChoice } from './protocol';
+import { MODELS, type AiStatus, type ModelChoice } from './protocol';
+import { aiWords, buildChat, buildJournal, DEFAULT_OPTIONS, settingsPanel, type Options, type Talk } from './ui';
 
-interface Options {
-  model: ModelChoice;
-  /** How often they use the AI: never, for what's near you, or as much as possible. */
-  think: 'off' | 'normal' | 'lots';
-  tags: boolean;
+/** Two people's plan to meet: where, and when (city clock). */
+interface Meetup {
+  ids: [string, string];
+  placeId: string;
+  kind: PlaceKind;
+  at: number;
 }
 
-const DEFAULTS: Options = { model: 'opus', think: 'normal', tags: true };
-
-/** What gets saved: the city's clock, every mind, and your record with the police. (The AI spend is saved on its own: see addSpend.) */
+/** What gets saved: the city's clock, every mind, plans, the latest news and talk, and your record with the police. */
 interface Saved {
+  version: 2;
+  /** When it was saved (real time), so the newest copy wins. */
+  savedAt: number;
   clock: number;
   minds: Record<string, Mind>;
   tickets: number;
+  meetups: Meetup[];
+  news: string[];
+  talks: Talk[];
 }
 
-/** What someone's doing: heading somewhere, spending time there, wandering, or (BUDDY) sticking with GUY. */
+/** What someone's doing: heading somewhere, spending time there, wandering, going home, asleep, or (BUDDY) sticking with GUY. */
 type Plan =
-  | { kind: 'go'; place: Place; spot: THREE.Vector2 }
-  | { kind: 'stay'; place: Place; until: number }
+  | { kind: 'go'; place: Place; spot: THREE.Vector2; meet?: Meetup }
+  | { kind: 'stay'; place: Place; until: number; meet?: Meetup }
   | { kind: 'wander'; until: number }
+  | { kind: 'homeward' }
+  | { kind: 'sleep'; until: number }
   | { kind: 'follow' };
 
-interface Npc {
+export interface Npc {
   member: CastMember;
   mind: Mind;
   body: Body;
@@ -77,6 +96,9 @@ interface Npc {
   heading: number;
   path: THREE.Vector2[];
   plan: Plan;
+  /** Their front door (set once the city is built). */
+  home: { x: number; z: number } | null;
+  asleep: boolean;
   /** A reaction that overrides walking for a moment (diving, cheering, waving). */
   reaction: Action | null;
   reactionUntil: number;
@@ -88,14 +110,17 @@ interface Npc {
   lookZ: number;
   convo: Convo | null;
   emotionUntil: number;
-  /** When they last called out, reacted to something scary, or reflected. */
+  /** When they last called out, reacted to something scary, reflected, or greeted you. */
   lastShout: number;
   lastScare: number;
   lastReflect: number;
+  lastGreet: number;
   reflecting: boolean;
   /** Their mood when they arrived where they are, to learn whether they like it. */
   visit: { kind: PlaceKind; mood: number; talked: boolean } | null;
   chatting: boolean;
+  /** Where they stood with you last time it was checked (to tell you when you become friends). */
+  bond: Friendship;
 }
 
 interface Convo {
@@ -111,79 +136,97 @@ interface Convo {
 const OFFICER = 'buddy';
 const PARTNER = 'guy';
 
-const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+// ---------- the city's clock ----------
+// A city day is 24 minutes of play: an hour is a minute. The clock keeps
+// running from one session to the next.
+const HOUR = 60;
+const START_HOUR = 8;
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const hourOf = (t: number) => (START_HOUR + t / HOUR) % 24;
+const dayOf = (t: number) => Math.floor((START_HOUR + t / HOUR) / 24);
+const weekday = (t: number) => dayOf(t) % 7 < 5;
+/** The clock time when it next reaches `hour` (0..24). */
+const nextHour = (t: number, hour: number) => t + (((hour - hourOf(t)) % 24) + 24) % 24 * HOUR;
+function timeWords(t: number): string {
+  const h = hourOf(t);
+  const part = h < 5 ? 'the middle of the night' : h < 8 ? 'early morning' : h < 12 ? 'morning' : h < 14 ? 'lunchtime' : h < 17 ? 'afternoon' : h < 20 ? 'evening' : 'night';
+  return `${DAYS[dayOf(t) % 7]}, ${part}`;
+}
+function clockText(t: number): string {
+  const h = hourOf(t);
+  const minutes = Math.floor((h % 1) * 60);
+  return `${DAYS[dayOf(t) % 7]} ${String(Math.floor(h)).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+/** Bodies further from the camera than this aren't drawn (they still live their lives). */
+const SHOW_RANGE = 150;
+/** How close (to your car) someone has to be to chat when you click on them. */
+const CHAT_RANGE = 60;
+/** The AI writes conversations within this distance of you first. */
+const NEAR_RANGE = 220;
+
+const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
 
 const pack: Pack = {
   id: 'npc',
   name: 'Living City',
   icon: '🧠',
   about:
-    'Twelve people with names, jobs and friends live in the city. They go about their day, meet up and chat, remember what you do, and change over time: ' +
-    'forming opinions, picking up habits and warming to you or holding a grudge. Add an Anthropic API key and Claude writes their conversations. ' +
-    'Press K next to someone to talk to them and L for the city journal (city free roam).',
+    `A whole city of ${CAST.length} people with jobs, homes, friends and minds of their own, brought to life by a free, open-source AI that runs on this computer. ` +
+    'They live through the days, talk to each other, make plans, remember everything (for as long as the game is installed) and change over time. ' +
+    'Click on anyone to talk to them, and make friends. L opens the city journal (city free roam).',
   activate(game: GameApi): PackInstance {
-    const options: Options = { ...DEFAULTS, ...game.load<Partial<Options>>('options', {}) };
-    if (!Object.hasOwn(MODELS, options.model)) options.model = DEFAULTS.model;
-    const saved = game.load<Partial<Saved>>('city', {});
-    let clock = typeof saved.clock === 'number' ? saved.clock : 0;
-    let tickets = typeof saved.tickets === 'number' ? saved.tickets : 0;
-    let spentNow = 0;
-    /** Switched off: answers still on their way are ignored, apart from what they cost. */
+    const stored = game.load<Partial<Options>>('options', {});
+    const options: Options = {
+      think: stored.think === 'nearby' || stored.think === 'everywhere' ? stored.think : DEFAULT_OPTIONS.think,
+      tags: typeof stored.tags === 'boolean' ? stored.tags : DEFAULT_OPTIONS.tags,
+    };
+    let clock = 0;
+    let tickets = 0;
+    const meetups: Meetup[] = [];
+    const news: string[] = []; // what's been happening, newest first
+    const talks: Talk[] = []; // conversations overheard, newest first
+    /** Switched off: answers still on their way are ignored. */
     let disposed = false;
-    /**
-     * The AI spend is saved the moment an answer arrives. An answer can arrive
-     * after the pack is switched off (or off and on again), so the total is
-     * read and written each time rather than kept here.
-     */
-    const totalSpent = () => {
-      const total = game.load<unknown>('spend', 0);
-      return typeof total === 'number' && Number.isFinite(total) ? total : 0;
-    };
-    const addSpend = (dollars: number) => {
-      if (!Number.isFinite(dollars) || dollars <= 0) return;
-      game.save('spend', totalSpent() + dollars);
-      if (!disposed) spentNow += dollars;
-    };
 
-    // ---------- the AI ----------
-    let key: 'saved' | 'environment' | 'none' | 'checking' = 'checking';
-    let secure = false;
+    // ---------- the local AI ----------
+    let ai: AiStatus | null = null; // null: not in the desktop game
     let waitUntil = 0; // after the AI is busy or fails, wait a little before asking again
-    let lastAiTalk = -Infinity;
-    let lastProblem = '';
-    const checkKey = () =>
+    let aiTalks = 0; // conversations the AI is writing now
+    let aiReflects = 0; // and reflections
+    let updateSettings: ((status: AiStatus | null) => void) | null = null;
+    let firstStatus = true;
+    const pollStatus = () =>
       game
         .callMain('status')
         .then((s) => {
-          const status = s as { key: 'saved' | 'environment' | 'none'; secure: boolean };
-          key = status.key;
-          secure = status.secure;
+          ai = s as AiStatus;
+          // The first time the pack runs, fetch the model that suits this computer.
+          if (firstStatus && ai.state === 'missing' && ai.downloaded.length === 0 && !game.load('fetched', false)) {
+            game.save('fetched', true);
+            void game.callMain('download', ai.model);
+            game.toast(`🧠 Living City is downloading its local AI (${MODELS[ai.model].label}, ${MODELS[ai.model].size} GB, once). Until then the city uses its built-in brain.`, 6000);
+          }
+          firstStatus = false;
         })
-        .catch(() => (key = 'none')); // not running in the desktop app
-    void checkKey();
+        .catch(() => (ai = null))
+        .finally(() => updateSettings?.(ai));
+    void pollStatus();
+    const poll = window.setInterval(() => void pollStatus(), 1500);
+    const aiReady = () => ai?.state === 'ready' && performance.now() > waitUntil;
     const rules: Brain = new RuleBrain();
-    const ai = new AiBrain(
+    const local = new LocalBrain(
       {
-        get model() {
-          return options.model;
-        },
         call: (request) => game.callMain('think', request),
-        spent: addSpend,
         failed: (reason, message) => {
           if (disposed) return;
-          lastProblem = message;
-          if (reason === 'no-key') {
-            key = 'none';
-            game.toast('Living City: the API key was not accepted. Check it in the Packs tab.', 4000);
-          } else if (reason !== 'refused') {
-            waitUntil = performance.now() + (reason === 'busy' ? 20_000 : 45_000);
-            if (reason === 'error') console.warn('Living City: the AI request failed:', message);
-          }
+          if (reason === 'not-ready') void pollStatus();
+          waitUntil = performance.now() + (reason === 'busy' ? 4000 : reason === 'error' ? 20_000 : 2000);
+          if (reason === 'error') console.warn('Living City: the local AI failed:', message);
         },
       },
       rules,
     );
-    const aiReady = () => (key === 'saved' || key === 'environment') && options.think !== 'off' && performance.now() > waitUntil;
 
     // ---------- the city and its people ----------
     const city = new CityMap(game.scene);
@@ -192,7 +235,6 @@ const pack: Pack = {
     const npcs: Npc[] = [];
     const byId = new Map<string, Npc>();
     const lastPair = new Map<string, number>(); // when each pair last talked
-    const news: string[] = []; // what's been happening, newest first
     let active = false;
     let thinkTimer = 0;
     let saveTimer = 0;
@@ -206,18 +248,23 @@ const pack: Pack = {
       byId.clear();
       for (const member of CAST) {
         const body = new Body(member.look);
+        body.root.visible = false;
+        body.root.userData.npc = member.id; // for clicking on them
         game.scene.add(body.root);
-        const style = member.id === PARTNER ? 'hero' : member.id === OFFICER ? 'police' : '';
+        const style = member.id === PARTNER ? 'hero' : member.id === OFFICER ? 'police' : member.star ? '' : 'resident';
+        const mind = restoreMind(member, minds?.[member.id]);
         const npc: Npc = {
           member,
-          mind: restoreMind(member, minds?.[member.id]),
+          mind,
           body,
-          label: new Label(layer, member.name, style),
+          label: new Label(layer, member.name, style, () => openChat(npc)),
           x: 0,
           z: 0,
           heading: Math.random() * Math.PI * 2,
           path: [],
           plan: { kind: 'wander', until: 0 },
+          home: null,
+          asleep: false,
           reaction: null,
           reactionUntil: 0,
           diveX: 0,
@@ -229,9 +276,11 @@ const pack: Pack = {
           lastShout: -Infinity,
           lastScare: -Infinity,
           lastReflect: clock,
+          lastGreet: -Infinity,
           reflecting: false,
           visit: null,
           chatting: false,
+          bond: friendship(mind),
         };
         npcs.push(npc);
         byId.set(member.id, npc);
@@ -239,19 +288,27 @@ const pack: Pack = {
       placeEveryone();
     };
 
-    /** Puts everyone somewhere sensible: at work, or somewhere they like. */
+    /** Puts everyone where they'd be at this time of day: in bed, at work, or somewhere they like. */
     const placeEveryone = () => {
       if (city.places.length === 0) return;
       for (const npc of npcs) {
+        npc.home = city.home(npc.member.id);
+        npc.path = [];
+        npc.convo = null;
+        npc.visit = null;
         if (npc.member.id === OFFICER) continue;
-        const kinds = [npc.member.job, ...npc.member.likes].filter((k): k is PlaceKind => !!k);
-        const place = city.placesOf(kinds[0] ?? 'park')[0] ?? city.places[0];
+        if (bedtime(npc) && npc.home) {
+          npc.x = npc.home.x;
+          npc.z = npc.home.z;
+          sleep(npc);
+          continue;
+        }
+        npc.asleep = false;
+        const place = bestPlace(npc) ?? city.places[0];
         const spot = spotAt(place);
         npc.x = spot.x;
         npc.z = spot.y;
-        npc.path = [];
-        npc.plan = { kind: 'stay', place, until: clock + 20 + Math.random() * 40 };
-        npc.visit = { kind: place.kind, mood: npc.mind.mood, talked: false };
+        arrive(npc, place);
       }
       const officer = byId.get(OFFICER);
       const partner = byId.get(PARTNER);
@@ -259,6 +316,7 @@ const pack: Pack = {
         officer.x = partner.x + 1.4;
         officer.z = partner.z + 0.6;
         officer.plan = { kind: 'follow' };
+        officer.asleep = partner.asleep;
       }
     };
 
@@ -268,29 +326,34 @@ const pack: Pack = {
       return new THREE.Vector2(place.x + Math.cos(a) * r, place.z + Math.sin(a) * r);
     };
 
-    reset(saved.minds);
-
     // ---------- words for prompts ----------
 
     const carWords = () => describeCar(game.playerCar().config);
-    const moment = (): Moment => ({ now: clock, night: game.world.isNight, car: carWords(), news });
+    const moment = (): Moment => ({ now: clock, time: timeWords(clock), car: carWords(), news });
     const placeName = (x: number, z: number) => {
       const near = city.nearestPlace(x, z);
       return near && near.distance < 45 ? near.place.label : 'the street';
     };
     const doing = (npc: Npc): string => {
+      if (npc.asleep) return 'asleep at home';
       if (npc.chatting) return 'talking to the driver, who has pulled up beside them';
       if (npc.convo) {
         const others = npc.convo.people.filter((p) => p !== npc).map((p) => p.member.name);
         return `chatting with ${others.join(' and ')}`;
       }
+      const meeting = (meet?: Meetup) => (meet ? ` to meet ${byId.get(meet.ids.find((id) => id !== npc.member.id) ?? '')?.member.name ?? 'a friend'}` : '');
       switch (npc.plan.kind) {
         case 'go':
-          return `walking to ${npc.plan.place.label}`;
+          return `walking to ${npc.plan.place.label}${meeting(npc.plan.meet)}`;
         case 'stay':
+          if (npc.plan.meet) return `waiting at ${npc.plan.place.label}${meeting(npc.plan.meet)}`;
           return npc.plan.place.kind === npc.member.job ? `working at ${npc.plan.place.label}` : `hanging out at ${npc.plan.place.label}`;
         case 'wander':
           return 'strolling around the city';
+        case 'homeward':
+          return 'heading home for the night';
+        case 'sleep':
+          return 'asleep at home';
         case 'follow':
           return `walking with ${byId.get(PARTNER)?.member.name ?? 'a friend'}, keeping an eye on things`;
       }
@@ -299,28 +362,73 @@ const pack: Pack = {
     const tellNews = (text: string) => {
       if (news[0] === text) return;
       news.unshift(text);
-      if (news.length > 8) news.pop();
+      if (news.length > 10) news.pop();
     };
 
-    // ---------- deciding where to go ----------
+    // ---------- their days ----------
 
-    /** How much someone wants to be at a place right now. */
+    /** When they go to bed and get up: the lively stay up later. */
+    const bedHour = (npc: Npc) => 22.5 + npc.mind.traits.energy * 2; // 22:30 .. 00:30
+    const wakeHour = (npc: Npc) => 5.5 + (1 - npc.mind.traits.energy) * 2; // 05:30 .. 07:30
+    const bedtime = (npc: Npc) => {
+      const h = hourOf(clock);
+      const late = h < 12 ? h + 24 : h; // counts the small hours as late tonight
+      return late >= bedHour(npc) && late < wakeHour(npc) + 24;
+    };
+
+    const goHome = (npc: Npc) => {
+      if (!npc.home) return;
+      leaveVisit(npc);
+      npc.path = city.route(npc.x, npc.z, npc.home.x, npc.home.z);
+      npc.plan = { kind: 'homeward' };
+    };
+
+    const sleep = (npc: Npc) => {
+      npc.asleep = true;
+      npc.path = [];
+      npc.label.hush();
+      npc.plan = { kind: 'sleep', until: nextHour(clock, wakeHour(npc)) };
+    };
+
+    const wake = (npc: Npc) => {
+      npc.asleep = false;
+      npc.mind.needs.rest = 1;
+      remember(npc.mind, clock, `Woke up on ${DAYS[dayOf(clock) % 7]} morning.`, 1, [], 'saw');
+      decide(npc);
+    };
+
+    /** How much someone wants to be at a place right now: their needs, their routine, what they've learned they like, and who's there. */
     const appeal = (npc: Npc, place: Place): number => {
       const { mind, member } = npc;
       const n = mind.needs;
       const t = mind.traits;
+      const h = hourOf(clock);
       let score = (mind.likes[place.kind] ?? 0) * 0.8;
-      if (place.kind === 'diner' || place.kind === 'coffee') score += (1 - n.food) * (place.kind === 'diner' ? 1.6 : 1.1);
-      if (place.kind === 'park') score += (1 - n.rest) * 1.2 + (1 - n.fun) * 0.3;
-      if (place.kind === 'stunts') score += (1 - n.fun) * (0.4 + t.courage);
-      if (place.kind === 'music') score += (1 - n.fun) * (0.3 + t.humour * 0.8);
-      if (place.kind === 'gym') score += (1 - n.fun) * t.energy * 0.8 + (1 - n.rest) * -0.8;
-      if (place.kind === 'news') score += t.curiosity * 0.4;
-      // Work, when they're not desperate for anything.
-      if (place.kind === member.job) score += 0.9 * Math.min(n.food, n.rest, n.fun) + 0.2;
+      const kind = place.kind;
+      // Hungry: somewhere to eat (breakfast, lunch and dinner come round at their times).
+      const eat: Partial<Record<PlaceKind, number>> = { diner: 1.6, coffee: 1.1, bakery: 1.3, market: 0.8 };
+      score += (1 - n.food) * (eat[kind] ?? 0);
+      if (h >= 6.5 && h < 9.5 && (kind === 'coffee' || kind === 'bakery')) score += 0.6;
+      if (h >= 12 && h < 13.5 && (kind === 'diner' || kind === 'bakery' || kind === 'market')) score += 0.5;
+      if (h >= 18 && h < 20.5 && kind === 'diner') score += 0.7;
+      // Tired, bored, curious.
+      if (kind === 'park') score += (1 - n.rest) * 1.2 + (1 - n.fun) * 0.3;
+      if (kind === 'stunts') score += (1 - n.fun) * (0.4 + t.courage);
+      if (kind === 'music') score += (1 - n.fun) * (0.3 + t.humour * 0.8) + (h >= 19 ? 0.4 * t.energy : 0);
+      if (kind === 'gym') score += (1 - n.fun) * t.energy * 0.8 - (1 - n.rest) * 0.8;
+      if (kind === 'news' || kind === 'library') score += t.curiosity * 0.4;
+      if (kind === 'market') score += t.curiosity * 0.2;
+      // Shops and offices close in the evening (unless you work there).
+      const shop = kind !== 'park' && kind !== 'stunts' && kind !== 'music';
+      if (shop && kind !== member.job && (h < 7 || h >= 21)) score -= 1.5;
+      // Work: in working hours on weekdays, when they're not desperate for anything.
+      if (kind === member.job) {
+        const hours = weekday(clock) && h >= 9 && h < 17;
+        score += hours ? 1.4 * Math.min(1, 0.4 + Math.min(n.food, n.rest)) : -0.3;
+      }
       // Friends there (or on their way): the lonelier they are, the more it counts.
       for (const other of npcs) {
-        if (other === npc) continue;
+        if (other === npc || other.asleep) continue;
         const at = other.plan.kind === 'stay' || other.plan.kind === 'go' ? other.plan.place : null;
         if (at === place) score += Math.max(0, mind.feelings[other.member.id] ?? 0) * (0.25 + (1 - n.social) * 0.6);
       }
@@ -330,19 +438,7 @@ const pack: Pack = {
       return score - Math.hypot(place.x - npc.x, place.z - npc.z) * 0.0015;
     };
 
-    const decide = (npc: Npc) => {
-      // Leaving somewhere: was it a good time? They'll remember.
-      if (npc.visit) {
-        const reward = (npc.mind.mood - npc.visit.mood) * 2.5 + (npc.visit.talked ? 0.35 : 0) + (npc.mind.likes[npc.visit.kind] ?? 0) * 0.3;
-        learnPlace(npc.mind, npc.visit.kind, Math.max(-1, Math.min(1, reward)));
-        npc.visit = null;
-      }
-      if (Math.random() < npc.mind.traits.curiosity * 0.12) {
-        const spot = city.wanderSpot(npc.x, npc.z, Math.random);
-        npc.path = city.route(npc.x, npc.z, spot.x, spot.y);
-        npc.plan = { kind: 'wander', until: clock + 40 };
-        return;
-      }
+    const bestPlace = (npc: Npc): Place | null => {
       let best: Place | null = null;
       let bestScore = -Infinity;
       for (const place of city.places) {
@@ -352,17 +448,124 @@ const pack: Pack = {
           best = place;
         }
       }
-      if (!best) return;
-      const spot = spotAt(best);
-      npc.path = city.route(npc.x, npc.z, spot.x, spot.y);
-      npc.plan = { kind: 'go', place: best, spot };
+      return best;
     };
 
-    const arrive = (npc: Npc, place: Place) => {
-      const working = place.kind === npc.member.job;
-      npc.plan = { kind: 'stay', place, until: clock + (working ? 90 + Math.random() * 90 : 40 + Math.random() * 60) };
+    /** Leaving somewhere: was it a good time? They'll remember. */
+    const leaveVisit = (npc: Npc) => {
+      if (!npc.visit) return;
+      const reward = (npc.mind.mood - npc.visit.mood) * 2.5 + (npc.visit.talked ? 0.35 : 0) + (npc.mind.likes[npc.visit.kind] ?? 0) * 0.3;
+      learnPlace(npc.mind, npc.visit.kind, Math.max(-1, Math.min(1, reward)));
+      npc.visit = null;
+    };
+
+    const goTo = (npc: Npc, place: Place, meet?: Meetup) => {
+      const spot = spotAt(place);
+      npc.path = city.route(npc.x, npc.z, spot.x, spot.y);
+      npc.plan = { kind: 'go', place, spot, meet };
+    };
+
+    const decide = (npc: Npc) => {
+      leaveVisit(npc);
+      if (bedtime(npc) && npc.home) return goHome(npc);
+      if (Math.random() < npc.mind.traits.curiosity * 0.1) {
+        const spot = city.wanderSpot(npc.x, npc.z, Math.random);
+        npc.path = city.route(npc.x, npc.z, spot.x, spot.y);
+        npc.plan = { kind: 'wander', until: clock + 40 };
+        return;
+      }
+      const best = bestPlace(npc);
+      if (best) goTo(npc, best);
+    };
+
+    const arrive = (npc: Npc, place: Place, meet?: Meetup) => {
+      const working = place.kind === npc.member.job && weekday(clock);
+      const stay = meet ? 2 * HOUR : working ? 90 + Math.random() * 120 : 40 + Math.random() * 60;
+      npc.plan = { kind: 'stay', place, until: clock + stay, meet };
       npc.visit = { kind: place.kind, mood: npc.mind.mood, talked: false };
-      if (Math.random() < 0.15) remember(npc.mind, clock, `Spent some time at ${place.label}.`, 1, [], 'saw');
+      if (Math.random() < 0.1) remember(npc.mind, clock, `Spent some time at ${place.label}.`, 1, [], 'saw');
+    };
+
+    // ---------- plans to meet ----------
+
+    const placeById = (id: string, kind: PlaceKind) => city.place(id) ?? city.placesOf(kind)[0];
+
+    const makePlan = (a: Npc, b: Npc, plan: MeetPlan) => {
+      const place = city.placesOf(plan.place).sort((p, q) => Math.hypot(p.x - a.x, p.z - a.z) - Math.hypot(q.x - a.x, q.z - a.z))[0];
+      if (!place) return;
+      // Soon is within the hour or two, later is this evening-ish, tomorrow is tomorrow in the daytime.
+      let at =
+        plan.when === 'soon'
+          ? clock + (1 + Math.random()) * HOUR
+          : plan.when === 'later'
+            ? clock + (4 + Math.random() * 3) * HOUR
+            : nextHour(clock, 10 + Math.random() * 8);
+      if (plan.when === 'tomorrow' && dayOf(at) === dayOf(clock)) at += 24 * HOUR;
+      // Nobody meets up in the middle of the night: that becomes tomorrow morning.
+      if (hourOf(at) >= 22 || hourOf(at) < 8) at = nextHour(at, 9 + Math.random() * 2);
+      // One plan per pair at a time.
+      const old = meetups.findIndex((m) => m.ids.includes(a.member.id) && m.ids.includes(b.member.id));
+      if (old >= 0) meetups.splice(old, 1);
+      const meetup: Meetup = { ids: [a.member.id, b.member.id], placeId: place.id, kind: place.kind, at };
+      meetups.push(meetup);
+      if (meetups.length > 40) meetups.shift();
+      const when = plan.when === 'tomorrow' ? 'tomorrow' : plan.when === 'later' ? 'later today' : 'soon';
+      remember(a.mind, clock, `Planned to meet ${b.member.name} at ${place.label} ${when}.`, 5, [b.member.id], 'talk');
+      remember(b.mind, clock, `Planned to meet ${a.member.name} at ${place.label} ${when}.`, 5, [a.member.id], 'talk');
+      tellNews(`${a.member.name} and ${b.member.name} plan to meet at ${place.label} ${when}`);
+    };
+
+    /** Keeps their plans: heads off when it's time, and notices when someone doesn't turn up. */
+    const keepPlans = () => {
+      for (let i = meetups.length - 1; i >= 0; i--) {
+        const m = meetups[i];
+        const people = m.ids.map((id) => byId.get(id));
+        if (people.some((p) => !p)) {
+          meetups.splice(i, 1);
+          continue;
+        }
+        const [a, b] = people as Npc[];
+        const place = placeById(m.placeId, m.kind);
+        if (!place) continue;
+        // Time to go (they leave a little early).
+        if (clock > m.at - 0.5 * HOUR && clock < m.at + HOUR) {
+          for (const p of [a, b]) {
+            if (p.asleep || p.chatting || p.convo || p.plan.kind === 'follow' || bedtime(p)) continue;
+            if ((p.plan.kind === 'go' || p.plan.kind === 'stay') && p.plan.meet === m) continue;
+            leaveVisit(p);
+            goTo(p, place, m);
+          }
+          // Both there: they talk (and the plan is done).
+          if (Math.hypot(a.x - b.x, a.z - b.z) < 7 && !a.convo && !b.convo && !a.chatting && !b.chatting && !a.asleep && !b.asleep) {
+            meetups.splice(i, 1);
+            remember(a.mind, clock, `Met up with ${b.member.name} at ${place.label}, like we planned.`, 4, [b.member.id], 'talk');
+            remember(b.mind, clock, `Met up with ${a.member.name} at ${place.label}, like we planned.`, 4, [a.member.id], 'talk');
+            feel(a.mind, b.member.id, 0.04);
+            feel(b.mind, a.member.id, 0.04);
+            // They spend a while together, then get on with their day.
+            for (const p of [a, b]) {
+              if (p.plan.kind === 'go' || p.plan.kind === 'stay') p.plan.meet = undefined;
+              if (p.plan.kind === 'stay') p.plan.until = clock + (0.5 + Math.random()) * HOUR;
+            }
+            startTalk(a, b);
+          }
+        } else if (clock >= m.at + HOUR) {
+          // Someone didn't turn up: whoever came remembers it.
+          meetups.splice(i, 1);
+          for (const [p, other] of [
+            [a, b],
+            [b, a],
+          ] as const) {
+            const came = Math.hypot(p.x - place.x, p.z - place.z) < 25;
+            const otherCame = Math.hypot(other.x - place.x, other.z - place.z) < 25;
+            if (came && !otherCame) {
+              remember(p.mind, clock, `Waited for ${other.member.name} at ${place.label}, but they never showed up.`, 6, [other.member.id], 'saw');
+              feel(p.mind, other.member.id, -0.08);
+              jolt(p.mind, -0.08, 'sad');
+            }
+          }
+        }
+      }
     };
 
     // ---------- feelings on their faces ----------
@@ -381,16 +584,16 @@ const pack: Pack = {
       happy: ['Hey there!', 'Morning!', 'Lovely!'],
     };
     const shout = (npc: Npc, emotion: Emotion) => {
-      if (npc.convo?.lines || npc.chatting || clock - npc.lastShout < 6) return;
+      if (npc.convo?.lines || npc.chatting || npc.asleep || clock - npc.lastShout < 6) return;
       const lines = SHOUTS[emotion];
       if (!lines) return;
       npc.lastShout = clock;
       npc.label.say(pick(lines), 2.4, clock);
     };
 
-    /** Everyone within `radius` of a spot, with how far away they are. */
+    /** Everyone awake within `radius` of a spot, with how far away they are. */
     const near = (x: number, z: number, radius: number) =>
-      npcs.map((npc) => ({ npc, d: Math.hypot(npc.x - x, npc.z - z) })).filter((n) => n.d < radius);
+      npcs.filter((npc) => !npc.asleep).map((npc) => ({ npc, d: Math.hypot(npc.x - x, npc.z - z) })).filter((n) => n.d < radius);
 
     /** How someone takes a wild bit of driving: the bold and fun-loving enjoy it, the timid and kind don't. */
     const thrill = (npc: Npc) => {
@@ -403,7 +606,7 @@ const pack: Pack = {
     let lastTicket = -Infinity;
     const offence = (what: string, x: number, z: number, reach = 30) => {
       const officer = byId.get(OFFICER);
-      if (!officer || !active || officer.chatting || clock - lastTicket < 40) return;
+      if (!officer || !active || officer.chatting || officer.asleep || clock - lastTicket < 40) return;
       if (Math.hypot(officer.x - x, officer.z - z) > reach) return;
       lastTicket = clock;
       const friendly = (officer.mind.feelings.driver ?? 0) > 0.55;
@@ -552,16 +755,28 @@ const pack: Pack = {
 
     /** Whether two people stop to talk. */
     const wantToTalk = (a: Npc, b: Npc) => {
-      if (a.convo || b.convo || a.chatting || b.chatting || a.reaction || b.reaction) return false;
+      if (a.convo || b.convo || a.chatting || b.chatting || a.reaction || b.reaction || a.asleep || b.asleep) return false;
+      // Too late to stop and chat: they're off to bed.
+      if (bedtime(a) || bedtime(b)) return false;
       // BUDDY is always with GUY, so he talks to him now and then, and listens in on GUY's conversations.
       const officerPair = a.member.id === OFFICER || b.member.id === OFFICER;
       const partnerPair = officerPair && (a.member.id === PARTNER || b.member.id === PARTNER);
       if (officerPair && !partnerPair) return false;
-      const gap = partnerPair ? 200 : 110;
+      const gap = partnerPair ? 240 : 150;
       if (clock - (lastPair.get(pairKey(a, b)) ?? -Infinity) < gap) return false;
       const fondness = ((a.mind.feelings[b.member.id] ?? 0) + (b.mind.feelings[a.member.id] ?? 0)) / 2;
       const lonely = 2 - a.mind.needs.social - b.mind.needs.social;
-      return fondness > -0.35 && lonely * 0.5 + fondness + (a.mind.traits.energy + b.mind.traits.energy) * 0.15 > 0.45;
+      // Strangers sometimes get talking too, more so the outgoing and curious.
+      const outgoing = (a.mind.traits.energy + b.mind.traits.energy + a.mind.traits.curiosity + b.mind.traits.curiosity) * 0.1;
+      return fondness > -0.35 && lonely * 0.5 + fondness + outgoing > 0.5;
+    };
+
+    /** Which brain writes a conversation: the AI while it has room (conversations near you first), or the built-in one. */
+    const brainFor = (a: Npc): Brain => {
+      if (!aiReady()) return rules;
+      const close = Math.hypot(a.x - game.player.x, a.z - game.player.z) < NEAR_RANGE;
+      if (close) return aiTalks < 3 ? local : rules;
+      return options.think === 'everywhere' && aiTalks < 1 ? local : rules;
     };
 
     const startTalk = (a: Npc, b: Npc) => {
@@ -576,48 +791,69 @@ const pack: Pack = {
       a.lookZ = b.z;
       b.lookX = a.x;
       b.lookZ = a.z;
-      a.label.say('…', 30, clock);
-      // The AI writes conversations you're near enough to hear (as often as the settings allow); the built-in brain does the rest.
-      const range = options.think === 'lots' ? 160 : 80;
-      const gap = options.think === 'lots' ? 5 : 14;
-      const close = Math.hypot(a.x - game.player.x, a.z - game.player.z) < range;
-      const brain: Brain = aiReady() && close && clock - lastAiTalk > gap ? ai : rules;
-      if (brain === ai) lastAiTalk = clock;
+      a.label.say('…', 60, clock);
+      const brain = brainFor(a);
+      if (brain === local) aiTalks++;
+      const where = placeName(a.x, a.z);
       void brain
         .conversation(person(a), person(b), moment())
         .catch(() => rules.conversation(person(a), person(b), moment()))
         .then((result) => {
+          if (brain === local) aiTalks--;
           if (disposed || a.convo !== convo) return; // switched off, or interrupted while thinking
-          for (const m of result.memories) {
-            const who = byId.get(m.who);
-            const other = convo.people.find((p) => p !== who);
-            if (who && other) remember(who.mind, clock, m.text, m.importance, [other.member.id, ...mentions(m.text)], 'talk');
-          }
-          for (const f of result.feelings) {
-            const who = byId.get(f.from);
-            if (who) feel(who.mind, f.about, f.change * 0.06);
-          }
-          for (const npc of convo.people) {
-            const other = convo.people.find((p) => p !== npc)!;
-            npc.mind.met[other.member.id] = (npc.mind.met[other.member.id] ?? 0) + 1;
-          }
+          hear(a, b, result, where);
           convo.lines = result.lines.length ? result.lines : [{ speaker: a.member.id, text: 'Hi!', emotion: 'happy' }];
           convo.next = clock;
         });
     };
 
+    /** What a conversation leaves behind: memories, changed feelings, a plan, and a line in the journal. */
+    const hear = (a: Npc, b: Npc, result: ConversationResult, where: string) => {
+      const pair = [a, b];
+      for (const m of result.memories) {
+        const who = byId.get(m.who);
+        const other = pair.find((p) => p !== who);
+        if (who && other) remember(who.mind, clock, m.text, m.importance, [other.member.id, ...mentions(m.text)], 'talk');
+      }
+      for (const f of result.feelings) {
+        const who = byId.get(f.from);
+        if (who && (f.about === 'driver' || byId.has(f.about))) feel(who.mind, f.about, f.change * 0.06);
+      }
+      for (const npc of pair) {
+        const other = pair.find((p) => p !== npc)!;
+        npc.mind.met[other.member.id] = (npc.mind.met[other.member.id] ?? 0) + 1;
+        // Good company: friends grow closer just by spending time together.
+        if ((npc.mind.feelings[other.member.id] ?? 0) > -0.2) feel(npc.mind, other.member.id, 0.015);
+      }
+      if (result.plan) makePlan(a, b, result.plan);
+      talks.unshift({
+        t: clock,
+        where,
+        lines: result.lines.map((l) => ({ name: byId.get(l.speaker)?.member.name ?? l.speaker, text: l.text })),
+        ai: result.ai,
+      });
+      if (talks.length > 30) talks.pop();
+    };
+
     /** Cast members named in a bit of text (for whom a memory is about). */
+    const namePatterns = CAST.map((c) => ({ id: c.id, re: new RegExp(`\\b(${c.name}|${c.name[0]}${c.name.slice(1).toLowerCase()})\\b`) }));
     const mentions = (text: string) => {
-      const lower = text.toLowerCase();
-      const ids = CAST.filter((c) => lower.includes(c.name.toLowerCase())).map((c) => c.id);
-      if (lower.includes('driver')) ids.push('driver');
+      const ids = namePatterns.filter((p) => p.re.test(text)).map((p) => p.id);
+      if (/driver/i.test(text)) ids.push('driver');
       return ids;
+    };
+
+    /** Back on their way after stopping to talk (stopping dropped the route). */
+    const resume = (npc: Npc) => {
+      if (npc.plan.kind === 'go') npc.path = city.route(npc.x, npc.z, npc.plan.spot.x, npc.plan.spot.y);
+      else if (npc.plan.kind === 'homeward' && npc.home) npc.path = city.route(npc.x, npc.z, npc.home.x, npc.home.z);
     };
 
     const endTalk = (convo: Convo) => {
       for (const npc of convo.people) {
         npc.convo = null;
         npc.lookX = null;
+        resume(npc);
         if (!convo.lines) npc.label.hush(); // the "…" while they were thinking
         npc.mind.needs.social = Math.min(1, npc.mind.needs.social + 0.3);
         jolt(npc.mind, 0.04, npc.mind.emotion);
@@ -626,7 +862,7 @@ const pack: Pack = {
 
     const playTalk = (convo: Convo) => {
       if (!convo.lines) {
-        if (clock - convo.started > 25) endTalk(convo); // gave up waiting
+        if (clock - convo.started > 70) endTalk(convo); // gave up waiting
         return;
       }
       if (clock < convo.next) return;
@@ -645,46 +881,95 @@ const pack: Pack = {
 
     // ---------- reflecting ----------
 
-    const reflect = (npc: Npc) => {
+    /**
+     * Thinks things over when a lot has happened. The AI does it one person at
+     * a time, when it isn't busy with conversations; without the AI, the
+     * built-in brain does.
+     */
+    const maybeReflect = (npc: Npc) => {
+      if (npc.reflecting || npc.mind.pending < 28 || clock - npc.lastReflect < 120) return;
+      if (ai?.state === 'ready') {
+        if (!aiReady() || aiReflects > 0 || aiTalks > 1) return; // later, when the AI has a moment
+        reflect(npc, local);
+      } else reflect(npc, rules);
+    };
+
+    const reflect = (npc: Npc, brain: Brain) => {
       npc.reflecting = true;
       npc.lastReflect = clock;
-      const brain: Brain = aiReady() ? ai : rules;
+      if (brain === local) aiReflects++;
       void brain
         .reflect(person(npc), moment())
         .catch(() => rules.reflect(person(npc), moment()))
         .then((result) => {
+          if (brain === local) aiReflects--;
           npc.reflecting = false;
           if (disposed) return;
           npc.mind.pending = 0;
           for (const insight of result.insights) addInsight(npc.mind, clock, insight);
           if (result.trait) nudge(npc.mind, result.trait.name, result.trait.up, 0.04);
           if (result.habit) addHabit(npc.mind, result.habit);
-          if (result.insights[0] && !npc.convo && !npc.chatting) npc.label.say(`💭 ${result.insights[0]}`, 5, clock, true);
+          if (result.story) setStory(npc.mind, result.story);
+          if (result.insights[0] && !npc.convo && !npc.chatting && !npc.asleep) npc.label.say(`💭 ${result.insights[0]}`, 5, clock, true);
         });
     };
 
-    // ---------- talking to you ----------
+    // ---------- talking to you, and making friends ----------
+
+    /** Tells you when someone starts to count you as a friend (or stops). */
+    const checkBond = (npc: Npc) => {
+      const now = friendship(npc.mind);
+      if (now === npc.bond) return;
+      const ladder: Friendship[] = ['enemy', 'wary', 'stranger', 'acquaintance', 'friend', 'close friend', 'best friend'];
+      const up = ladder.indexOf(now) > ladder.indexOf(npc.bond);
+      npc.bond = now;
+      if (up && isFriend(npc.mind)) {
+        game.toast(`💙 ${npc.member.name} now counts you as ${now === 'friend' ? 'a friend' : `a ${now}`}!`, 3200);
+        remember(npc.mind, clock, `I think the driver${npc.mind.driverName ? `, ${npc.mind.driverName},` : ''} and I are ${now === 'friend' ? 'friends' : `${now}s`} now.`, 7, ['driver'], 'insight');
+        tellNews(`${npc.member.name} and the driver are ${now === 'friend' ? 'friends' : `${now}s`} now`);
+      } else if (!up && (now === 'wary' || now === 'enemy')) {
+        game.toast(`💔 ${npc.member.name} has gone off you`, 2600);
+      }
+    };
 
     const chat = buildChat(game, {
       send: async (npc: Npc, said: string) => {
-        const brain: Brain = (key === 'saved' || key === 'environment') && options.think !== 'off' && performance.now() > waitUntil ? ai : rules;
+        const brain: Brain = ai?.state === 'ready' ? local : rules;
         const result = await brain.chat(person(npc), said, moment()).catch(() => rules.chat(person(npc), said, moment()));
         if (disposed) return result.reply;
         const mind = npc.mind;
         if (result.driverName) mind.driverName = result.driverName;
-        feel(mind, 'driver', result.opinion * 0.12 + 0.02);
+        // Every friendly chat helps a little; how it went counts for more.
+        feel(mind, 'driver', result.opinion * 0.1 + 0.03);
         remember(mind, clock, result.memory || `The driver stopped to chat with me.`, result.importance, ['driver', ...mentions(result.memory)], 'chat');
+        logChat(mind, clock, said, result.reply);
         mind.needs.social = Math.min(1, mind.needs.social + 0.1);
         emote(npc, result.emotion, 15);
         npc.label.say(result.reply, 3 + result.reply.split(' ').length * 0.3, clock);
+        checkBond(npc);
         return result.reply;
       },
-      describe: (npc: Npc) => `${npc.member.role} · ${feelingWord(npc.mind.feelings.driver ?? 0)} you`,
+      describe: (npc: Npc) => `${npc.member.role} · ${friendship(npc.mind)} · ${feelingWord(npc.mind.feelings.driver ?? 0)} you`,
       close: (npc: Npc) => {
         npc.chatting = false;
         npc.lookX = null;
+        resume(npc);
       },
     });
+
+    /** Starts a chat with someone (clicked on, or the nearest when you press K). */
+    const openChat = (npc: Npc) => {
+      if (!active || game.paused()) return;
+      const p = game.player;
+      if (npc.asleep) return game.toast(`${npc.member.name} is asleep at home`, 1800);
+      if (Math.hypot(npc.x - p.x, npc.z - p.z) > CHAT_RANGE) return game.toast(`Drive closer to talk to ${npc.member.name}`, 1800);
+      if (Math.hypot(p.vx, p.vz) > 7) return game.toast('Slow down to talk', 1500);
+      if (npc.convo) endTalk(npc.convo);
+      npc.chatting = true;
+      npc.path = [];
+      npc.reaction = null;
+      chat.show(npc);
+    };
 
     const startChat = () => {
       if (!active) return;
@@ -694,41 +979,83 @@ const pack: Pack = {
       let bestD = 14;
       for (const npc of npcs) {
         const d = Math.hypot(npc.x - p.x, npc.z - p.z);
-        if (d < bestD) {
+        if (!npc.asleep && d < bestD) {
           bestD = d;
           best = npc;
         }
       }
-      if (!best) {
-        game.toast('Pull up next to someone to talk to them', 1800);
-        return;
+      if (!best) return game.toast('Click on someone, or pull up next to them, to talk', 1800);
+      openChat(best);
+    };
+
+    // Clicking on someone starts a chat (and doesn't fire the car's weapons).
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const onPointer = (e: PointerEvent) => {
+      if (!active || e.button !== 0 || e.target !== game.renderer.domElement || game.paused()) return;
+      const rect = game.renderer.domElement.getBoundingClientRect();
+      pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(pointer, game.camera);
+      const shown = npcs.filter((n) => n.body.root.visible).map((n) => n.body.root);
+      for (const body of shown) body.updateMatrixWorld();
+      const hit = raycaster.intersectObjects(shown, true)[0];
+      let object: THREE.Object3D | null = hit?.object ?? null;
+      while (object && !object.userData.npc) object = object.parent;
+      const npc = object ? byId.get(object.userData.npc as string) : undefined;
+      if (!npc) return;
+      e.stopPropagation();
+      e.preventDefault();
+      openChat(npc);
+    };
+    window.addEventListener('pointerdown', onPointer, true);
+
+    /** Friends wave and say hello when you drive slowly past. */
+    const greetFriends = () => {
+      const p = game.player;
+      if (Math.hypot(p.vx, p.vz) > 14) return;
+      for (const npc of npcs) {
+        if (npc.asleep || npc.convo || npc.chatting || npc.reaction || clock - npc.lastGreet < 180 || !isFriend(npc.mind)) continue;
+        if (Math.hypot(npc.x - p.x, npc.z - p.z) > 16) continue;
+        npc.lastGreet = clock;
+        npc.reaction = 'wave';
+        npc.reactionUntil = clock + 2.2;
+        npc.lookX = p.x;
+        npc.lookZ = p.z;
+        const name = npc.mind.driverName;
+        npc.label.say(pick(name ? [`Hey ${name}!`, `${name}! Over here!`, `Morning, ${name}!`, `Looking good, ${name}!`] : ['Hey, friend!', 'Hi there!', 'Good to see you!']), 2.6, clock);
+        emote(npc, 'happy', 8);
       }
-      if (Math.hypot(p.vx, p.vz) > 7) {
-        game.toast('Slow down to talk', 1500);
-        return;
-      }
-      if (best.convo) endTalk(best.convo);
-      best.chatting = true;
-      best.path = [];
-      best.reaction = null;
-      chat.show(best);
     };
 
     // ---------- the journal ----------
 
+    const plansWords = (id?: string) =>
+      meetups
+        .filter((m) => !id || m.ids.includes(id))
+        .sort((a, b) => a.at - b.at)
+        .map((m) => {
+          const [a, b] = m.ids.map((i) => byId.get(i)?.member.name ?? i);
+          const hours = Math.max(0, Math.round((m.at - clock) / HOUR));
+          return `${a} and ${b}: ${placeById(m.placeId, m.kind)?.label ?? m.kind}, ${hours < 1 ? 'any minute now' : `in ${hours} h`} (${clockText(m.at)})`;
+        });
+
     const journal = buildJournal(game, {
       npcs: () => npcs,
+      now: () => clock,
+      time: () => clockText(clock),
       doing,
       placeName: (npc) => placeName(npc.x, npc.z),
-      footer: () =>
-        `${(key === 'saved' || key === 'environment') && options.think !== 'off' ? `Thinking with ${MODELS[options.model].label}` : 'Thinking with the built-in brain (add an API key in the Packs tab for AI)'} · ` +
-        `🚓 ${tickets} ticket${tickets === 1 ? '' : 's'} · AI spend $${totalSpent().toFixed(2)}`,
+      footer: () => `${clockText(clock)} · ${aiWords(ai)}`,
+      news: () => news,
+      talks: () => talks,
+      plans: plansWords,
+      tickets: () => tickets,
       find: (npc) => {
         beam.position.set(npc.x, 0, npc.z);
         beam.visible = true;
         beamUntil = clock + 12;
         const d = Math.round(Math.hypot(npc.x - game.player.x, npc.z - game.player.z));
-        game.toast(`${npc.member.name} is at ${placeName(npc.x, npc.z)}, ${d} m away`, 2400);
+        game.toast(`${npc.member.name} is ${npc.asleep ? 'asleep at home' : `at ${placeName(npc.x, npc.z)}`}, ${d} m away`, 2400);
       },
     });
 
@@ -749,6 +1076,7 @@ const pack: Pack = {
     const target = new THREE.Vector2();
 
     const walk = (npc: Npc, dt: number): { action: Action; speed: number } => {
+      if (npc.asleep) return { action: 'stand', speed: 0 };
       // Diving, cheering and waving come first.
       if (npc.reaction && clock < npc.reactionUntil) {
         if (npc.reaction === 'dive') {
@@ -789,8 +1117,12 @@ const pack: Pack = {
         running = d > 14;
         npc.path = [target];
       } else if (npc.path.length === 0) {
-        if (npc.plan.kind === 'go') arrive(npc, npc.plan.place);
+        if (npc.plan.kind === 'go') arrive(npc, npc.plan.place, npc.plan.meet);
         else if (npc.plan.kind === 'wander') decide(npc); // got where they were wandering to
+        else if (npc.plan.kind === 'homeward') {
+          sleep(npc);
+          return { action: 'stand', speed: 0 };
+        }
         if (npc.path.length === 0) {
           // Hanging around: face the middle of the place, or whatever caught their eye.
           if (npc.plan.kind === 'stay') {
@@ -805,7 +1137,11 @@ const pack: Pack = {
       const dx = next.x - npc.x;
       const dz = next.y - npc.z;
       const d = Math.hypot(dx, dz);
-      const speed = running ? 4.2 : 1.2 + npc.mind.traits.energy * 0.6;
+      // Hurrying to a meetup, or home late at night.
+      const hurry = (npc.plan.kind === 'go' && npc.plan.meet && clock > npc.plan.meet.at) || npc.plan.kind === 'homeward';
+      // Out of sight, people walk faster, so a trip across town fits in the city's short day.
+      const unseen = npc.body.root.visible ? 1 : 4;
+      const speed = running ? 4.2 : (1.2 + npc.mind.traits.energy * 0.6) * (hurry ? 1.5 : 1) * unseen;
       if (d < 0.35) {
         npc.path.shift();
         return { action: 'stand', speed: 0 };
@@ -821,10 +1157,11 @@ const pack: Pack = {
     const dodge = (npc: Npc) => {
       const p = game.player;
       const speed = Math.hypot(p.vx, p.vz);
-      if (speed < 4 || npc.reaction === 'dive' || npc.chatting) return;
+      if (speed < 4 || npc.reaction === 'dive' || npc.chatting || npc.asleep) return;
       const reach = 1.6 * Math.max(1, game.playerCar().config.size);
       const rx = npc.x - p.x;
       const rz = npc.z - p.z;
+      if (Math.abs(rx) > 40 || Math.abs(rz) > 40) return;
       const along = (rx * p.vx + rz * p.vz) / speed;
       const across = (rx * p.vz - rz * p.vx) / speed;
       if (along < -reach || along > Math.min(14, speed * 0.7) + reach || Math.abs(across) > reach + 1.2) return;
@@ -844,45 +1181,68 @@ const pack: Pack = {
           if (other !== npc) remember(other.mind, clock, `The driver nearly ran over ${npc.member.name}!`, 6, ['driver', npc.member.id], 'saw');
         }
         offence(hit ? `hitting ${npc.member.name}` : 'nearly hitting someone', npc.x, npc.z);
+        checkBond(npc);
       }
     };
 
     const think = (dt: number) => {
       const p = game.player;
+      const partner = byId.get(PARTNER);
       for (const npc of npcs) {
         const m = npc.mind;
         const staying = npc.plan.kind === 'stay' ? npc.plan.place.kind : null;
         tickNeeds(m, dt, {
           social: !!npc.convo || npc.chatting,
-          eating: staying === 'diner' || staying === 'coffee',
-          resting: staying === 'park' || (staying !== null && staying !== npc.member.job && !npc.path.length),
+          eating: staying === 'diner' || staying === 'coffee' || staying === 'bakery',
+          resting: npc.asleep || staying === 'park' || (staying !== null && staying !== npc.member.job && !npc.path.length),
           fun: staying === 'stunts' || staying === 'music' || staying === 'gym' || npc.reaction === 'cheer',
         });
+        if (npc.asleep) m.needs.rest = Math.min(1, m.needs.rest + dt / (5 * HOUR));
         if (clock > npc.emotionUntil && m.emotion !== 'calm') m.emotion = m.mood < -0.3 ? 'sad' : 'calm';
-        if (npc.plan.kind === 'stay' && clock > npc.plan.until && !npc.convo && !npc.chatting) decide(npc);
-        // A lot on their mind: time to think it over.
-        if (!npc.reflecting && m.pending >= 28 && clock - npc.lastReflect > 120) reflect(npc);
+        if (npc.member.id === OFFICER) {
+          // BUDDY sleeps when GUY does (he lives next door).
+          if (partner && npc.asleep !== partner.asleep) {
+            npc.asleep = partner.asleep;
+            npc.x = partner.x + 1.4;
+            npc.z = partner.z + 0.6;
+          }
+        } else if (npc.plan.kind === 'sleep') {
+          if (clock >= npc.plan.until) wake(npc);
+        } else if (!npc.convo && !npc.chatting) {
+          if (npc.plan.kind !== 'homeward' && bedtime(npc)) goHome(npc);
+          else if (npc.plan.kind === 'stay' && clock > npc.plan.until) decide(npc);
+        }
+        // A lot on their mind: time to think it over (asleep counts: they dream on it).
+        maybeReflect(npc);
         // Speeding past the police.
-        if (npc.member.id === OFFICER && Math.hypot(p.vx, p.vz) > 32 && Math.hypot(npc.x - p.x, npc.z - p.z) < 22) offence('speeding', npc.x, npc.z);
+        if (npc.member.id === OFFICER && !npc.asleep && Math.hypot(p.vx, p.vz) > 32 && Math.hypot(npc.x - p.x, npc.z - p.z) < 22) offence('speeding', npc.x, npc.z);
+        npc.label.setFriend(isFriend(m));
       }
+      keepPlans();
+      greetFriends();
       // People who bump into each other may stop for a chat.
       for (let i = 0; i < npcs.length; i++) {
+        const a = npcs[i];
+        if (a.asleep || a.convo) continue;
         for (let j = i + 1; j < npcs.length; j++) {
-          const a = npcs[i];
           const b = npcs[j];
-          if (Math.hypot(a.x - b.x, a.z - b.z) < 4 && wantToTalk(a, b)) {
+          if (Math.abs(a.x - b.x) < 4 && Math.abs(a.z - b.z) < 4 && Math.hypot(a.x - b.x, a.z - b.z) < 4 && wantToTalk(a, b)) {
             if (Math.random() < 0.5) startTalk(a, b);
             else startTalk(b, a);
+            break;
           }
         }
       }
     };
 
-    /** Puts someone's body where they are. Also done while the game is paused, so they never wait at the map's centre behind the menu. */
+    /** Puts someone's body where they are. */
     const pose = (npc: Npc) => {
       npc.body.root.position.set(npc.x, game.world.heightAt(npc.x, npc.z), npc.z);
       npc.body.root.rotation.y = npc.heading;
     };
+
+    /** Only the people near the camera are drawn and animated. */
+    const shown = (npc: Npc) => active && !npc.asleep && Math.hypot(npc.x - game.camera.position.x, npc.z - game.camera.position.z) < SHOW_RANGE;
 
     const update = (dt: number) => {
       clock += dt;
@@ -895,20 +1255,23 @@ const pack: Pack = {
       for (const npc of npcs) {
         dodge(npc);
         const { action, speed } = walk(npc, dt);
+        const visible = shown(npc);
+        npc.body.root.visible = visible;
+        if (!visible) continue;
         pose(npc);
         const look = npc.lookX === null ? null : wrap(Math.atan2(npc.lookX - npc.x, npc.lookZ - npc.z) - npc.heading);
         npc.body.animate(dt, action, speed, look);
         npc.label.setEmotion(npc.mind.emotion);
       }
       if (beam.visible && clock > beamUntil) beam.visible = false;
-      if (chat.open && chat.npc && Math.hypot(chat.npc.x - game.player.x, chat.npc.z - game.player.z) > 30) chat.hide();
+      if (chat.open && chat.npc && Math.hypot(chat.npc.x - game.player.x, chat.npc.z - game.player.z) > CHAT_RANGE + 20) chat.hide();
     };
 
     const placeLabels = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
       for (const npc of npcs) {
-        npc.label.place(npc.x, npc.body.root.position.y + npc.body.top + 0.12, npc.z, game.camera, w, h, clock, active, options.tags);
+        npc.label.place(npc.x, npc.body.root.position.y + npc.body.top + 0.12, npc.z, game.camera, w, h, clock, npc.body.root.visible, options.tags);
       }
     };
 
@@ -916,7 +1279,10 @@ const pack: Pack = {
       active = on;
       layer.style.display = on ? '' : 'none';
       city.setVisible(on);
-      for (const npc of npcs) npc.body.root.visible = on;
+      for (const npc of npcs) {
+        npc.body.root.visible = shown(npc);
+        if (npc.body.root.visible) pose(npc);
+      }
       if (!on) {
         chat.hide();
         journal.hide();
@@ -924,10 +1290,54 @@ const pack: Pack = {
       }
     };
 
-    const persist = () => {
+    // ---------- saving: in the game's data folder, for as long as it's installed ----------
+
+    const snapshot = (): Saved => {
       const minds: Record<string, Mind> = {};
       for (const npc of npcs) minds[npc.member.id] = npc.mind;
-      game.save('city', { clock, minds, tickets } satisfies Saved);
+      return { version: 2, savedAt: Date.now(), clock, minds, tickets, meetups, news, talks };
+    };
+
+    /** Takes in a saved city (from the data folder, or from older versions that kept it in the browser storage). */
+    const restore = (saved: Partial<Saved> | null) => {
+      if (!saved || typeof saved !== 'object') return;
+      clock = typeof saved.clock === 'number' && Number.isFinite(saved.clock) ? saved.clock : 0;
+      tickets = typeof saved.tickets === 'number' ? saved.tickets : 0;
+      meetups.splice(0, meetups.length, ...(Array.isArray(saved.meetups) ? saved.meetups.filter((m) => m && Array.isArray(m.ids) && typeof m.at === 'number') : []));
+      news.splice(0, news.length, ...(Array.isArray(saved.news) ? saved.news.filter((n) => typeof n === 'string').slice(0, 10) : []));
+      talks.splice(0, talks.length, ...(Array.isArray(saved.talks) ? saved.talks.filter((t) => t && Array.isArray(t.lines)).slice(0, 30) : []));
+      lastPair.clear();
+      reset(saved.minds);
+      setActive(active);
+    };
+
+    /** Nothing is saved until the saved city has been read, so a slow read can't be overwritten by a fresh one. */
+    let loaded = false;
+    const local0 = game.load<Partial<Saved> | null>('city', null);
+    restore(local0);
+    if (!local0) reset(undefined);
+    void game
+      .callMain('loadCity')
+      .then((file) => {
+        const saved = file as Partial<Saved> | null;
+        // The newest copy wins (the data folder, normally; the browser storage only for a city from before it moved).
+        if (!disposed && saved && (saved.savedAt ?? 0) >= (local0?.savedAt ?? 0)) restore(saved);
+      })
+      .catch(() => {})
+      .finally(() => (loaded = true));
+
+    const persist = () => {
+      if (!loaded) return;
+      const data = snapshot();
+      void game
+        .callMain('saveCity', data)
+        .then((ok) => {
+          // Saved to the data folder: the old copy in the browser storage isn't needed any more.
+          if (ok && game.load('city', null)) game.save('city', null);
+          if (!ok) game.save('city', data);
+        })
+        // Not in the desktop game: the browser storage will have to do.
+        .catch(() => game.save('city', data));
     };
 
     const mapLoaded = () => {
@@ -948,55 +1358,48 @@ const pack: Pack = {
         if (want !== active) setActive(want);
         if (!active) return;
         if (!game.paused() && dt > 0) update(Math.min(dt, 0.1));
-        else for (const npc of npcs) pose(npc);
+        else for (const npc of npcs) if (npc.body.root.visible) pose(npc);
         // A chat can't stay open over the menu or settings.
         if (game.paused() && chat.open) chat.hide();
         placeLabels();
         journal.tick();
         saveTimer += dt;
-        if (saveTimer > 15) {
+        if (saveTimer > 20) {
           saveTimer = 0;
           persist();
         }
       },
       settings(panel) {
-        settingsPanel(panel, {
+        updateSettings = settingsPanel(panel, {
           options,
           save: () => game.save('options', options),
-          key: () => key,
-          secure: () => secure,
-          problem: () => lastProblem,
-          spent: () => ({ total: totalSpent(), now: spentNow }),
-          setKey: async (value: string) => {
-            const result = (await game.callMain('setKey', value).catch(() => ({ ok: false, message: 'Only works in the desktop game.' }))) as { ok: boolean; message?: string };
-            await checkKey();
+          status: () => ai,
+          configure: async (change) => {
+            ai = ((await game.callMain('configure', change).catch(() => ai)) as AiStatus | null) ?? ai;
             waitUntil = 0;
-            return result;
           },
-          clearKey: async () => {
-            await game.callMain('clearKey').catch(() => {});
-            await checkKey();
-          },
+          download: (choice: ModelChoice) => void game.callMain('download', choice).then(() => pollStatus()),
+          cancel: () => void game.callMain('cancelDownload').then(() => pollStatus()),
+          remove: (choice: ModelChoice) => void game.callMain('removeModel', choice).then(() => pollStatus()),
           resetCity: () => {
             for (const convo of new Set(npcs.map((n) => n.convo).filter((c): c is Convo => !!c))) endTalk(convo);
             chat.hide();
             // The clock starts again, so everything timed by it starts again too.
-            clock = 0;
-            tickets = 0;
+            restore({ clock: 0, tickets: 0, meetups: [], news: [], talks: [], minds: {} });
             lastTicket = -Infinity;
-            lastAiTalk = -Infinity;
             beamUntil = 0;
             beam.visible = false;
-            news.length = 0;
-            lastPair.clear();
-            reset(undefined);
-            setActive(active);
+            loaded = true;
             persist();
           },
         });
       },
       dispose() {
         persist();
+        disposed = true;
+        window.clearInterval(poll);
+        window.removeEventListener('pointerdown', onPointer, true);
+        updateSettings = null;
         chat.hide();
         chat.dispose();
         journal.dispose();
@@ -1058,328 +1461,4 @@ function colourName(hex: string): string {
     [360, 'red'],
   ];
   return names.find(([limit]) => h <= limit)?.[1] ?? 'red';
-}
-
-// ---------- the chat box ----------
-
-interface ChatBox<T> {
-  open: boolean;
-  npc: T | null;
-  show(npc: T): void;
-  hide(): void;
-  focus(): void;
-  dispose(): void;
-}
-
-function buildChat(
-  game: GameApi,
-  hooks: {
-    send: (npc: Npc, said: string) => Promise<string>;
-    describe: (npc: Npc) => string;
-    close: (npc: Npc) => void;
-  },
-): ChatBox<Npc> {
-  const box = el('div', 'npc-chat hidden');
-  const title = el('div', 'npc-chat-title');
-  const name = el('b');
-  const about = el('span');
-  title.append(name, about);
-  const log = el('div', 'npc-chat-log');
-  const form = el('form', 'npc-chat-form');
-  const input = el('input', 'text npc-chat-input');
-  input.type = 'text';
-  input.maxLength = 200;
-  input.placeholder = 'Say something…';
-  const say = el('button', 'btn primary', 'Say');
-  say.type = 'submit';
-  form.append(input, say);
-  const hint = el('div', 'npc-chat-hint', 'Enter to say it · Esc to drive on');
-  const leave = button('×', 'npc-close', () => chat.hide());
-  box.append(leave, title, log, form, hint);
-  game.overlay.append(box);
-
-  const line = (who: string, text: string, mine: boolean) => {
-    const row = el('div', mine ? 'npc-chat-line mine' : 'npc-chat-line');
-    row.append(el('b', '', who), document.createTextNode(` ${text}`));
-    log.append(row);
-    log.scrollTop = log.scrollHeight;
-    return row;
-  };
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const npc = chat.npc;
-    const said = input.value.trim();
-    if (!npc || !said || waiting) return;
-    input.value = '';
-    line('You:', said, true);
-    const reply = line(`${npc.member.name}:`, '…', false);
-    // Read-only rather than disabled while they think: a disabled box loses
-    // the keyboard, and then Esc would reach the game instead of the chat.
-    waiting = true;
-    input.readOnly = true;
-    void hooks
-      .send(npc, said)
-      .then((text) => {
-        reply.lastChild!.textContent = ` ${text}`;
-        about.textContent = hooks.describe(npc);
-      })
-      .finally(() => {
-        waiting = false;
-        input.readOnly = false;
-        if (chat.open) input.focus();
-      });
-  });
-  let waiting = false;
-  // Esc leaves the chat (and doesn't open the game's menu), wherever in the box the keyboard is.
-  box.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      chat.hide();
-    }
-  });
-
-  const chat: ChatBox<Npc> = {
-    open: false,
-    npc: null,
-    show(npc) {
-      if (chat.npc && chat.npc !== npc) hooks.close(chat.npc);
-      chat.npc = npc;
-      chat.open = true;
-      name.textContent = npc.member.name;
-      about.textContent = hooks.describe(npc);
-      log.replaceChildren();
-      const greeting = npc.mind.driverName ? `Oh hey, ${npc.mind.driverName}!` : (npc.mind.feelings.driver ?? 0) < -0.3 ? 'Oh. You.' : 'Oh, hello there!';
-      line(`${npc.member.name}:`, greeting, false);
-      box.classList.remove('hidden');
-      input.focus();
-    },
-    hide() {
-      if (!chat.open) return;
-      chat.open = false;
-      box.classList.add('hidden');
-      input.blur();
-      if (chat.npc) hooks.close(chat.npc);
-      chat.npc = null;
-    },
-    focus() {
-      input.focus();
-    },
-    dispose() {
-      box.remove();
-    },
-  };
-  return chat;
-}
-
-// ---------- the city journal ----------
-
-function buildJournal(
-  game: GameApi,
-  hooks: {
-    npcs: () => Npc[];
-    doing: (npc: Npc) => string;
-    placeName: (npc: Npc) => string;
-    footer: () => string;
-    find: (npc: Npc) => void;
-  },
-) {
-  const panel = el('div', 'npc-journal hidden');
-  const head = el('div', 'npc-journal-head');
-  head.append(el('b', '', '📖 City journal'), button('×', 'npc-close', () => journal.hide()));
-  const list = el('div', 'npc-journal-list');
-  const page = el('div', 'npc-journal-page');
-  const footer = el('div', 'npc-journal-foot');
-  const body = el('div', 'npc-journal-body');
-  body.append(list, page);
-  panel.append(head, body, footer);
-  game.overlay.append(panel);
-  let selected = 'guy';
-  let timer = 0;
-
-  const FACES: Record<Emotion, string> = {
-    happy: '😊', excited: '🤩', calm: '🙂', curious: '🤔', amused: '😄', worried: '😟', scared: '😱', annoyed: '😠', sad: '😢', proud: '😎',
-  };
-
-  const section = (title: string, ...content: HTMLElement[]) => {
-    const s = el('section');
-    s.append(el('h4', '', title), ...content);
-    page.append(s);
-  };
-  const ago = (m: Memory, now: number) => {
-    const minutes = Math.round(Math.max(0, now - m.t) / 60);
-    return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`;
-  };
-
-  const draw = () => {
-    const npcs = hooks.npcs();
-    list.replaceChildren(
-      ...npcs.map((npc) => {
-        const b = button(`${FACES[npc.mind.emotion]} ${npc.member.name}`, npc.member.id === selected ? 'npc-person on' : 'npc-person', () => {
-          selected = npc.member.id;
-          draw();
-        });
-        return b;
-      }),
-    );
-    const npc = npcs.find((n) => n.member.id === selected) ?? npcs[0];
-    if (!npc) return;
-    const mind = npc.mind;
-    page.replaceChildren();
-    const title = el('div', 'npc-journal-title');
-    title.append(el('b', '', npc.member.name), el('span', '', ` ${npc.member.role}`), button('Find', 'btn npc-find', () => hooks.find(npc)));
-    page.append(title);
-    page.append(el('p', 'npc-bio', npc.member.bio));
-    page.append(el('p', '', `Now: ${hooks.doing(npc)}, near ${hooks.placeName(npc)}. Feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}.`));
-
-    const traits = el('div', 'npc-traits');
-    for (const t of TRAIT_NAMES) {
-      const row = el('div', 'npc-trait');
-      const bar = el('i');
-      bar.style.width = `${Math.round(mind.traits[t] * 100)}%`;
-      const start = npc.member.traits[t];
-      const drift = mind.traits[t] - start;
-      row.append(el('span', '', t), el('div', 'npc-bar'), el('em', '', Math.abs(drift) >= 0.02 ? (drift > 0 ? '▲' : '▼') : ''));
-      row.children[1].append(bar);
-      traits.append(row);
-    }
-    section('Personality', el('p', 'npc-small', traitWords(mind.traits)), traits);
-
-    const you = mind.feelings.driver ?? 0;
-    const people = Object.entries(mind.feelings)
-      .filter(([id]) => id !== 'driver')
-      .sort((a, b) => b[1] - a[1]);
-    const feelings = el('ul');
-    const item = (text: string) => feelings.append(el('li', '', text));
-    item(`${feelingWord(you)} you${mind.driverName ? ` (knows you as ${mind.driverName})` : ''}`);
-    for (const [id, v] of [...people.slice(0, 3), ...people.slice(-1)]) item(`${feelingWord(v)} ${castMember(id)?.name ?? id}`);
-    section('Feelings', feelings);
-
-    if (mind.insights.length || mind.habits.length) {
-      const beliefs = el('ul');
-      for (const i of [...mind.insights].reverse()) beliefs.append(el('li', '', `“${i}”`));
-      for (const h of mind.habits) beliefs.append(el('li', 'npc-small', `Habit: ${h}`));
-      section('Has come to believe', beliefs);
-    }
-
-    const memories = el('ul', 'npc-memories');
-    const now = clockOf(npcs);
-    for (const m of mind.memories.slice(-8).reverse()) {
-      const li = el('li', m.importance >= 7 ? 'big' : '');
-      li.append(document.createTextNode(m.text), el('small', '', ` ${ago(m, now)}`));
-      memories.append(li);
-    }
-    if (!mind.memories.length) memories.append(el('li', 'npc-small', 'Nothing much yet.'));
-    section('Remembers', memories);
-    footer.textContent = hooks.footer();
-  };
-  // The newest memory time stands in for "now" in the journal (it's only for "x min ago").
-  const clockOf = (npcs: Npc[]) => Math.max(0, ...npcs.flatMap((n) => n.mind.memories.map((m) => m.t)));
-
-  const journal = {
-    open: false,
-    toggle() {
-      if (journal.open) journal.hide();
-      else journal.show();
-    },
-    show() {
-      journal.open = true;
-      panel.classList.remove('hidden');
-      draw();
-    },
-    hide() {
-      journal.open = false;
-      panel.classList.add('hidden');
-    },
-    /** Redraws now and then while open, as things change. */
-    tick() {
-      if (!journal.open) return;
-      timer++;
-      if (timer % 60 === 0) draw();
-    },
-    dispose() {
-      panel.remove();
-    },
-  };
-  return journal;
-}
-
-// ---------- the Packs tab ----------
-
-function settingsPanel(
-  panel: PanelUI,
-  s: {
-    options: Options;
-    save: () => void;
-    key: () => string;
-    secure: () => boolean;
-    problem: () => string;
-    spent: () => { total: number; now: number };
-    setKey: (value: string) => Promise<{ ok: boolean; message?: string }>;
-    clearKey: () => Promise<void>;
-    resetCity: () => void;
-  },
-) {
-  const { options } = s;
-  panel.heading('AI');
-  const key = s.key();
-  panel.hint(
-    key === 'saved'
-      ? `Using your saved API key${s.secure() ? ', encrypted by your computer' : ''}. It never leaves the app except to talk to Anthropic.`
-      : key === 'environment'
-        ? 'Using the API key from ANTHROPIC_API_KEY.'
-        : key === 'checking'
-          ? 'Checking for an API key…'
-          : 'No API key: the city runs on a simpler built-in brain. Add an Anthropic API key (console.anthropic.com) for AI conversations. Using the API costs money; the spend is shown below.',
-  );
-  const input = el('input', 'text npc-key');
-  input.type = 'password';
-  input.placeholder = key === 'saved' ? 'Saved (paste a new one to replace it)' : 'sk-ant-…';
-  input.autocomplete = 'off';
-  const message = el('span', 'npc-small');
-  const save = button('Save', 'btn', () => {
-    save.disabled = true;
-    void s.setKey(input.value).then((result) => {
-      save.disabled = false;
-      input.value = '';
-      if (result.ok) panel.refresh();
-      else message.textContent = result.message ?? "Couldn't save it.";
-    });
-  });
-  const clear = button('Forget', 'btn', () => void s.clearKey().then(() => panel.refresh()));
-  panel.row('API key', input, save, ...(key === 'saved' ? [clear] : []));
-  panel.append(message);
-  panel.choice(
-    'Model',
-    (Object.keys(MODELS) as ModelChoice[]).map((m) => ({ value: m, label: MODELS[m].label.replace('Claude ', '') })),
-    () => options.model,
-    (v) => ((options.model = v), s.save()),
-  );
-  panel.choice('AI thinking', [
-    { value: 'off', label: 'Off' },
-    { value: 'normal', label: 'Normal' },
-    { value: 'lots', label: 'Lots' },
-  ], () => options.think, (v) => ((options.think = v), s.save()));
-  panel.hint('Normal uses the AI for conversations near you and when you talk to someone; Lots uses it more often and further away. Opus writes the richest characters; Haiku is far cheaper.');
-  const spent = s.spent();
-  panel.hint(`AI spend: $${spent.now.toFixed(2)} this session, $${spent.total.toFixed(2)} in all.${s.problem() ? ` Last problem: ${s.problem()}` : ''}`);
-  panel.heading('City');
-  panel.choice('Name tags', [
-    { value: 'on', label: 'On' },
-    { value: 'off', label: 'Off' },
-  ], () => (options.tags ? 'on' : 'off'), (v) => ((options.tags = v === 'on'), s.save()));
-  let sure = false;
-  const reset = button('Reset everyone', 'btn danger', () => {
-    if (!sure) {
-      sure = true;
-      reset.textContent = 'Click again: they forget everything';
-      return;
-    }
-    s.resetCity();
-    reset.textContent = 'Done: a fresh start';
-    reset.disabled = true;
-  });
-  panel.row('Memories', reset);
-  panel.hint('K: talk to the person next to you (pull up slowly). L: the city journal: what everyone is up to, how they feel and what they remember.');
 }
