@@ -3,7 +3,17 @@
 A 3D driving game. Race AI rivals through a 100-level career, set up quick races
 with any car, or build your car in the garage and drive anywhere in free roam.
 
-## Install and update
+## Download
+
+Ready-to-run builds for macOS (Apple Silicon), Windows and Linux are on the
+[latest release](https://github.com/JosiahHands/carGame/releases/latest). Unzip and
+run it. These builds aren't signed by Apple or Microsoft, so the first time:
+
+- **macOS:** right-click Car Game and pick Open. If it says the app is damaged, run
+  `xattr -cr "/Applications/Car Game.app"` in Terminal, then open it again.
+- **Windows:** if SmartScreen warns you, click More info, then Run anyway.
+
+## Install and update from source
 
 Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
 [Node.js](https://nodejs.org) 22.12 or newer. On Windows, run the commands in Git Bash.
@@ -159,3 +169,13 @@ sessions.
 If the game runs slowly, press Esc for the settings: pick a quality preset (Low to
 Ultra), or set the resolution, shadows, view distance, effects and a frame rate
 limit yourself, and turn on the FPS counter to see the difference.
+
+## Releasing a new version
+
+Put the version in the commit message on `main` (or in the pull request's title),
+like `v1.2.0: more maps`. GitHub Actions then builds the game for macOS, Windows
+and Linux, tags the commit, and publishes a release with the three downloads (see
+`.github/workflows/release.yml`). A commit without a version, or with one that's
+already out, doesn't release anything. Every pull request is also type-checked
+and built (`check.yml`).
+

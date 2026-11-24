@@ -1,0 +1,131 @@
+# Publishes a release when a commit on main has a version in its message.
+#
+# Put a version like v1.2.3 anywhere in the commit message (or in the pull
+# request's title, which goes into the merge commit's message). This builds the
+# game for macOS, Windows and Linux, tags the commit, and puts the three
+# downloads on a new GitHub release. Commits without a version, or with one
+# that has already been released, do nothing.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # to tag the commit and publish the release
+
+# One release at a time; a second push waits instead of cancelling the first.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Find the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.find.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # all the tags, to see if this version is out already
+      - id: find
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          version=$(printf '%s\n' "$MESSAGE" | grep -oE '(^|[^0-9A-Za-z.])v[0-9]+\.[0-9]+\.[0-9]+([^0-9A-Za-z.]|$)' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+          if [ -z "$version" ]; then
+            echo "No version (like v1.2.3) in the commit message: nothing to release."
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "$version has already been released: nothing to do."
+            exit 0
+          fi
+          echo "Releasing $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build for ${{ matrix.name }}
+    needs: version
+    if: needs.version.outputs.version != ''
+    strategy:
+      matrix:
+        include:
+          - { os: macos-latest, name: macOS }
+          - { os: windows-latest, name: Windows }
+          - { os: ubuntu-latest, name: Linux }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # Git Bash on Windows
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Stamp the version on the app
+        run: npm version "${VERSION#v}" --no-git-tag-version --allow-same-version
+      - name: Build and package
+        run: npm run package
+      - name: Zip it
+        run: |
+          # The packager makes one folder in release/, like "Car Game-darwin-arm64".
+          dir=$(ls -d release/*/ | head -n 1)
+          dir=${dir%/}
+          arch=${dir##*-}
+          mkdir -p upload
+          case "${{ matrix.name }}" in
+            macOS)
+              # ditto keeps the app's symlinks and signature intact.
+              ditto -c -k --keepParent "$dir/Car Game.app" "upload/Car-Game-$VERSION-macOS-$arch.zip" ;;
+            Windows)
+              7z a -tzip "upload/Car-Game-$VERSION-Windows-$arch.zip" "./$dir" ;;
+            Linux)
+              tar -czf "upload/Car-Game-$VERSION-Linux-$arch.tar.gz" -C release "$(basename "$dir")" ;;
+          esac
+          ls -l upload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-${{ matrix.name }}
+          path: upload/*
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: game-*
+          path: upload
+          merge-multiple: true
+      - name: Tag the commit and publish
+        run: |
+          cat > notes.md <<'EOF'
+          ## Download
+
+          - **macOS** (Apple Silicon): unzip and drag Car Game to Applications. The first time, right-click it and pick Open. If macOS says the app is damaged, run `xattr -cr "/Applications/Car Game.app"` in Terminal, then open it again.
+          - **Windows:** unzip and run `car-game.exe`. If SmartScreen warns you, click More info, then Run anyway.
+          - **Linux:** extract it and run `./car-game`.
+
+          Or install from source, which also adds the game to your apps and keeps it up to date:
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
+          ```
+          EOF
+          gh release create "$VERSION" upload/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Car Game $VERSION" \
+            --notes-file notes.md \
+            --generate-notes
