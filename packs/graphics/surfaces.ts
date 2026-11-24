@@ -203,6 +203,7 @@ function flakeNormals(): THREE.Texture {
  * ground (and fades as the car jumps), and flakes in metallic paint.
  */
 export function dressCar(rig: CarRig, groundHeight: (x: number, z: number) => number): void {
+  if (rig.root.getObjectByName(SHADOW_NAME)) return; // dressed already
   const material = new THREE.MeshBasicMaterial({
     map: contactShadowTexture(),
     transparent: true,

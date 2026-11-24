@@ -6,8 +6,8 @@ is for anyone writing a pack.
 
 | Pack | Folder | What it does |
 | --- | --- | --- |
-| 🌅 Photo Real | `graphics/` | Sky and sunlight, image-based lighting, wet roads, sculpted car bodies, post-processing |
-| 🧪 Real Physics | `physics/` | Tyre model, weight transfer, engine and gears, crash spins and dents, telemetry |
+| 🌅 Photo Real | `graphics/` | Sky and sunlight, image-based lighting, wet roads, real car models, headlight beams and shadows, post-processing |
+| 🧪 Real Physics | `physics/` | Suspension, tyre model with heat and wear, engines, turbos, gearbox and differentials, brake fade, crash damage, telemetry, rumble |
 | 🧠 Living City | `npc/` | A city of 48 people with routines, memories, friendships and conversations, written by a local open-source AI |
 
 ## How packs get into the game
@@ -116,20 +116,44 @@ files outside the archive.
   them (PMREM), including the city's glow at night.
 - `post.ts`: the effects chain. GTAO ambient occlusion, bloom, depth of field in
   photo mode, tone mapping, then a lens pass (looks, vignette, grain, chromatic
-  aberration, speed blur).
+  aberration, speed blur, raindrops on the lens).
 - `surfaces.ts`: wet roads and puddles, detail on the ground, contact shadows
   under cars, and metal flake in metallic paint.
 - `carBody.ts`: sculpted car bodies, lofted from each body type's profile. They
   follow the garage settings (length, width, height, wheel size and track,
   paint, livery, stripes, tint, rims and accent colour).
-- `lights.ts`: street lamps that really light the road at night, and headlights.
+- `realCars.ts`: real car models from `models/cars.glb`, one per body type, put
+  over the sculpted body once loaded (it stays if they can't load). Each is
+  stretched round the game's own wheels and takes the garage's paint, pattern,
+  stripes, tint and lights; far-away cars use a simpler copy. The models are
+  by Daniel Zhabotinsky (CC BY 4.0) with every badge and plate removed; see
+  `models/CREDITS.md`. The Packs tab's "Car models" setting switches between
+  real and sculpted bodies.
+- `beams.ts`: headlight beams you can see in the night air, stronger in rain and snow.
+- `lights.ts`: street lamps that really light the road at night, and
+  headlights (with shadows, if switched on).
 
 ### physics
 
-- `model.ts`: the tyre model (a simplified Pacejka curve with a friction
-  ellipse for combined slip), weight transfer, drivetrain, aero and driving
-  aids. It's used for every car through `CarPhysics.dynamics`.
-- `telemetry.ts`: the panel showing each tyre's load and grip.
+- `model.ts`: the driving model, used for every car through
+  `CarPhysics.dynamics`. It runs four times per physics step (480 Hz). It
+  brings together the parts below, plus aero, the driving aids, the realism
+  levels (Friendly, Real, Simulation) and crash damage. It sets the body's
+  lean on the model through the `pose` hook.
+- `suspension.ts`: a sprung body that can heave, pitch and roll on four
+  springs. It has two-stage dampers, bump stops and anti-roll bars. The road
+  under each wheel comes from `world.heightAt`, plus a fixed pattern of small
+  bumps. The springs give the weight on each tyre.
+- `tyres.ts`: the grip curve, a simplified Pacejka "Magic Formula" with a
+  friction ellipse for combined slip. Also tyre temperature and wear, and how
+  they change grip.
+- `powertrain.ts`: torque curves for each engine, turbo lag, the automatic
+  gearbox, and limited-slip differentials.
+- `telemetry.ts`: the panel. It shows the g circle, and each tyre's grip,
+  load, spring travel, temperature and wear. It also shows revs, boost, gear,
+  brake temperature, the aid lights and damage.
+- `rumble.ts`: gamepad rumble (the browser Gamepad API's `dual-rumble`) from
+  tyre slip, bumps, landings and crashes.
 
 ### npc
 
@@ -139,15 +163,34 @@ files outside the archive.
 - `mind.ts`: memory (scored by recency, importance and relevance), feelings,
   needs, mood, learned likes, reflection into beliefs, habits and a life
   story, talks with you, and friendship with you.
-- `brain.ts`: what they say. `LocalBrain` asks the local AI. `RuleBrain` needs
-  nothing, and covers whatever the AI hasn't time for.
+- `brain.ts`: what they say and decide. `LocalBrain` asks the local AI.
+  `RuleBrain` needs nothing, and covers whatever the AI hasn't time for.
+  `decide` is a free choice: a private thought, a goal, an action from an open
+  menu (with a place or a person), and anything said out loud. `plan` is a
+  goal and a plan for the day.
 - `protocol.ts`: the request and answer shapes, the models, the standing
-  instructions, and the JSON schemas.
+  instructions, the actions anyone can choose (and BUDDY's police ones), and
+  the JSON schemas.
 - `city.ts`: the places, homes and walking routes. `body.ts`: their bodies and
-  animation. `labels.ts`: name tags (click one to talk) and speech bubbles.
-- `index.ts`: the simulation. The city's clock and daily routines, who talks
-  to whom, plans to meet, reactions to the player, BUDDY's tickets, making
-  friends, clicking on people, and saving.
-- `ui.ts`: the chat box, the journal (L) and the Packs tab options.
+  animation. `labels.ts`: name tags (click one to talk), speech and thought
+  bubbles.
+- `drive.ts`: people's cars. Routes along the roads (on the right, turning at
+  the crossings, pulling in at the kerb) and `NpcCar`, a world car driven
+  along one. At most three are out at once.
+- `police.ts`: BUDDY's police car. It uses the game's car physics and is
+  driven the way the rival drivers drive, with a light bar, a siren, a roof
+  gun and a hit box for your weapons. It patrols along routes and chases you
+  (straight at you, or round the blocks).
+- `index.ts`: the simulation. It runs the city's clock and daily routines and
+  each person's decisions: the AI decides for people near you, one at a time,
+  and everyone else follows their plan and the built-in brain. It also covers
+  car trips and lifts, who talks to whom, plans to meet, and reactions to the
+  player. On the police side: your wanted level, BUDDY's tickets, chases (an
+  escape, or a bust and a fine) and the mischief he fines people for. Then
+  texts from friends, ride hails, the Saturday street party, making friends,
+  clicking on people, and saving (version 3; older saves still load). It all
+  steps aside during events.
+- `ui.ts`: the chat box (beside them, by phone, or with them riding in your
+  car), the journal (L) and the Packs tab options, including police chases.
 - `main.ts`: the main-process side. It downloads and runs the model, queues
   requests, and saves the city.

@@ -62,6 +62,20 @@ export interface Mind {
   story: string;
   /** Their talks with the driver, newest last. */
   chats: ChatLine[];
+  /** What they're aiming for, in their own words (they choose it, and change it when they like). */
+  goal: string;
+  /** Their plan for the day, and which city day it's for. */
+  plan: DayStep[];
+  planDay: number;
+  /** Their latest private thoughts, newest last. */
+  thoughts: string[];
+}
+
+/** One step of a day plan: from this hour, be here, doing this. */
+export interface DayStep {
+  hour: number;
+  place: PlaceKind | 'home';
+  what: string;
 }
 
 /** One exchange with the driver. */
@@ -76,6 +90,7 @@ const MAX_CHATS = 40;
 const MAX_STORY = 700;
 const MAX_INSIGHTS = 6;
 const MAX_HABITS = 4;
+const MAX_THOUGHTS = 8;
 
 export function newMind(member: CastMember): Mind {
   const feelings: Record<string, number> = { driver: 0 };
@@ -100,6 +115,10 @@ export function newMind(member: CastMember): Mind {
     pending: 0,
     story: '',
     chats: [],
+    goal: '',
+    plan: [],
+    planDay: -1,
+    thoughts: [],
   };
 }
 
@@ -232,6 +251,20 @@ export function logChat(mind: Mind, now: number, you: string, them: string): voi
   mind.met.driver = (mind.met.driver ?? 0) + 1;
 }
 
+/** A private thought. */
+export function think(mind: Mind, thought: string): void {
+  const text = thought.replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!text || mind.thoughts[mind.thoughts.length - 1] === text) return;
+  mind.thoughts.push(text);
+  if (mind.thoughts.length > MAX_THOUGHTS) mind.thoughts.shift();
+}
+
+/** A new goal, in their words ('' keeps the old one). */
+export function setGoal(mind: Mind, goal: string): void {
+  const text = goal.replace(/\s+/g, ' ').trim().slice(0, 140);
+  if (text.length > 3) mind.goal = text;
+}
+
 /** Their life story, rewritten after reflecting. */
 export function setStory(mind: Mind, story: string): void {
   const text = story.replace(/\s+/g, ' ').trim().slice(0, MAX_STORY);
@@ -276,5 +309,9 @@ export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined
     story: typeof saved.story === 'string' ? saved.story.slice(0, MAX_STORY) : '',
     chats: Array.isArray(saved.chats) ? saved.chats.filter((c) => c && typeof c.you === 'string' && typeof c.them === 'string').slice(-MAX_CHATS) : [],
     needs: { ...fresh.needs, ...(saved.needs ?? {}) },
+    goal: typeof saved.goal === 'string' ? saved.goal.slice(0, 140) : '',
+    plan: Array.isArray(saved.plan) ? saved.plan.filter((p) => p && typeof p.hour === 'number' && typeof p.place === 'string').slice(0, 8) : [],
+    planDay: typeof saved.planDay === 'number' ? saved.planDay : -1,
+    thoughts: Array.isArray(saved.thoughts) ? saved.thoughts.filter((t) => typeof t === 'string').slice(-MAX_THOUGHTS) : [],
   };
 }

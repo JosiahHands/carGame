@@ -492,6 +492,24 @@ function buildTopper(kind: Topper, paint: THREE.Material, accent: THREE.Material
  */
 export const carBuiltHooks: ((rig: CarRig) => void)[] = [];
 
+/**
+ * Every car model built and not yet thrown away, so a pack that starts after
+ * cars were built can change them too. Held weakly: a car the game forgets
+ * about is let go.
+ */
+const built = new Set<WeakRef<CarRig>>();
+
+/** The car models that exist now (the player's, rivals', traffic and parked cars). */
+export function liveCars(): CarRig[] {
+  const cars: CarRig[] = [];
+  for (const ref of built) {
+    const rig = ref.deref();
+    if (rig) cars.push(rig);
+    else built.delete(ref);
+  }
+  return cars;
+}
+
 export function buildCar(config: CarConfig, envNight = false, withLights = true): CarRig {
   const spec = stretchBody(BODIES[config.body], config.length, config.width, config.height);
   const disposables: { dispose(): void }[] = [];
@@ -991,10 +1009,13 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
       if (flag) flag.rotation.y = -Math.PI / 2 + Math.sin(time * 7) * 0.3;
     },
     dispose() {
+      built.delete(ref);
       for (const d of disposables) d.dispose();
       root.removeFromParent();
     },
   };
+  const ref = new WeakRef(rig);
+  built.add(ref);
   rig.setLights({ night: envNight, braking: false });
   for (const hook of carBuiltHooks) hook(rig);
   return rig;

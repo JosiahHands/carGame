@@ -408,6 +408,19 @@ export function sculptCar(rig: CarRig): void {
     add(caliper, wheel.steer);
   }
 
+  // A see-through car (the time trial's ghost) has one see-through material
+  // on every part: the new parts wear it too, so none of them show solid.
+  if (bodyPaint.transparent) {
+    for (const object of undo.added) {
+      object.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.material = bodyPaint;
+        mesh.castShadow = false;
+      });
+    }
+  }
+
   rig.root.userData[UNDO] = undo;
   const dispose = rig.dispose.bind(rig);
   rig.dispose = () => {
@@ -439,14 +452,26 @@ function tyreGeometry(radius: number, width: number, rimShare: number): THREE.Bu
   return geometry;
 }
 
-/** A stripe laid over the top of the body, `width` wide and centred `x` from the middle. */
-function stripeStrip(shape: CarShape, surfaces: (z: number) => THREE.Mesh[], x: number, width: number, material: THREE.Material): THREE.Mesh {
+/**
+ * A stripe laid over the top of the body, `width` wide and centred `x` from the middle.
+ * `placed` means the surfaces' world matrices already put them in the car body's
+ * coordinates; `accept` can turn down a hit (the stripe has a gap there).
+ */
+export function stripeStrip(
+  shape: CarShape,
+  surfaces: (z: number) => THREE.Mesh[],
+  x: number,
+  width: number,
+  material: THREE.Material,
+  placed = false,
+  accept: (hit: THREE.Intersection) => boolean = () => true,
+): THREE.Mesh {
   // Drop rays straight down onto the shell at a grid of points, and join them up.
   const raycaster = new THREE.Raycaster();
   const down = new THREE.Vector3(0, -1, 0);
   // Work in the car body's coordinates: the parts have no offsets of their own
   // within it, so their world matrices are set to "none" until they're drawn.
-  for (const mesh of new Set([...surfaces(shape.rearZ), ...surfaces((shape.spec.cabin[1][0] + shape.spec.cabin[2][0]) / 2)])) mesh.matrixWorld.identity();
+  if (!placed) for (const mesh of new Set([...surfaces(shape.rearZ), ...surfaces((shape.spec.cabin[1][0] + shape.spec.cabin[2][0]) / 2)])) mesh.matrixWorld.identity();
   const across = 5;
   const rows: THREE.Vector3[][] = [];
   const length = shape.frontZ - shape.rearZ;
@@ -458,7 +483,7 @@ function stripeStrip(shape: CarShape, surfaces: (z: number) => THREE.Mesh[], x: 
       const px = x - width / 2 + (width * j) / across;
       raycaster.set(new THREE.Vector3(px, 5, z), down);
       const hit = raycaster.intersectObjects(surfaces(z), false)[0];
-      if (!hit) break;
+      if (!hit || !accept(hit)) break;
       row.push(hit.point.add(new THREE.Vector3(0, 0.004, 0)));
     }
     if (row.length === across + 1) rows.push(row);
@@ -484,6 +509,12 @@ function stripeStrip(shape: CarShape, surfaces: (z: number) => THREE.Mesh[], x: 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;
   return mesh;
+}
+
+/** The sculpted parts on a car's body (not its wheels), so a real model can stand in for them. */
+export function sculptedBody(rig: CarRig): THREE.Object3D[] {
+  const undo = rig.root.userData[UNDO] as Undo | undefined;
+  return undo ? undo.added.filter((o) => o.parent === rig.body) : [];
 }
 
 /** Puts every sculpted car in the scene back as the game built it. */

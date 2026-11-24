@@ -2177,6 +2177,76 @@ input.text.npc-key {
   font-style: italic;
 }
 
+.npc-goal {
+  font-weight: 600;
+}
+
+.npc-thought {
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* The wanted level (Living City's police chases), top middle. */
+.npc-wanted {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: rgba(20, 8, 12, 0.72);
+  border: 1px solid rgba(255, 70, 90, 0.6);
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+
+.npc-wanted b {
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  color: #ffd24a;
+}
+
+.npc-wanted small {
+  color: #ffb0b8;
+}
+
+.npc-wanted.hidden,
+.npc-phone.hidden {
+  display: none;
+}
+
+/* A text message from someone in the city: click to reply. */
+.npc-phone {
+  position: absolute;
+  right: 16px;
+  top: 120px;
+  width: min(280px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.npc-phone small {
+  color: var(--muted);
+}
+
+.npc-messages small {
+  color: var(--muted);
+}
+
 .npc-talk {
   margin: 8px 0;
   padding: 8px 10px;

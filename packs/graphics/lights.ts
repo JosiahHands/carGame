@@ -1,6 +1,7 @@
 // Real light at night: the street lamps nearest the camera light the road
-// around them, and the player's headlights throw a beam ahead of the car.
-// (The game's lamps only glow; they don't light anything.)
+// around them, and the player's headlights throw a beam ahead of the car
+// (with shadows, if switched on). (The game's lamps only glow; they don't
+// light anything.)
 import * as THREE from 'three';
 import type { World } from '../../game/world';
 import type { CarPhysics } from '../../game/carPhysics';
@@ -20,8 +21,20 @@ export class NightLights {
       this.group.add(lamp);
     }
     this.beam = new THREE.SpotLight(0xfff4e0, 0, 75, 0.42, 0.55, 1.3);
+    // Headlight shadows (when switched on): posts, trees and other cars throw
+    // long shadows down the road. The near plane starts past the car's own nose.
+    this.beam.shadow.mapSize.set(1024, 1024);
+    this.beam.shadow.camera.near = 0.6;
+    this.beam.shadow.camera.far = 75;
+    this.beam.shadow.bias = -0.0004;
+    this.beam.shadow.normalBias = 0.02;
     this.group.add(this.beam, this.beam.target);
     scene.add(this.group);
+  }
+
+  /** Whether the player's headlights cast shadows (the "Headlight shadows" setting). */
+  set shadows(on: boolean) {
+    this.beam.castShadow = on;
   }
 
   /** Each frame: lamps near the camera switch on, and the headlights follow the car. */
@@ -54,6 +67,8 @@ export class NightLights {
     // Headlights: from the front of the car, aimed a little down the road.
     const on = night && driving;
     this.beam.intensity = on ? 90 : 0;
+    // The shadow map is only drawn while the lights are on (switching castShadow itself would rebuild every shader).
+    this.beam.shadow.autoUpdate = on;
     if (on) {
       const fx = Math.sin(car.heading);
       const fz = Math.cos(car.heading);

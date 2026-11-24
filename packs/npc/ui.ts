@@ -12,9 +12,18 @@ export interface Options {
   /** Which conversations between people the AI writes: the ones near you, or everyone's (as fast as it can). */
   think: 'nearby' | 'everywhere';
   tags: boolean;
+  /** Whether BUDDY may chase you in his police car (otherwise he only writes tickets). */
+  chases: boolean;
 }
 
-export const DEFAULT_OPTIONS: Options = { think: 'everywhere', tags: true };
+export const DEFAULT_OPTIONS: Options = { think: 'everywhere', tags: true, chases: true };
+
+/** A text message someone sent you. */
+export interface Message {
+  from: string;
+  text: string;
+  t: number;
+}
 
 /** A conversation the city overheard, for the journal. */
 export interface Talk {
@@ -189,7 +198,9 @@ export function buildJournal(
     news: () => string[];
     talks: () => Talk[];
     plans: (id?: string) => string[];
-    tickets: () => number;
+    /** Your record with the police, in a few words ("🚓 3 tickets · 1 chase"). */
+    record: () => string;
+    messages: () => Message[];
     find: (npc: Npc) => void;
   },
 ): Journal {
@@ -254,8 +265,16 @@ export function buildJournal(
   /** You: who counts you as a friend, and your record with the police. */
   const youPage = () => {
     const title = el('div', 'npc-journal-title');
-    title.append(el('b', '', 'You'), el('span', '', ` 🚓 ${hooks.tickets()} ticket${hooks.tickets() === 1 ? '' : 's'}`));
+    title.append(el('b', '', 'You'), el('span', '', ` ${hooks.record()}`));
     page.append(title);
+    const messages = el('ul', 'npc-messages');
+    for (const m of hooks.messages().slice(0, 8)) {
+      const li = el('li');
+      li.append(el('b', '', `📱 ${m.from}: `), document.createTextNode(m.text), el('small', '', ` ${ago(m.t)}`));
+      messages.append(li);
+    }
+    if (!messages.children.length) messages.append(el('li', 'npc-small', 'No messages yet. Friends text you now and then.'));
+    section('Messages', messages);
     const npcs = hooks.npcs();
     const known = npcs.filter((n) => (n.mind.met.driver ?? 0) > 0 || Math.abs(n.mind.feelings.driver ?? 0) > 0.15);
     known.sort((a, b) => (b.mind.feelings.driver ?? 0) - (a.mind.feelings.driver ?? 0));
@@ -277,7 +296,17 @@ export function buildJournal(
     page.append(title);
     page.append(el('p', 'npc-bio', npc.member.bio));
     page.append(el('p', '', `Now: ${hooks.doing(npc)}, near ${hooks.placeName(npc)}. Feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}.`));
+    if (mind.goal) page.append(el('p', 'npc-goal', `🎯 ${mind.goal}`));
     if (mind.story) section('Their story so far', el('p', 'npc-story', mind.story));
+    if (mind.plan.length || mind.thoughts.length) {
+      const today = el('ul');
+      for (const step of mind.plan) {
+        const where = step.place === 'home' ? 'home' : step.place;
+        today.append(el('li', 'npc-small', `${String(step.hour).padStart(2, '0')}:00 · ${step.what} (${where})`));
+      }
+      for (const t of [...mind.thoughts].reverse().slice(0, 4)) today.append(el('li', 'npc-thought', `💭 ${t}`));
+      section('Today, and on their mind', today);
+    }
 
     const you = el('ul');
     you.append(el('li', '', `${friendship(mind)}: ${feelingWord(mind.feelings.driver ?? 0)} you${mind.driverName ? ` (knows you as ${mind.driverName})` : ''}`));
@@ -507,6 +536,16 @@ export function settingsPanel(
     () => (options.tags ? 'on' : 'off'),
     (v) => ((options.tags = v === 'on'), s.save()),
   );
+  panel.choice(
+    'Police chases',
+    [
+      { value: 'on', label: 'On' },
+      { value: 'off', label: 'Off' },
+    ],
+    () => (options.chases ? 'on' : 'off'),
+    (v) => ((options.chases = v === 'on'), s.save()),
+  );
+  panel.hint('On: BUDDY decides for himself when you have gone too far, and chases you in his police car (siren, ramming, roof gun). Lose him to escape, or stop and take the fine. Off: he only writes tickets.');
   let sure = false;
   const reset = button('Reset everyone', 'btn danger', () => {
     if (!sure) {

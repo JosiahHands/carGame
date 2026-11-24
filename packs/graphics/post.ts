@@ -1,7 +1,8 @@
 // The camera: everything that happens between the 3D scene and the screen.
 // Ambient occlusion (soft shadows in corners and under things), bloom (bright
 // lights glow), depth of field in photo mode, tone mapping, and a "lens" pass:
-// colour grading, vignette, film grain, chromatic aberration and speed blur.
+// colour grading, vignette, film grain, chromatic aberration, speed blur and
+// raindrops on the lens.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -34,6 +35,9 @@ const LensShader = {
     grain: { value: 0.3 },
     aberration: { value: 0.3 },
     blur: { value: 0 },
+    rain: { value: 0 },
+    speed: { value: 0 },
+    travel: { value: 0 },
     resolution: { value: new THREE.Vector2(1, 1) },
   },
   vertexShader: /* glsl */ `
@@ -44,10 +48,36 @@ const LensShader = {
     }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float time, vignette, grain, aberration, blur;
+    uniform float time, vignette, grain, aberration, blur, rain, speed, travel;
     uniform int look;
     uniform vec2 resolution;
     varying vec2 vUv;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    // Raindrops on the lens. The picture is cut into cells, each with one drop
+    // at a random spot that lands, sits a while (some slide down) and dries
+    // off. Speed blows the drops up the lens and stretches them into streaks.
+    // Returns how far the drop bends the picture here (zero outside drops).
+    vec2 drops(vec2 uv, float t, float cells, float seed) {
+      vec2 aspect = vec2(resolution.x / resolution.y, 1.0);
+      vec2 p = uv * aspect * cells - vec2(0.0, travel * 2.0);
+      vec2 cell = floor(p);
+      vec2 f = fract(p) - 0.5;
+      float n = hash(cell + seed);
+      float life = fract(t * (0.12 + n * 0.1) + n);
+      vec2 spot = (vec2(hash(cell + 3.1 + seed), hash(cell + 7.7 + seed)) - 0.5) * 0.6;
+      if (hash(cell + 1.3 + seed) > 0.6) spot.y += 0.25 - life * life * 0.5; // a heavy drop runs down
+      spot.y *= 1.0 - speed * 0.6; // stretched drops stay inside their cell
+      vec2 d = f - spot;
+      d.y /= 1.0 + speed * 0.7;
+      float radius = mix(0.1, 0.24, hash(cell + 5.2 + seed));
+      float inside = smoothstep(radius, radius * 0.55, length(d));
+      float fade = smoothstep(0.0, 0.04, life) * smoothstep(1.0, 0.6, life);
+      return -d * inside * fade / cells;
+    }
 
     // A picture sample with the colours split a little towards the edges, like a real lens.
     vec3 sampleLens(vec2 uv) {
@@ -56,12 +86,16 @@ const LensShader = {
       return vec3(texture2D(tDiffuse, uv + split).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - split).b);
     }
 
-    float hash(vec2 p) {
-      return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
-    }
-
     void main() {
-      vec2 c = vUv - 0.5;
+      // Raindrops bend the picture behind them, like little lenses.
+      vec2 uv = vUv;
+      float wet = 0.0;
+      if (rain > 0.001) {
+        vec2 bend = drops(vUv, time, 7.0, 0.0) + drops(vUv, time * 1.3, 13.0, 17.0) * 0.7;
+        uv += bend * 3.5 * rain;
+        wet = clamp(length(bend) * 40.0 * rain, 0.0, 1.0);
+      }
+      vec2 c = uv - 0.5;
       vec3 color;
       if (blur > 0.001) {
         // Speed blur: the edges of the picture streak away from the middle, as at real speed.
@@ -70,8 +104,10 @@ const LensShader = {
         for (int i = 0; i < 8; i++) color += sampleLens(0.5 + c * (1.0 - amount * float(i) / 7.0));
         color /= 8.0;
       } else {
-        color = sampleLens(vUv);
+        color = sampleLens(uv);
       }
+      // The drops' edges catch a little light.
+      color = mix(color, color * 0.85 + 0.04, wet * 0.5);
 
       float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
       if (look == 0) {
@@ -111,6 +147,7 @@ export class PostFX {
   private fxaa: ShaderPass | null = null;
   private size = new THREE.Vector2();
   private ratio = 0;
+  private lastTime = 0;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -173,10 +210,16 @@ export class PostFX {
 
   /**
    * Settings for this frame. `speed` is 0..1 (for speed blur), `focus` the
-   * distance to the car in photo mode (null for no depth of field).
+   * distance to the car in photo mode (null for no depth of field), `rain`
+   * 0..1 for raindrops on the lens.
    */
-  set(lens: LensSettings, night: boolean, speed: number, focus: number | null, time: number): void {
+  set(lens: LensSettings, night: boolean, speed: number, focus: number | null, time: number, rain = 0): void {
     const u = this.lens.uniforms;
+    // How far the drops have been blown along: speed over time (so a change of speed doesn't make them jump).
+    u.travel.value += speed * Math.max(0, time - this.lastTime);
+    this.lastTime = time;
+    u.rain.value = rain;
+    u.speed.value = speed;
     u.look.value = LOOKS.indexOf(lens.look);
     u.vignette.value = lens.vignette;
     u.grain.value = lens.grain;
