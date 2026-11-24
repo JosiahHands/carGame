@@ -26,7 +26,7 @@ export interface StepEvents {
 }
 
 const EARTH_GRAVITY = 16; // a bit more than real gravity, so jumps feel snappy
-const MAX_REVERSE = 12;
+export const MAX_REVERSE = 12;
 const MPH = 0.44704; // metres per second
 /**
  * Most sideways acceleration the tyres can give, in m/s², at normal grip on

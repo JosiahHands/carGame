@@ -11,7 +11,7 @@ import { SkySystem, SUN_HEIGHT, weatherFor, type TimeOfDay } from './sky';
 import { PostFX, type Look, type Quality } from './post';
 import { NightLights } from './lights';
 import { sculptCar, unsculptCars } from './carBody';
-import { detailGround, dressCar, groundUniforms, sharpenTextures, undoGround, undressCars } from './surfaces';
+import { detailGround, dressCar, forgetOldGround, groundUniforms, sharpenTextures, undoGround, undressCars } from './surfaces';
 
 type Tone = 'agx' | 'aces' | 'neutral';
 
@@ -168,6 +168,7 @@ const pack: Pack = {
     return {
       mapLoaded() {
         captureBase();
+        forgetOldGround(world.group);
         detailGround(world.group);
         sharpenTextures(world.group, anisotropy);
         refreshSky();

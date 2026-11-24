@@ -53,12 +53,11 @@ interface Options {
 
 const DEFAULTS: Options = { model: 'opus', think: 'normal', tags: true };
 
-/** What gets saved: the city's clock, every mind, and your record with the police. */
+/** What gets saved: the city's clock, every mind, and your record with the police. (The AI spend is saved on its own: see addSpend.) */
 interface Saved {
   clock: number;
   minds: Record<string, Mind>;
   tickets: number;
-  spent: number;
 }
 
 /** What someone's doing: heading somewhere, spending time there, wandering, or (BUDDY) sticking with GUY. */
@@ -128,8 +127,23 @@ const pack: Pack = {
     const saved = game.load<Partial<Saved>>('city', {});
     let clock = typeof saved.clock === 'number' ? saved.clock : 0;
     let tickets = typeof saved.tickets === 'number' ? saved.tickets : 0;
-    let spent = typeof saved.spent === 'number' ? saved.spent : 0;
     let spentNow = 0;
+    /** Switched off: answers still on their way are ignored, apart from what they cost. */
+    let disposed = false;
+    /**
+     * The AI spend is saved the moment an answer arrives. An answer can arrive
+     * after the pack is switched off (or off and on again), so the total is
+     * read and written each time rather than kept here.
+     */
+    const totalSpent = () => {
+      const total = game.load<unknown>('spend', 0);
+      return typeof total === 'number' && Number.isFinite(total) ? total : 0;
+    };
+    const addSpend = (dollars: number) => {
+      if (!Number.isFinite(dollars) || dollars <= 0) return;
+      game.save('spend', totalSpent() + dollars);
+      if (!disposed) spentNow += dollars;
+    };
 
     // ---------- the AI ----------
     let key: 'saved' | 'environment' | 'none' | 'checking' = 'checking';
@@ -154,11 +168,9 @@ const pack: Pack = {
           return options.model;
         },
         call: (request) => game.callMain('think', request),
-        spent: (dollars) => {
-          spent += dollars;
-          spentNow += dollars;
-        },
+        spent: addSpend,
         failed: (reason, message) => {
+          if (disposed) return;
           lastProblem = message;
           if (reason === 'no-key') {
             key = 'none';
@@ -575,7 +587,7 @@ const pack: Pack = {
         .conversation(person(a), person(b), moment())
         .catch(() => rules.conversation(person(a), person(b), moment()))
         .then((result) => {
-          if (a.convo !== convo) return; // interrupted while thinking
+          if (disposed || a.convo !== convo) return; // switched off, or interrupted while thinking
           for (const m of result.memories) {
             const who = byId.get(m.who);
             const other = convo.people.find((p) => p !== who);
@@ -642,6 +654,7 @@ const pack: Pack = {
         .catch(() => rules.reflect(person(npc), moment()))
         .then((result) => {
           npc.reflecting = false;
+          if (disposed) return;
           npc.mind.pending = 0;
           for (const insight of result.insights) addInsight(npc.mind, clock, insight);
           if (result.trait) nudge(npc.mind, result.trait.name, result.trait.up, 0.04);
@@ -656,6 +669,7 @@ const pack: Pack = {
       send: async (npc: Npc, said: string) => {
         const brain: Brain = (key === 'saved' || key === 'environment') && options.think !== 'off' && performance.now() > waitUntil ? ai : rules;
         const result = await brain.chat(person(npc), said, moment()).catch(() => rules.chat(person(npc), said, moment()));
+        if (disposed) return result.reply;
         const mind = npc.mind;
         if (result.driverName) mind.driverName = result.driverName;
         feel(mind, 'driver', result.opinion * 0.12 + 0.02);
@@ -708,7 +722,7 @@ const pack: Pack = {
       placeName: (npc) => placeName(npc.x, npc.z),
       footer: () =>
         `${(key === 'saved' || key === 'environment') && options.think !== 'off' ? `Thinking with ${MODELS[options.model].label}` : 'Thinking with the built-in brain (add an API key in the Packs tab for AI)'} · ` +
-        `🚓 ${tickets} ticket${tickets === 1 ? '' : 's'} · AI spend $${spent.toFixed(2)}`,
+        `🚓 ${tickets} ticket${tickets === 1 ? '' : 's'} · AI spend $${totalSpent().toFixed(2)}`,
       find: (npc) => {
         beam.position.set(npc.x, 0, npc.z);
         beam.visible = true;
@@ -864,6 +878,12 @@ const pack: Pack = {
       }
     };
 
+    /** Puts someone's body where they are. Also done while the game is paused, so they never wait at the map's centre behind the menu. */
+    const pose = (npc: Npc) => {
+      npc.body.root.position.set(npc.x, game.world.heightAt(npc.x, npc.z), npc.z);
+      npc.body.root.rotation.y = npc.heading;
+    };
+
     const update = (dt: number) => {
       clock += dt;
       thinkTimer += dt;
@@ -875,9 +895,7 @@ const pack: Pack = {
       for (const npc of npcs) {
         dodge(npc);
         const { action, speed } = walk(npc, dt);
-        const y = game.world.heightAt(npc.x, npc.z);
-        npc.body.root.position.set(npc.x, y, npc.z);
-        npc.body.root.rotation.y = npc.heading;
+        pose(npc);
         const look = npc.lookX === null ? null : wrap(Math.atan2(npc.lookX - npc.x, npc.lookZ - npc.z) - npc.heading);
         npc.body.animate(dt, action, speed, look);
         npc.label.setEmotion(npc.mind.emotion);
@@ -909,7 +927,7 @@ const pack: Pack = {
     const persist = () => {
       const minds: Record<string, Mind> = {};
       for (const npc of npcs) minds[npc.member.id] = npc.mind;
-      game.save('city', { clock, minds, tickets, spent } satisfies Saved);
+      game.save('city', { clock, minds, tickets } satisfies Saved);
     };
 
     const mapLoaded = () => {
@@ -930,6 +948,9 @@ const pack: Pack = {
         if (want !== active) setActive(want);
         if (!active) return;
         if (!game.paused() && dt > 0) update(Math.min(dt, 0.1));
+        else for (const npc of npcs) pose(npc);
+        // A chat can't stay open over the menu or settings.
+        if (game.paused() && chat.open) chat.hide();
         placeLabels();
         journal.tick();
         saveTimer += dt;
@@ -945,7 +966,7 @@ const pack: Pack = {
           key: () => key,
           secure: () => secure,
           problem: () => lastProblem,
-          spent: () => ({ total: spent, now: spentNow }),
+          spent: () => ({ total: totalSpent(), now: spentNow }),
           setKey: async (value: string) => {
             const result = (await game.callMain('setKey', value).catch(() => ({ ok: false, message: 'Only works in the desktop game.' }))) as { ok: boolean; message?: string };
             await checkKey();
@@ -959,8 +980,13 @@ const pack: Pack = {
           resetCity: () => {
             for (const convo of new Set(npcs.map((n) => n.convo).filter((c): c is Convo => !!c))) endTalk(convo);
             chat.hide();
+            // The clock starts again, so everything timed by it starts again too.
             clock = 0;
             tickets = 0;
+            lastTicket = -Infinity;
+            lastAiTalk = -Infinity;
+            beamUntil = 0;
+            beam.visible = false;
             news.length = 0;
             lastPair.clear();
             reset(undefined);
@@ -1084,24 +1110,29 @@ function buildChat(
     e.preventDefault();
     const npc = chat.npc;
     const said = input.value.trim();
-    if (!npc || !said || input.disabled) return;
+    if (!npc || !said || waiting) return;
     input.value = '';
     line('You:', said, true);
-    const waiting = line(`${npc.member.name}:`, '…', false);
-    input.disabled = true;
+    const reply = line(`${npc.member.name}:`, '…', false);
+    // Read-only rather than disabled while they think: a disabled box loses
+    // the keyboard, and then Esc would reach the game instead of the chat.
+    waiting = true;
+    input.readOnly = true;
     void hooks
       .send(npc, said)
-      .then((reply) => {
-        waiting.lastChild!.textContent = ` ${reply}`;
+      .then((text) => {
+        reply.lastChild!.textContent = ` ${text}`;
         about.textContent = hooks.describe(npc);
       })
       .finally(() => {
-        input.disabled = false;
+        waiting = false;
+        input.readOnly = false;
         if (chat.open) input.focus();
       });
   });
-  // Esc leaves the chat (and doesn't open the game's menu); other keys stay in the box.
-  input.addEventListener('keydown', (e) => {
+  let waiting = false;
+  // Esc leaves the chat (and doesn't open the game's menu), wherever in the box the keyboard is.
+  box.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -1122,7 +1153,6 @@ function buildChat(
       const greeting = npc.mind.driverName ? `Oh hey, ${npc.mind.driverName}!` : (npc.mind.feelings.driver ?? 0) < -0.3 ? 'Oh. You.' : 'Oh, hello there!';
       line(`${npc.member.name}:`, greeting, false);
       box.classList.remove('hidden');
-      input.disabled = false;
       input.focus();
     },
     hide() {
