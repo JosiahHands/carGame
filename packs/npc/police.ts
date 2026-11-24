@@ -186,7 +186,8 @@ export class PoliceCar {
       this.repath -= dt;
       if (this.repath <= 0) {
         this.repath = 0.8;
-        this.direct = this.roadOnly <= 0 && (distance < 18 || (distance < 140 && this.clearLine(p.x, p.z, ax, az, 2.2)));
+        // Close by, only the line itself has to be clear (not a car's width either side of it).
+        this.direct = this.roadOnly <= 0 && distance < 140 && this.clearLine(p.x, p.z, ax, az, distance < 18 ? 0 : 2.2);
         if (!this.direct) this.setRoute(routeTo(p.x, p.z, p.heading, player.x, player.z));
       }
       if (this.direct && yours < 3 && distance < 45) {

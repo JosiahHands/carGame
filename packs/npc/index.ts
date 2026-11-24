@@ -1203,10 +1203,12 @@ const pack: Pack = {
       }
       const d = Math.hypot(car.x - p.x, car.z - p.z);
       // Out of BUDDY's sight (too far, or behind a building) for long enough, and you've got away.
-      c.lost = !car.canSee(p.x, p.z, dt) ? c.lost + dt : Math.max(0, c.lost - dt * 0.5);
+      const seen = car.canSee(p.x, p.z, dt);
+      c.lost = !seen ? c.lost + dt : Math.max(0, c.lost - dt * 0.5);
       if (c.lost > 8 || d > 320) return endChase('escaped');
+      // Pulled over where he can see you (not just near him, behind a wall).
       const speed = Math.hypot(p.vx, p.vz);
-      c.stopped = d < 16 && speed < 2 ? c.stopped + dt : Math.max(0, c.stopped - dt);
+      c.stopped = seen && d < 16 && speed < 2 ? c.stopped + dt : Math.max(0, c.stopped - dt);
       if (c.stopped > 3) return endChase('busted');
       if (c.damage >= 100) return endChase('busted', true);
       // The city watches it go by.
