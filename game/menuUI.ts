@@ -3,11 +3,12 @@
 // pause, results, and the end of the career.
 import { button, el } from '../libs/dom';
 import {
-  BOSS_STARS, CHAPTERS, CHASSIS, DIFFICULTIES, LEVELS, UPGRADES,
-  awaitingChoice, careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
-  quickRaceSpec, resetCareer, today, totalStars, upgradeCap, upgradeCost,
+  BOSS_STARS, CHAPTERS, CHASSIS, DIFFICULTIES, LEVELS, UPGRADES, WEAPON_SHOP, WEAPON_UPGRADE_ABOUT,
+  awaitingChoice, buyWeapon, careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
+  quickRaceSpec, resetCareer, today, totalStars, upgradeCap, upgradeCost, weaponCost, weaponLockedReason,
   type CareerSave, type Level, type Payout, type UpgradeId,
 } from './career';
+import { MAX_WEAPON_LEVEL } from './weapons';
 import { SHOWCASE_BUILDS, showcaseConfig, type CarConfig, type Tuning } from './carConfig';
 import { EVENT_KINDS, type EventKind, type EventResult, type EventSpec } from './event';
 import { PRIZES, TROPHIES, WRENCHES, ZONE_STARS, driverLevel, spinWheel } from './rewards';
@@ -23,7 +24,7 @@ export interface MenuEvents {
   /** Free roam in the career car, where challenge stars count. */
   freeRoamCareer(): void;
   garage(): void;
-  /** The career may have changed (a car bought, chosen or upgraded): save it and show the car. */
+  /** The career may have changed (a car or weapon bought, chosen or upgraded): save it and show the car. */
   carChanged(): void;
   resume(): void;
   restart(): void;
@@ -297,6 +298,11 @@ export class MenuUI {
     if (spec.weapons && spec.kind === 'race') twists.push('🔫 Combat race: weapons on');
     if (venue(spec.map).theme.weather !== 'clear') twists.push(venue(spec.map).theme.weather === 'rain' ? '🌧️ Rain' : '❄️ Snow');
     if (twists.length) fact('Twists', twists.join(' · '));
+    if (spec.weapons) {
+      // Only what you've bought: with none yet, it's rams and crashes.
+      const mine = WEAPON_SHOP.filter((w) => this.save.arsenal[w.id] > 0).map((w) => `${w.icon} ${w.name} ${this.save.arsenal[w.id]}`);
+      fact('Your weapons', mine.length ? mine.join(' · ') : 'None yet: ram them! Buy weapons under Cars & upgrades');
+    }
     fact('Stars', this.targetsText(spec));
     // 3 stars, plus the bonuses for a first clear with 3 new stars (see payLevel).
     const best = level.number === 0 ? 1 : 1 + 0.5 + 0.6;
@@ -383,6 +389,31 @@ export class MenuUI {
       list.append(row);
     }
     body.append(list);
+
+    // Weapons: bought one at a time as they unlock, then upgraded. Only what
+    // you've bought is on your car, in events with weapons and in free roam.
+    body.append(el('h3', undefined, 'Weapons'), el('p', 'muted', `Your car carries the weapons you buy, in events with weapons and in free roam. ${WEAPON_UPGRADE_ABOUT}`));
+    const arms = el('div', 'upgrades');
+    for (const w of WEAPON_SHOP) {
+      const level = s.arsenal[w.id];
+      const row = el('div', 'upgrade');
+      const pips = el('div', 'pips');
+      for (let k = 0; k < MAX_WEAPON_LEVEL; k++) pips.append(el('span', k < level ? 'pip on' : 'pip'));
+      const info = el('div', 'up-info');
+      info.append(el('strong', undefined, `${w.icon} ${w.name}${level ? ` · ${level}` : ''}`), el('span', 'muted', w.about), pips);
+      row.append(info);
+      const locked = weaponLockedReason(s, w.id);
+      if (locked && !level) row.append(el('span', 'tag', `🔒 ${locked}`));
+      else if (level >= MAX_WEAPON_LEVEL) row.append(el('span', 'tag', 'MAX'));
+      else {
+        const cost = weaponCost(w.id, level);
+        const b = button(`${level ? '' : 'Buy '}🪙 ${cost.toLocaleString()}`, 'btn primary', () => buyWeapon(s, w.id) && this.changed());
+        b.disabled = s.coins < cost;
+        row.append(b);
+      }
+      arms.append(row);
+    }
+    body.append(arms);
   }
 
   private buyUpgrade(id: UpgradeId): void {
@@ -497,9 +528,9 @@ export class MenuUI {
     const nemesis = Object.entries(s.nemesis).sort((a, b) => b[1] - a[1])[0];
     if (nemesis && nemesis[1] >= 2) fact('Nemesis', `${nemesis[0]} (beat you ${nemesis[1]} times)`);
     body.append(facts);
-    body.append(el('h3', undefined, 'Start again'), el('p', 'muted', 'Resetting wipes your coins, cars, upgrades and stars. If you have finished the career, it counts as a completion: coins pay 25% more for each one.'));
+    body.append(el('h3', undefined, 'Start again'), el('p', 'muted', 'Resetting wipes your coins, cars, upgrades, weapons and stars. If you have finished the career, it counts as a completion: coins pay 25% more for each one.'));
     const reset = button('Reset career…', 'btn danger', () => {
-      if (!window.confirm('Reset your career? Coins, cars, upgrades and stars will be lost.')) return;
+      if (!window.confirm('Reset your career? Coins, cars, upgrades, weapons and stars will be lost.')) return;
       this.save = resetCareer(s, s.stars[LEVELS - 1] > 0); // counts as a completion once level 100 is beaten
       this.showCareer('Levels', 1);
     });

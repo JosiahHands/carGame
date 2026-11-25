@@ -39,7 +39,7 @@ interface Job {
 }
 
 /** Most answers needed for each kind of request, in tokens. */
-const MAX_TOKENS: Record<ThinkKind, number> = { conversation: 800, chat: 320, reflect: 640, decide: 360, plan: 640 };
+const MAX_TOKENS: Record<ThinkKind, number> = { conversation: 800, chat: 380, reflect: 640, decide: 460, plan: 640 };
 /** The driver's chats go first, then decisions and conversations, then quiet reflection and planning the day. */
 const PRIORITY: Record<ThinkKind, number> = { chat: 0, decide: 1, conversation: 1, reflect: 2, plan: 3 };
 /** Requests waiting longer than this are dropped: the moment has passed. */

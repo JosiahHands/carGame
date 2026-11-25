@@ -6,10 +6,13 @@
 // 230,000 coins. Every car and every upgrade costs about 270,000, so maxing
 // everything out means replaying levels for 3 stars and doing dailies. Each
 // time you finish the career and start again ("reset"), coins pay 25% more.
+// Weapons are bought too (about 50,000 for all three, fully upgraded): a
+// career starts with none, and each one unlocks further into the career.
 import { DEFAULT_CONFIG, PAINT_SWATCHES, cloneConfig, type BodyShape, type CarConfig, type SpoilerStyle, type Topper, type Tuning } from './carConfig';
 import type { EventKind, EventSpec } from './event';
 import { RIVAL_NAMES, type RivalSpec } from './rivals';
 import { seededRandom } from '../libs/random';
+import { MAX_WEAPON_LEVEL, NO_WEAPONS, STOCK_WEAPONS, type Loadout } from './weapons';
 import { VENUES, type MapName } from './venues';
 
 // ---------- cars ----------
@@ -96,6 +99,64 @@ function allUpgrades(level: number): Upgrades {
   return u;
 }
 
+// ---------- weapons ----------
+
+export type WeaponId = 'gun' | 'rockets' | 'shockwave';
+
+/** The weapons you can buy, in the order of the weapon slots (1, 2, 3). */
+export const WEAPON_SHOP: { id: WeaponId; name: string; about: string; icon: string; price: number; unlock: number }[] = [
+  { id: 'gun', name: 'Machine gun', about: 'Fast shots from the roof. Overheats if you hold the trigger too long.', icon: '🔫', price: 800, unlock: 6 },
+  { id: 'rockets', name: 'Rocket pod', about: 'Rockets that blow up everything near where they land.', icon: '🚀', price: 3500, unlock: 11 },
+  { id: 'shockwave', name: 'Shockwave', about: 'A blast all round the car, then a few seconds to recharge.', icon: '💥', price: 10000, unlock: 31 },
+];
+
+/** What each weapon upgrade does. */
+export const WEAPON_UPGRADE_ABOUT = 'Each upgrade: +15% damage, and the gun runs cooler or it reloads faster.';
+
+/** Each weapon's level: 0 not bought yet, 1 (bought) to MAX_WEAPON_LEVEL. */
+export type Arsenal = Record<WeaponId, number>;
+
+export function noWeapons(): Arsenal {
+  return { gun: 0, rockets: 0, shockwave: 0 };
+}
+
+/** The weapons for the car, slot by slot (see Weapons.setLoadout). */
+export function loadoutOf(arsenal: Arsenal): Loadout {
+  return [arsenal.gun, arsenal.rockets, arsenal.shockwave];
+}
+
+/**
+ * The weapons a car has: none when weapons are off (an event without them,
+ * or the Weapons setting off in free roam); the career car carries what's
+ * been bought (`arsenal`); any other car (null) has all three, stock.
+ */
+export function carLoadout(weaponsOn: boolean, arsenal: Arsenal | null): Loadout {
+  if (!weaponsOn) return [...NO_WEAPONS];
+  return arsenal ? loadoutOf(arsenal) : [...STOCK_WEAPONS];
+}
+
+/** What the next level of a weapon costs, from `level` (level 0 is buying it). */
+export function weaponCost(id: WeaponId, level: number): number {
+  const price = WEAPON_SHOP.find((w) => w.id === id)!.price;
+  return level <= 0 ? price : Math.round((price * 0.35 * 1.4 ** (level - 1)) / 10) * 10;
+}
+
+/** Why a weapon can't be bought yet, or '' if it can: each unlocks once you reach its level. */
+export function weaponLockedReason(save: CareerSave, id: WeaponId): string {
+  const { unlock } = WEAPON_SHOP.find((w) => w.id === id)!;
+  return save.mode === 'sandbox' || save.stars[unlock - 2] > 0 ? '' : `Unlocks at level ${unlock}`;
+}
+
+/** Buys a weapon, or its next upgrade. Returns false if it can't (locked, maxed or too few coins). */
+export function buyWeapon(save: CareerSave, id: WeaponId): boolean {
+  const level = save.arsenal[id];
+  const cost = weaponCost(id, level);
+  if (weaponLockedReason(save, id) || level >= MAX_WEAPON_LEVEL || save.coins < cost) return false;
+  save.coins -= cost;
+  save.arsenal[id] = level + 1;
+  return true;
+}
+
 /** A car's tuning: the chassis, with the upgrades on top. */
 export function careerTuning(chassis: number, up: Upgrades): Tuning {
   const c = CHASSIS[Math.max(0, Math.min(CHASSIS.length - 1, chassis))];
@@ -171,6 +232,8 @@ export interface CareerSave {
   /** The raw best score for each level (a place, seconds or points; 0 for none), to tell if a new result beats it. */
   bestScore: number[];
   upgrades: Upgrades;
+  /** The weapons bought, and their upgrades. */
+  arsenal: Arsenal;
   /** Which cars (indices into CHASSIS) are owned, and which one is in use. */
   owned: number[];
   car: number;
@@ -218,7 +281,7 @@ export const LEVELS = 100;
 
 export function newCareer(completions = 0): CareerSave {
   return {
-    coins: 0, stars: new Array(LEVELS).fill(0), best: new Array(LEVELS).fill(''), bestScore: new Array(LEVELS).fill(0), upgrades: noUpgrades(), owned: [0], car: 0,
+    coins: 0, stars: new Array(LEVELS).fill(0), best: new Array(LEVELS).fill(''), bestScore: new Array(LEVELS).fill(0), upgrades: noUpgrades(), arsenal: noWeapons(), owned: [0], car: 0,
     mode: 'career', sandboxLevel: LEVELS + 1, sandboxBest: 0, completions, finished: false, daily: '', streak: 0, events: 0, wins: 0, earned: 0,
     xp: 0, spins: 0, coinRush: 0, stats: {}, trophies: [], found: [], zones: {}, nemesis: {},
   };
@@ -235,9 +298,13 @@ export function loadCareer(): CareerSave {
     if (Array.isArray(raw.bestScore)) save.bestScore = save.bestScore.map((_, i) => (typeof raw.bestScore![i] === 'number' && Number.isFinite(raw.bestScore![i]) ? Math.max(0, raw.bestScore![i]) : 0));
     if (Array.isArray(raw.best)) save.best = save.best.map((_, i) => (typeof raw.best![i] === 'string' ? raw.best![i].slice(0, 20) : ''));
     for (const k of Object.keys(save.upgrades) as UpgradeId[]) save.upgrades[k] = num(raw.upgrades?.[k], 0, SANDBOX_MAX_UPGRADE);
+    for (const k of Object.keys(save.arsenal) as WeaponId[]) save.arsenal[k] = num(raw.arsenal?.[k], 0, MAX_WEAPON_LEVEL);
     if (Array.isArray(raw.owned)) save.owned = [...new Set([0, ...raw.owned.filter((i) => typeof i === 'number' && CHASSIS[i])])];
     save.car = save.owned.includes(raw.car as number) ? (raw.car as number) : 0;
     save.mode = raw.mode === 'sandbox' ? 'sandbox' : 'career';
+    // A save from before weapons were bought (1.2.0 and older) had all three
+    // all along: it keeps the ones its progress has unlocked, at level 1.
+    if (!('arsenal' in raw)) for (const w of WEAPON_SHOP) if (!weaponLockedReason(save, w.id)) save.arsenal[w.id] = 1;
     save.sandboxLevel = Math.max(LEVELS + 1, num(raw.sandboxLevel, LEVELS + 1));
     save.sandboxBest = num(raw.sandboxBest, 0);
     save.completions = num(raw.completions, 0, 1000);

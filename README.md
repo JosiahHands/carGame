@@ -16,21 +16,52 @@ run it. These builds aren't signed by Apple or Microsoft, so the first time:
 ## Install and update from source
 
 Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
-[Node.js](https://nodejs.org) 22.12 or newer. On Windows, run the commands in Git Bash.
+[Node.js](https://nodejs.org) 22.12 or newer. Each command comes three ways: pick the
+one for the terminal you use. The Windows PowerShell and Command Prompt versions run
+the same script through the bash that comes with Git (if you installed Git somewhere
+other than Program Files, change the path).
 Installing adds Car Game to your apps: open it from Launchpad or Spotlight on macOS,
 the Start Menu or Desktop on Windows, or the app menu on Linux. Press H in the game
 to see the controls.
 
 **Install:**
 
+*macOS, Linux, or Git Bash on Windows:*
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
 ```
 
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash"
+```
+
 **Update:**
+
+*macOS, Linux, or Git Bash on Windows:*
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
+```
+
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash"
 ```
 
 ## Packs
@@ -50,8 +81,22 @@ night, headlights that shine beams through the night air and throw shadows,
 raindrops on the lens, and a camera lens with film-style looks and photo-mode
 depth of field.
 
+*macOS, Linux, or Git Bash on Windows:*
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
+```
+
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics"
 ```
 
 **🧪 Real Physics** (`physics`): realistic driving. The body rides on real
@@ -65,8 +110,22 @@ the car, dent it, and can hurt the engine or bend a wheel and the steering.
 There are realism levels from Friendly to Simulation. A telemetry panel shows
 it all at work, and a controller rumbles as the tyres slide.
 
+*macOS, Linux, or Git Bash on Windows:*
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
+```
+
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics"
 ```
 
 **🧠 Living City** (`npc`): a whole city of 48 people, each with a name over
@@ -79,16 +138,25 @@ habits, make friends and hold grudges, and write their own life stories. Among
 them are GUY, the cheerful bank teller in the blue shirt, and his best friend
 BUDDY, a police officer who goes everywhere with him and writes you tickets.
 
-They're free to do what they like. Each has a goal and a plan for the day, and
-private thoughts (💭) you can read in the journal. They choose for themselves
-what to do next, whether that's lunch, a drive across town in their car, giving
-a friend a lift, getting up to mischief or texting you. BUDDY drives a police
-car with lights and a siren, and GUY rides along. If BUDDY decides you've gone
-too far, he comes after you: he rams you and fires the roof gun, and a wanted
-level shows how much trouble you're in. Lose him to escape, or pull over and
-pay the fine. Everyone remembers the chase. People also wave you down for
-lifts and tip you when you drop them off. On Saturday nights the whole city
-throws a street party in the park. You can turn chases off in the Packs tab.
+They're completely free. Each has a goal and a plan for the day, and private
+thoughts (💭) you can read in the journal. They choose for themselves what to
+do next, whether that's lunch, a drive across town in their car, giving a
+friend a lift, getting up to mischief, texting you, or anything else they can
+put into words, like painting a mural in the park or dancing in the street.
+They can make lasting decisions about their own lives ("I'm going to quit my
+job and paint"), which they keep, and the journal shows, until they change
+their mind. The game never overrules them.
+
+BUDDY drives a police car with lights and a siren, and GUY rides along. What
+to do about you is always BUDDY's call: let it go, write a ticket, or come
+after you. In a chase he rams you and fires the roof gun, and a wanted level
+shows how much trouble you're in. Lose him to escape, or pull over and pay the
+fine. Every so often he thinks the chase over (how battered his car is,
+whether you've calmed down, what GUY says) and may call it off. He can even
+decide he's done chasing you, and stick to it. Everyone remembers the chase.
+People also wave you down for lifts and tip you when you drop them off. On
+Saturday nights the whole city throws a street party in the park. You can
+turn chases off in the Packs tab.
 
 Their conversations and thoughts are written by a free, open-source AI model
 (Qwen3.5, Apache 2.0) that runs on your own computer through
@@ -107,14 +175,42 @@ which updates leave alone, so they last as long as the game is installed. L
 opens the city journal: what everyone is doing, what they've been saying to each
 other, their plans, and your friends (city free roam).
 
+*macOS, Linux, or Git Bash on Windows:*
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc
 ```
 
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc"
+```
+
 **All three packs:**
+
+*macOS, Linux, or Git Bash on Windows:*
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all
+```
+
+*Windows PowerShell:*
+
+```powershell
+& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all"
+```
+
+*Windows Command Prompt:*
+
+```bat
+"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all"
 ```
 
 The update command above also updates your packs. To switch a pack off, change
@@ -128,7 +224,11 @@ updates. To make a pack of your own, see [packs/README.md](packs/README.md).
 venue and a boss to beat at the end (the last one is The Phantom). Every level
 pays coins: spend them on six cars (Hot Hatch, Muscle Car, Rally Truck, Sports GT,
 Supercar, Hypercar), each with its own perk, and on seven upgrades (engine,
-gearbox, tyres, brakes, nitro, aero, armour). Each level gives up to three stars,
+gearbox, tyres, brakes, nitro, aero, armour). A career starts with no weapons:
+buy a machine gun from level 6 (800 coins), a rocket pod from level 11 (3,500)
+and a shockwave from level 31 (10,000), then upgrade each one four times for
+more damage and a cooler gun or faster reloads. Your career car carries only
+what you've bought, in events with weapons and in free roam. Each level gives up to three stars,
 and a chapter's boss only lets you race once you have 18 stars from that chapter,
 so it pays to go back for three stars. A daily challenge pays double, more for a
 streak of days in a row.
@@ -202,7 +302,9 @@ Pick the map on the garage's Maps tab. Press T for a timed lap on any map. A sta
 gantry over the line counts you down with five red lights. Each map keeps its own
 best lap, and once you have one, a see-through ghost of that lap races you.
 
-Your car has a roof machine gun, a rocket pod and a shockwave blast. Buildings,
+Out of the career, your car has a roof machine gun, a rocket pod and a
+shockwave blast whenever weapons are on (Settings → Weapons in free roam, and in
+events with weapons). Guns only show on the roof when they can fire. Buildings,
 parked cars, street lamps and trees can all be destroyed, on every map: buildings
 collapse into rubble you can drive over, and everything is rebuilt once you drive
 away. There is also a nitro boost, slow motion, a minimap and a photo mode for

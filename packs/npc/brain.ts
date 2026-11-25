@@ -8,7 +8,7 @@
 // Both return the same things, and everything they return is checked and
 // trimmed before the city uses it.
 import { castMember, EMOTIONS, PLACE_KINDS, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName } from './cast';
-import { feelingWord, friendship, moodWord, recall, traitWords, type Mind } from './mind';
+import { feelingWord, forbids, friendship, moodWord, recall, roomToResolve, traitWords, type Mind, type VowKind } from './mind';
 import { ACTIONS, POLICE_ACTIONS, type Action, type ThinkKind, type ThinkResponse } from './protocol';
 
 /** A person as the brain sees them. */
@@ -64,6 +64,9 @@ export interface ChatResult {
   memory: string;
   importance: number;
   driverName: string;
+  /** A lasting decision the talk led them to ('' for none), and the number of one they dropped. */
+  resolve: string;
+  release: number | null;
   ai: boolean;
 }
 
@@ -84,6 +87,22 @@ export interface Situation {
   nearby: string[];
   /** For the police officer: what the driver has done lately, and how bad it is (0 nothing .. 5 terrible). */
   crimes?: { list: string[]; heat: number };
+  /** For the police officer, in the middle of a chase: whether to keep going. */
+  chase?: ChaseState;
+}
+
+/** How a chase is going, as BUDDY sees it when he thinks it over. */
+export interface ChaseState {
+  /** Seconds since it started. */
+  seconds: number;
+  /** How far away the driver is, metres. */
+  distance: number;
+  /** How battered the police car is, 0..1. */
+  hurt: number;
+  /** Seconds since the driver last did anything wrong. */
+  quiet: number;
+  /** What GUY, riding along, says about it ('' if he's not there or keeps quiet). */
+  partner: string;
 }
 
 /** What someone chose to do. */
@@ -95,6 +114,11 @@ export interface Decision {
   /** A cast id, 'driver', or null. */
   person: string | null;
   say: string;
+  /** For "something else": what they do, in their own words. */
+  doing: string;
+  /** A lasting decision they make ('' for none), and the number (from 1) of one they drop. */
+  resolve: string;
+  release: number | null;
   ai: boolean;
 }
 
@@ -203,10 +227,11 @@ export class LocalBrain implements Brain {
       history ? `Their last talks:\n${history}` : 'They have never talked before.',
       `${opening}: "${said.slice(0, 300)}"\n\n` +
         `Write ${member.name}'s reply: at most 2 short sentences, in their own voice, shaped by their mood, their feelings about the driver and what they remember (they may bring up something they remember, ask the driver something back, or invite the driver somewhere). ` +
-        'Say how their opinion of the driver changes, and what they will remember about this talk. If the driver said their own name, give it as driverName; otherwise "".',
+        'Say how their opinion of the driver changes, and what they will remember about this talk. If the driver said their own name, give it as driverName; otherwise "". ' +
+        RESOLVE_WORDS,
     ].join('\n\n');
     const data = (await this.ask('chat', [member.id], prompt)) as {
-      reply?: string; emotion?: string; opinion?: string; memory?: string; importance?: string; driverName?: string;
+      reply?: string; emotion?: string; opinion?: string; memory?: string; importance?: string; driverName?: string; resolve?: string; release?: string;
     } | null;
     if (!data?.reply) return this.fallback.chat(person, said, moment);
     return {
@@ -216,6 +241,8 @@ export class LocalBrain implements Brain {
       memory: String(data.memory ?? '').slice(0, 160),
       importance: IMPORTANCE[data.importance ?? ''] ?? 5,
       driverName: String(data.driverName ?? '').replace(/[^\p{L}\p{N} '-]/gu, '').slice(0, 24).trim(),
+      resolve: unquote(String(data.resolve ?? '')).slice(0, 120),
+      release: released(mind, data.release),
       ai: true,
     };
   }
@@ -247,8 +274,9 @@ export class LocalBrain implements Brain {
     const { member, mind } = person;
     const police = member.id === 'buddy';
     // The police officer's own choices first when the driver has been up to something.
-    const actions = police ? (situation.crimes ? [...POLICE_ACTIONS, ...ACTIONS] : [...ACTIONS, ...POLICE_ACTIONS]) : [...ACTIONS];
+    const actions = police ? (situation.crimes || situation.chase ? [...POLICE_ACTIONS, ...ACTIONS] : [...ACTIONS, ...POLICE_ACTIONS]) : [...ACTIONS];
     const step = currentStep(mind, moment);
+    const chase = situation.chase;
     const prompt = [
       scene(moment, person.where, false),
       describe(person, moment, []),
@@ -257,25 +285,37 @@ export class LocalBrain implements Brain {
       situation.nearby.length ? `Nearby: ${situation.nearby.slice(0, 6).join(', ')}.` : 'Nobody they know is nearby.',
       situation.crimes ? `What the driver has done lately: ${situation.crimes.list.slice(0, 5).join('; ') || 'nothing much'}. How serious it is: ${situation.crimes.heat} out of 5.` : '',
       `Now: ${situation.why}`,
+      chase ? chaseWords(member.name, mind, chase) : '',
       `${member.name} decides freely what to do next: whatever they truly want, from these actions: ${actions.join(', ')}. ` +
-        'Give their honest private thought, their goal (or "" to keep it), the action, the place and person it needs (or "none"), and anything they say out loud ("" for nothing).' +
-        (police && situation.crimes
-          ? ' As the police officer, they choose for themselves what the driver deserves: "chase the driver down" (siren on, after them in the police car), "ticket the driver", or "let it go".'
-          : ''),
+        '"something else" is anything else at all that a person could do in a city: then say what, in a few words of their own, as doing (otherwise doing is ""). ' +
+        'Give their honest private thought, their goal (or "" to keep it), the action, the place and person it needs (or "none"), and anything they say out loud ("" for nothing). ' +
+        RESOLVE_WORDS +
+        (police && chase
+          ? ` Keep going, or give up? It is entirely ${member.name}'s call, weighing everything above: ${Math.random() < 0.5 ? '"chase the driver down" to keep after them, or "call off the chase" to give up' : '"call off the chase" to give up, or "chase the driver down" to keep after them'}.`
+          : police && situation.crimes
+            ? ' As the police officer, they choose for themselves what the driver deserves: "chase the driver down" (siren on, after them in the police car), "ticket the driver", or "let it go".'
+            : ''),
     ]
       .filter(Boolean)
       .join('\n\n');
-    const data = (await this.ask('decide', [member.id], prompt)) as { thought?: string; goal?: string; action?: string; place?: string; person?: string; say?: string } | null;
+    const data = (await this.ask('decide', [member.id], prompt)) as {
+      thought?: string; goal?: string; action?: string; doing?: string; place?: string; person?: string; say?: string; resolve?: string; release?: string;
+    } | null;
     if (!data?.action || !actions.includes(data.action as Action)) return this.fallback.decide(person, moment, situation);
+    const doing = unquote(String(data.doing ?? '')).replace(/[.!]+$/, '').slice(0, 100);
     const place = data.place === 'home' ? 'home' : PLACE_KINDS.includes(data.place as PlaceKind) ? (data.place as PlaceKind) : null;
     const who = data.person && data.person !== 'none' && data.person !== member.id && (data.person === 'driver' || castMember(data.person)) ? data.person : null;
     return {
       thought: unquote(String(data.thought ?? '')).slice(0, 200),
       goal: String(data.goal ?? '').slice(0, 140),
-      action: data.action as Action,
+      // "something else" with nothing said about what: they carry on as they were.
+      action: data.action === 'something else' && doing.length < 3 ? 'carry on' : (data.action as Action),
       place,
       person: who,
       say: short(unquote(String(data.say ?? ''))),
+      doing,
+      resolve: unquote(String(data.resolve ?? '')).slice(0, 120),
+      release: released(mind, data.release),
       ai: true,
     };
   }
@@ -341,6 +381,10 @@ function describe(person: Person, moment: Moment, about: string[]): string {
     mind.story ? `Their life so far: ${mind.story}` : '',
     mind.insights.length ? `Believes: ${mind.insights.slice(-3).join(' ')}` : '',
     mind.habits.length ? `Habits: ${mind.habits.join('; ')}.` : '',
+    mind.resolutions.length
+      ? `Standing decisions ${member.name} has made (their own: they stick to them, unless they change their mind):\n${mind.resolutions.map((r, i) => `${i + 1}. ${r}`).join('\n')}` +
+        (roomToResolve(mind) ? '' : `\nThat's as many as they can hold: to make a new one, they'd drop one of these first.`)
+      : '',
     mind.thoughts.length ? `Lately thinking: ${mind.thoughts.slice(-2).join(' ')}` : '',
     feelings.length ? `${member.name} ${feelings.join(', ')}.` : '',
     `Right now: ${person.doing}, feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}${needsWords(mind)}.`,
@@ -361,11 +405,55 @@ function unquote(text: string): string {
   return text.trim().replace(/^["“'](.*)["”']$/s, '$1').trim();
 }
 
+/** How a chase is going, as a short list (small models weigh a list better than a long sentence). */
+function chaseWords(name: string, mind: Mind, chase: ChaseState): string {
+  const vows = mind.resolutions.filter((r) => /chas|pursu|driver/i.test(r));
+  return [
+    `${name} chose to go after the driver, and is in the middle of the police chase:`,
+    `- ${Math.round(chase.seconds)} seconds so far; the driver is ${Math.round(chase.distance)} m away`,
+    `- the police car is ${Math.round(chase.hurt * 100)}% damaged${chase.hurt > 0.5 ? ' (badly hurt)' : ''}`,
+    chase.quiet > 25 ? `- the driver hasn't done anything wrong for ${Math.round(chase.quiet)} seconds` : '- the driver is still causing trouble',
+    chase.partner ? `- GUY, riding along, says: "${chase.partner}"` : '',
+    ...vows.map((v) => `- ${name} has decided: "${v}"`),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** The instruction for making (or dropping) a standing decision. */
+const RESOLVE_WORDS =
+  'If they make a lasting decision or a promise right now about how they will live from now on (like "I won\'t ever..." or "From now on I\'ll..."), give it in their own words as resolve (otherwise ""). ' +
+  'Their standing decisions stay ("keep them all") unless they truly change their mind about one ("drop" and its number).';
+
+/** The number of the standing decision they drop ("drop 2"), if it's one they have. */
+function released(mind: Mind, value: unknown): number | null {
+  const n = Number(String(value ?? '').replace(/^drop\s*/, ''));
+  return String(value ?? '').startsWith('drop') && Number.isInteger(n) && n >= 1 && n <= mind.resolutions.length ? n : null;
+}
+
 function emotion(value: unknown): Emotion {
   return EMOTIONS.includes(value as Emotion) ? (value as Emotion) : 'calm';
 }
 
 // ---------- the rule brain ----------
+
+/** A decision the built-in brain makes. */
+function ruleDecision(action: Action, thought: string, extra: Partial<Decision> = {}): Decision {
+  return { thought, goal: '', action, place: null, person: null, say: '', doing: '', resolve: '', release: null, ai: false, ...extra };
+}
+
+/** Which kind of standing decision would rule out each action (for the built-in brain). */
+const VOW_FOR: Partial<Record<Action, VowKind>> = {
+  'chase the driver down': 'chase',
+  'ticket the driver': 'ticket',
+  work: 'work',
+  'get up to mischief': 'mischief',
+  'text the driver': 'text',
+  'report the driver to the police': 'report',
+  'drive somewhere': 'drive',
+  'give someone a lift': 'drive',
+  'go for a drive with GUY': 'drive',
+};
 
 const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
 
@@ -456,6 +544,8 @@ export class RuleBrain implements Brain {
       memory: `The driver${name ? ` (${name})` : ''} stopped to chat with me: "${said.slice(0, 60)}"`,
       importance: 5,
       driverName: named,
+      resolve: '',
+      release: null,
       ai: false,
     };
   }
@@ -479,17 +569,48 @@ export class RuleBrain implements Brain {
     };
   }
 
+  /**
+   * The built-in way of choosing. It can't read their standing decisions the
+   * way the AI does, but it keeps the ones it understands (see `forbids`):
+   * someone who's sworn off something doesn't do it.
+   */
   async decide(person: Person, moment: Moment, situation: Situation): Promise<Decision> {
+    const d = this.choose(person, moment, situation);
+    const kind = VOW_FOR[d.action];
+    return kind && forbids(person.mind, kind, contextOf(situation)) ? ruleDecision('carry on', "No. I made my mind up about that.") : d;
+  }
+
+  private choose(person: Person, moment: Moment, situation: Situation): Decision {
     const { mind } = person;
     const n = mind.needs;
-    const decision = (action: Action, thought: string, extra: Partial<Decision> = {}): Decision => ({ thought, goal: '', action, place: null, person: null, say: '', ai: false, ...extra });
-    // The police officer: how bad has the driver been?
+    const decision = ruleDecision;
+    // The police officer, mid-chase: keep going, or give it up?
+    const chase = situation.chase;
+    if (chase) {
+      const fond = (mind.feelings.driver ?? 0) > 0.3;
+      const why = forbids(mind, 'chase', contextOf(situation))
+        ? 'I said I was done with chases. I meant it.'
+        : chase.hurt > 0.6
+          ? "The car can't take much more of this."
+          : chase.partner && fond
+            ? "GUY's right. Let them go."
+            : chase.quiet > 45 && (situation.crimes?.heat ?? 0) < 3
+              ? "They've calmed down. That'll do."
+              : chase.seconds > 150 && Math.random() < 0.5
+                ? 'This is going nowhere.'
+                : '';
+      if (why) return decision('call off the chase', why, { say: pick(['Alright, alright. Siren off.', "That's enough for today.", "Let them go. I've made my point."]) });
+      return decision('chase the driver down', pick(['Not letting them get away.', 'Stay on them!', 'Almost got them.']));
+    }
+    // The police officer: how bad has the driver been? (And what has he promised himself?)
     if (situation.crimes) {
       const heat = situation.crimes.heat;
       const soft = (mind.feelings.driver ?? 0) > 0.55;
-      if (heat >= (soft ? 4 : 3)) return decision('chase the driver down', 'That driver has gone too far this time.', { say: pick(['Pull over! Now!', "That's it, you're nicked!", 'Stop right there!']) });
-      if (heat >= 2) return decision('ticket the driver', 'Time somebody wrote that driver a ticket.');
-      return decision('let it go', "Not worth the paperwork. Yet.");
+      const chases = !forbids(mind, 'chase', contextOf(situation));
+      const tickets = !forbids(mind, 'ticket', contextOf(situation));
+      if (heat >= (soft ? 4 : 3) && chases) return decision('chase the driver down', 'That driver has gone too far this time.', { say: pick(['Pull over! Now!', "That's it, you're nicked!", 'Stop right there!']) });
+      if (heat >= 2 && tickets) return decision('ticket the driver', 'Time somebody wrote that driver a ticket.');
+      return decision('let it go', chases && tickets ? 'Not worth the paperwork. Yet.' : "I made my mind up about that. I'm sticking to it.");
     }
     if (n.food < 0.3) return decision('eat', "I'm starving.", { place: pick(['diner', 'bakery', 'coffee'] as const) });
     if (n.rest < 0.25) return decision(moment.hour >= 20 ? 'go home' : 'rest', 'I can barely keep my eyes open.', { place: moment.hour >= 20 ? 'home' : 'park' });
@@ -506,15 +627,22 @@ export class RuleBrain implements Brain {
     return decision('carry on', pick(['Same as always.', 'Not a bad day.', `I wonder what's going on at ${person.where}.`]));
   }
 
+
   async plan(person: Person): Promise<DayPlanResult> {
     const { member, mind } = person;
     const likes = Object.entries(mind.likes).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([k]) => k as PlaceKind);
     const fun = likes.find((k) => k !== member.job) ?? 'park';
     const plan: DayPlanResult['plan'] = [{ hour: 7, place: 'coffee', what: 'grab a coffee' }];
-    if (member.job) plan.push({ hour: 9, place: member.job, what: 'work' }, { hour: 12, place: 'diner', what: 'lunch' }, { hour: 13, place: member.job, what: 'back to work' });
+    // Work, unless they've decided they're done with it.
+    if (member.job && !forbids(mind, 'work')) plan.push({ hour: 9, place: member.job, what: 'work' }, { hour: 12, place: 'diner', what: 'lunch' }, { hour: 13, place: member.job, what: 'back to work' });
     else plan.push({ hour: 10, place: fun, what: 'spend the morning' }, { hour: 12, place: 'bakery', what: 'lunch' });
     plan.push({ hour: 18, place: fun, what: 'unwind' }, { hour: 22, place: 'home', what: 'head home' });
     return { goal: mind.goal || `Make the most of ${member.job ? 'work and ' : ''}the city.`, plan, ai: false };
   }
 
+}
+
+/** What's going on, in words, for standing decisions with conditions ("unless they're speeding"). */
+function contextOf(situation: Situation): string {
+  return [situation.why, ...(situation.crimes?.list ?? []), ...situation.nearby].join(' ');
 }

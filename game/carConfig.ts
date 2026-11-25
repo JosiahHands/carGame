@@ -67,8 +67,18 @@ export interface CarConfig {
   antenna: Antenna;
   bullBar: boolean;
   lightBar: boolean;
-  /** Show the machine gun and rocket pod on the roof. */
+  /**
+   * Show the weapons the car has on the roof (the machine gun and rocket
+   * pod). Off, they fire from just above the bonnet instead.
+   */
   roofGuns: boolean;
+  /**
+   * Which roof weapons the car has right now: set by the game when it builds
+   * the car you drive (none when weapons are off, what you've bought in the
+   * career), never saved. Left out, the car has none, so parked cars and
+   * traffic (which can't fire) never carry guns.
+   */
+  armed?: { gun: boolean; rockets: boolean };
   // Lights, sound and effects
   headlightColor: string;
   underglow: Underglow;

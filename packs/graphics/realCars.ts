@@ -14,6 +14,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import type { BodyShape } from '../../game/carConfig';
 import type { CarRig } from '../../game/carModel';
 import { sculptedBody, stripeStrip } from './carBody';
+import { seatExhausts } from './exhausts';
+import { fastRays } from './fastRays';
 
 /** The models file. Vite copies it next to the game and gives its address (works from the packaged app too). */
 const MODELS_URL = new URL('./models/cars.glb', import.meta.url).href;
@@ -81,6 +83,60 @@ export function toLibrary(scene: THREE.Object3D, anisotropy: number): Library {
     out[match[1] as BodyShape] = { near: node, far, measure: node.userData as Measure };
   }
   return out;
+}
+
+/**
+ * A model's rear (every triangle reaching behind its rear axle), made once per
+ * model, for the exhaust pipes to find the rear bumper on. It's cut into
+ * slices 10 cm wide across the car: a ray along the car only meets one
+ * slice, which is much quicker than looking at every triangle of the car.
+ * Never drawn.
+ */
+const rears = new Map<Model, THREE.BufferGeometry[]>();
+const rayMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+const SLICE = 0.1;
+function rearOf(model: Model): THREE.Group {
+  let slices = rears.get(model);
+  if (!slices) {
+    const points = new Map<number, number[]>();
+    const copy = model.near.clone();
+    copy.position.set(0, 0, 0); // as it goes on the car
+    copy.updateMatrixWorld(true);
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    copy.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const position = mesh.geometry.attributes.position;
+      const index = mesh.geometry.index;
+      const count = index ? index.count : position.count;
+      for (let i = 0; i < count; i += 3) {
+        a.fromBufferAttribute(position, index ? index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
+        b.fromBufferAttribute(position, index ? index.getX(i + 1) : i + 1).applyMatrix4(mesh.matrixWorld);
+        c.fromBufferAttribute(position, index ? index.getX(i + 2) : i + 2).applyMatrix4(mesh.matrixWorld);
+        if (Math.min(a.z, b.z, c.z) >= model.measure.axleRear) continue;
+        // Into every slice the triangle reaches across.
+        const first = Math.floor(Math.min(a.x, b.x, c.x) / SLICE);
+        const last = Math.floor(Math.max(a.x, b.x, c.x) / SLICE);
+        for (let k = first; k <= last; k++) {
+          let list = points.get(k);
+          if (!list) points.set(k, (list = []));
+          list.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+        }
+      }
+    });
+    slices = [...points.values()].map((list) => {
+      const geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      return geometry;
+    });
+    rears.set(model, slices);
+  }
+  const group = new THREE.Group();
+  for (const geometry of slices) group.add(new THREE.Mesh(geometry, rayMaterial));
+  return group;
 }
 
 /** Starts loading the models (once). */
@@ -273,6 +329,7 @@ function fitModel(rig: CarRig, lib: Library): void {
 
   // Number plates onto the bumpers.
   const ray = new THREE.Raycaster();
+  fastRays(solid);
   for (const plate of parts) {
     const geometry = plate.geometry as THREE.PlaneGeometry;
     if (geometry.type !== 'PlaneGeometry' || geometry.parameters.width !== 0.52) continue;
@@ -286,6 +343,11 @@ function fitModel(rig: CarRig, lib: Library): void {
 
   rig.body.add(group);
   undo.added.push(group);
+  // The exhaust pipes onto the new body: into the rear bumper, or stacks standing on it.
+  const rear = rearOf(model);
+  group.add(rear);
+  seatExhausts(rig, meshes, undo.moved, { rear: [rear] });
+  rear.removeFromParent();
   rig.root.userData[REAL] = undo;
   const dispose = rig.dispose.bind(rig);
   rig.dispose = () => {
@@ -326,6 +388,9 @@ export function unrealCars(): void {
       }
     }
     for (const g of geometries) g.dispose();
+    // The rears made for the exhausts go with their models.
+    for (const slices of rears.values()) for (const g of slices) g.dispose();
+    rears.clear();
     for (const m of materials) {
       for (const value of Object.values(m)) if ((value as THREE.Texture | null)?.isTexture) (value as THREE.Texture).dispose();
       m.dispose();

@@ -1,7 +1,7 @@
 {
   "name": "car-game",
   "productName": "Car Game",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "A 3D driving game where you drive around a small city and customize your car.",
   "main": "dist-electron/main.js",
@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "node-llama-cpp": "^3.22.3",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "three-mesh-bvh": "0.9.18"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

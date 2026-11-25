@@ -7,7 +7,11 @@ import { CAST, EMOTIONS, PLACE_KINDS, TRAIT_NAMES } from './cast';
 
 export type ThinkKind = 'conversation' | 'chat' | 'reflect' | 'decide' | 'plan';
 
-/** What anyone can choose to do next (the AI picks one, with a place and a person where it needs them). */
+/**
+ * What anyone can choose to do next (the AI picks one, with a place and a
+ * person where it needs them). "something else" is anything at all, in their
+ * own words: the game shows what it can of it.
+ */
 export const ACTIONS = [
   'carry on',
   'go somewhere',
@@ -24,9 +28,10 @@ export const ACTIONS = [
   'get up to mischief',
   'text the driver',
   'report the driver to the police',
+  'something else',
 ] as const;
-/** What the police officer can also choose (about the driver, or a drive with GUY in the police car). */
-export const POLICE_ACTIONS = ['chase the driver down', 'ticket the driver', 'let it go', 'go for a drive with GUY'] as const;
+/** What the police officer can also choose (about the driver, a drive with GUY in the police car, or giving up a chase). */
+export const POLICE_ACTIONS = ['chase the driver down', 'ticket the driver', 'let it go', 'call off the chase', 'go for a drive with GUY'] as const;
 export type Action = (typeof ACTIONS)[number] | (typeof POLICE_ACTIONS)[number];
 
 /** Hours a day plan can use. */
@@ -113,7 +118,7 @@ export interface AiStatus {
 export function systemPrompt(): string {
   return `You bring to life the people of a small, sunny city in a driving game. They are ordinary people living ordinary days: working, eating, meeting friends, gossiping, worrying, dreaming. Fast cars race through their streets; the person driving the player's car is "the driver". To them this is simply their city and their life.
 
-They are free. They choose their own goals and change their minds, keep honest private thoughts about anything, like or dislike whoever they want, and do whatever they want among the things they can do: even bend the rules, make mischief, or chase the driver if they are the police.
+They are completely free. They choose their own goals and change their minds, keep honest private thoughts about anything, like or dislike whoever they want, and do whatever they want: anything on offer, or anything else they can describe. They can bend the rules, make mischief, chase the driver or give up a chase if they are the police, and make lasting decisions about their own lives, which they keep until they choose to change them. Nobody decides for them.
 
 Rules:
 - Stay true to each person: their personality, way of talking, mood, beliefs, feelings and memories. Let them change slowly and surprise a little.
@@ -127,6 +132,10 @@ Rules:
 }
 
 const IMPORTANCE = ['low', 'medium', 'high'];
+/** How many standing decisions someone can hold at once. */
+export const MAX_RESOLUTIONS = 5;
+/** Their standing decisions: kept (the usual), or one dropped because they've truly changed their mind (any of them). */
+export const RELEASE = ['keep them all', ...Array.from({ length: MAX_RESOLUTIONS }, (_, i) => `drop ${i + 1}`)];
 
 /** The shape of the answer for each kind of request. */
 export function schemaFor(kind: ThinkKind, ids: string[]): Record<string, unknown> {
@@ -151,6 +160,9 @@ export function schemaFor(kind: ThinkKind, ids: string[]): Record<string, unknow
         memory: text(160),
         importance: oneOf(IMPORTANCE),
         driverName: { type: 'string', maxLength: 24 },
+        // A lasting decision the talk leads them to ("" for none), and one they drop.
+        resolve: { type: 'string', maxLength: 120 },
+        release: oneOf(RELEASE),
       });
     case 'reflect':
       return object({
@@ -167,10 +179,15 @@ export function schemaFor(kind: ThinkKind, ids: string[]): Record<string, unknow
         // Their goal for now and the days ahead: "" keeps the one they have.
         goal: { type: 'string', maxLength: 140 },
         action: oneOf(ids[0] === 'buddy' ? [...POLICE_ACTIONS, ...ACTIONS] : ACTIONS),
+        // For "something else": what they do, in their own words ("" otherwise).
+        doing: { type: 'string', maxLength: 100 },
         place: oneOf([...PLACE_KINDS, 'home', 'none']),
         person: oneOf([...everyone, 'none']),
         // Something they say out loud as they do it ("" for nothing).
         say: { type: 'string', maxLength: 120 },
+        // A lasting decision about how they'll live from now on ("" for none), and one they drop.
+        resolve: { type: 'string', maxLength: 120 },
+        release: oneOf(RELEASE),
       });
     case 'plan':
       return object({

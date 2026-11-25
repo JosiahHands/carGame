@@ -162,12 +162,18 @@ files outside the archive.
   looks, traits, jobs, friends, ways of talking.
 - `mind.ts`: memory (scored by recency, importance and relevance), feelings,
   needs, mood, learned likes, reflection into beliefs, habits and a life
-  story, talks with you, and friendship with you.
+  story, talks with you, and friendship with you. Standing decisions too:
+  up to five, in their own words, kept until they drop one (with no room
+  left, a new one waits until they do). `forbids` reads the ones it can,
+  conditions included ("unless they're speeding"), so the built-in brain
+  keeps them as well.
 - `brain.ts`: what they say and decide. `LocalBrain` asks the local AI.
   `RuleBrain` needs nothing, and covers whatever the AI hasn't time for.
   `decide` is a free choice: a private thought, a goal, an action from an open
-  menu (with a place or a person), and anything said out loud. `plan` is a
-  goal and a plan for the day.
+  menu (with a place or a person) or "something else" in their own words, a
+  standing decision made or dropped, and anything said out loud. In a chase
+  BUDDY uses it to decide whether to keep going. `plan` is a goal and a plan
+  for the day.
 - `protocol.ts`: the request and answer shapes, the models, the standing
   instructions, the actions anyone can choose (and BUDDY's police ones), and
   the JSON schemas.
@@ -186,9 +192,13 @@ files outside the archive.
   and everyone else follows their plan and the built-in brain. It also covers
   car trips and lifts, who talks to whom, plans to meet, and reactions to the
   player. On the police side: your wanted level, BUDDY's tickets, chases (an
-  escape, or a bust and a fine) and the mischief he fines people for. Then
+  escape, a bust and a fine, or BUDDY calling it off when he thinks it over
+  every 20 seconds or so) and the mischief he fines people for. Their choices
+  stand: the game only stops what can't happen (chases switched off, a
+  wrecked police car). Then
   texts from friends, ride hails, the Saturday street party, making friends,
-  clicking on people, and saving (version 3; older saves still load). It all
+  clicking on people, and saving (version 3; older saves still load, and get
+  standing decisions and a "called off" count when they're first saved). It all
   steps aside during events.
 - `ui.ts`: the chat box (beside them, by phone, or with them riding in your
   car), the journal (L) and the Packs tab options, including police chases.

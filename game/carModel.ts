@@ -769,13 +769,18 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   });
 
   // ---------- roof weapons ----------
-  // A twin machine gun on the right and a rocket pod on the left.
+  // A twin machine gun on the right and a rocket pod on the left: only the
+  // ones the car has (config.armed; none if it isn't said), so guns on the roof always fire.
   const gunMuzzle = new THREE.Vector3(0.32, body.position.y + roofTop + 0.2, roofMid + 0.9);
   const rocketMuzzle = new THREE.Vector3(-0.32, body.position.y + roofTop + 0.22, roofMid + 0.55);
-  if (config.roofGuns) {
-    const gunMetal = track(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.8, roughness: 0.35 }));
+  const roofGun = config.roofGuns && !!config.armed?.gun;
+  const roofPod = config.roofGuns && !!config.armed?.rockets;
+  const gunMetal = roofGun || roofPod ? track(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.8, roughness: 0.35 })) : null;
+  if (gunMetal) {
     const base = add(new THREE.BoxGeometry(1.0, 0.06, 0.9), blackPlastic);
     base.position.set(0, roofTop + 0.03, roofMid);
+  }
+  if (roofGun && gunMetal) {
     // Machine gun: a body, two barrels and an ammo box.
     const gunBody = add(new THREE.BoxGeometry(0.2, 0.16, 0.5), gunMetal);
     gunBody.position.set(0.32, roofTop + 0.2, roofMid + 0.05);
@@ -788,6 +793,11 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     }
     const ammo = add(new THREE.BoxGeometry(0.14, 0.12, 0.2), partMat.accent);
     ammo.position.set(0.47, roofTop + 0.12, roofMid - 0.05);
+  } else {
+    // No machine gun on the roof: it fires from just above the bonnet.
+    gunMuzzle.set(0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
+  }
+  if (roofPod && gunMetal) {
     // Rocket pod: a box with four tubes, the tips painted in the accent colour.
     const pod = add(new THREE.BoxGeometry(0.34, 0.3, 0.7), gunMetal);
     pod.position.set(-0.32, roofTop + 0.22, roofMid + 0.05);
@@ -802,8 +812,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
       }
     }
   } else {
-    // No roof guns: fire from just above the bonnet.
-    gunMuzzle.set(0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
+    // No rocket pod on the roof: rockets fire from just above the bonnet.
     rocketMuzzle.set(-0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
   }
 
@@ -811,7 +820,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   if (config.topper !== 'none') {
     // In the middle of the roof, between the guns if there are any.
     const topper = new THREE.Group();
-    topper.position.set(0, roofTop + (config.roofGuns ? 0.06 : 0), roofMid - (config.roofGuns ? 0.15 : 0));
+    topper.position.set(0, roofTop + (gunMetal ? 0.06 : 0), roofMid - (gunMetal ? 0.15 : 0));
     body.add(topper);
     buildTopper(config.topper, paint, accent, (geo, mat) => add(geo, mat, topper), track);
   }

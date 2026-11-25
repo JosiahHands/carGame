@@ -51,13 +51,16 @@ import {
   addInsight,
   feel,
   feelingWord,
+  forbids,
   friendship,
   isFriend,
   jolt,
   learnPlace,
   logChat,
   nudge,
+  release,
   remember,
+  resolve,
   restoreMind,
   setGoal,
   setStory,
@@ -103,6 +106,8 @@ interface PoliceRecord {
   busts: number;
   /** Coins paid in fines. */
   fines: number;
+  /** Chases BUDDY chose to give up (since 1.2.1). */
+  calledOff: number;
 }
 
 /** A car journey: the driver (and anyone riding along) walks to a car at the kerb, drives, parks and gets out. */
@@ -134,6 +139,11 @@ interface Chase {
   crew: Npc[];
   /** People who saw it go past (each remembers it once). */
   seen: Set<Npc>;
+  /** When BUDDY next thinks over whether to keep going (city clock), and whether he's thinking now. */
+  rethink: number;
+  thinking: boolean;
+  /** Whether he's already thought again about a battered police car. */
+  hurtNoticed: boolean;
 }
 
 /** What someone's doing: heading somewhere, spending time there, wandering, going home, asleep, or (BUDDY) sticking with GUY. */
@@ -197,6 +207,10 @@ export interface Npc {
   mischief: string | null;
   /** How you're talking to them: beside them, by phone, or with them in your car. */
   contact: 'beside' | 'phone' | 'passenger';
+  /** Something they chose to do in their own words ("paint the old fountain"), while they're at it. */
+  activity: { text: string; until: number } | null;
+  /** They chose to stay up past their bedtime, until then (city clock). */
+  upLate: number;
 }
 
 interface Convo {
@@ -246,6 +260,8 @@ const DECIDE_RANGE = 140;
 const MAX_CARS = 3;
 /** Further than this (metres) and people may take a car. */
 const DRIVE_FROM = 150;
+/** How often (city seconds) BUDDY asks himself whether a chase is still worth it. */
+const RETHINK = 20;
 /** Bits of mischief people get up to (and BUDDY fines them for). */
 const MISCHIEF = [
   'drew a silly face on a shop window',
@@ -279,13 +295,19 @@ const pack: Pack = {
     /** How wanted you are, 0..5 stars: offences add to it, and it cools off with time. */
     let heat = 0;
     const crimes: string[] = []; // what you've done lately, newest first
-    const record: PoliceRecord = { chases: 0, escapes: 0, busts: 0, fines: 0 };
+    const record: PoliceRecord = { chases: 0, escapes: 0, busts: 0, fines: 0, calledOff: 0 };
     const messages: Message[] = []; // texts from people, newest first
     const meetups: Meetup[] = [];
     const news: string[] = []; // what's been happening, newest first
     const talks: Talk[] = []; // conversations overheard, newest first
     /** Switched off: answers still on their way are ignored. */
     let disposed = false;
+    /**
+     * Which city this is: it goes up whenever a saved city is loaded or the
+     * city is reset. An AI answer asked for in an older city is thrown away,
+     * so nothing from before a reset (a chase, a text, a memory) leaks into it.
+     */
+    let era = 0;
 
     // ---------- the local AI ----------
     let ai: AiStatus | null = null; // null: not in the desktop game
@@ -389,6 +411,8 @@ const pack: Pack = {
           planning: false,
           mischief: null,
           contact: 'beside',
+          activity: null,
+          upLate: 0,
         };
         npcs.push(npc);
         byId.set(member.id, npc);
@@ -442,7 +466,14 @@ const pack: Pack = {
       const near = city.nearestPlace(x, z);
       return near && near.distance < 45 ? near.place.label : 'the street';
     };
+    /** What someone's doing, in words: something they chose in their own words first, while they're at it. */
     const doing = (npc: Npc): string => {
+      const now = doingNow(npc);
+      const own = npc.activity && clock < npc.activity.until && !npc.asleep && !npc.inCar && !npc.chatting ? npc.activity.text : '';
+      if (!own) return now;
+      return npc.plan.kind === 'pause' ? own : `${own} (${now})`;
+    };
+    const doingNow = (npc: Npc): string => {
       if (npc.asleep) return hourOf(clock) > 9 && hourOf(clock) < 20 ? 'resting at home' : 'asleep at home';
       if (chase?.crew.includes(npc)) return npc.member.id === OFFICER ? 'chasing the driver in the police car, siren wailing' : "riding along in BUDDY's police car, in a chase with the driver";
       if (npc.chatting) {
@@ -557,7 +588,7 @@ const pack: Pack = {
       const shop = kind !== 'park' && kind !== 'stunts' && kind !== 'music';
       if (shop && kind !== member.job && (h < 7 || h >= 21)) score -= 1.5;
       // Work: in working hours on weekdays, when they're not desperate for anything.
-      if (kind === member.job) {
+      if (kind === member.job && !forbids(mind, 'work')) {
         const hours = weekday(clock) && h >= 9 && h < 17;
         score += hours ? 1.4 * Math.min(1, 0.4 + Math.min(n.food, n.rest)) : -0.3;
       }
@@ -633,16 +664,19 @@ const pack: Pack = {
 
     /**
      * Time to choose what to do next. People near you (when the AI has a
-     * moment) think it over freely with the AI; everyone else follows their
-     * plan for the day and their needs, with the built-in brain choosing
-     * something unusual now and then (mischief, a message to you).
+     * moment) think it over freely with the AI, BUDDY included, even past
+     * their bedtime; everyone else follows their plan for the day and their
+     * needs, with the built-in brain choosing something unusual now and then
+     * (mischief, a message to you). BUDDY's own habit is sticking with GUY.
      */
     const decide = (npc: Npc, why = 'deciding what to do next') => {
       leaveVisit(npc);
+      const close = Math.hypot(npc.x - game.player.x, npc.z - game.player.z) < DECIDE_RANGE;
+      if (close && aiReady() && aiDecides === 0 && aiTalks < 2 && clock - lastAiDecide > 6) {
+        return askDecision(npc, bedtime(npc) ? `${why} (it's late, past their usual bedtime)` : why, local);
+      }
       if (npc.member.id === OFFICER) return ruleNext(npc);
       if (bedtime(npc) && npc.home) return travelHome(npc);
-      const close = Math.hypot(npc.x - game.player.x, npc.z - game.player.z) < DECIDE_RANGE;
-      if (close && aiReady() && aiDecides === 0 && aiTalks < 2 && clock - lastAiDecide > 6) return askDecision(npc, why, local);
       if (Math.random() < 0.3) return askDecision(npc, why, rules);
       ruleNext(npc);
     };
@@ -658,12 +692,13 @@ const pack: Pack = {
         aiDecides++;
         lastAiDecide = clock;
       }
+      const asked = era;
       void brain
         .decide(person(npc), moment(), situation)
         .catch(() => rules.decide(person(npc), moment(), situation))
         .then((d) => {
           if (brain === local) aiDecides--;
-          if (disposed || !npc.thinking) return;
+          if (disposed || era !== asked || !npc.thinking) return;
           npc.thinking = false;
           act(npc, d);
         });
@@ -673,6 +708,8 @@ const pack: Pack = {
     const share = (npc: Npc, d: Decision) => {
       if (d.thought) addThought(npc.mind, d.thought);
       if (d.goal) setGoal(npc.mind, d.goal);
+      npc.activity = null; // whatever they were doing in their own words, they've moved on
+      settle(npc, d.release, d.resolve);
       if (npc.convo || npc.chatting || npc.asleep) return;
       const tag = npc.inCar ? npc.trip?.driver === npc || chase?.crew[0] === npc : true;
       if (!tag) return;
@@ -680,10 +717,30 @@ const pack: Pack = {
       else if (d.thought && (d.ai || Math.random() < 0.3)) npc.label.say(`💭 ${d.thought}`, 4.5, clock, true);
     };
 
-    /** Does what they decided. */
+    /** A standing decision dropped (by number) and one made, in their own words: kept in their mind, and news. */
+    const settle = (npc: Npc, drop: number | null, made: string) => {
+      const name = npc.member.name;
+      let changed = false;
+      if (drop) {
+        const old = release(npc.mind, clock, drop);
+        if (old) tellNews(`${name} had a change of heart about "${old}"`);
+        changed = !!old;
+      }
+      if (made && resolve(npc.mind, clock, made)) {
+        tellNews(`${name} has decided: "${made}"`);
+        if (!npc.asleep && !npc.convo) npc.label.say(`💭 ${made}`, 5, clock, true);
+        changed = true;
+      }
+      // A big decision: they plan the rest of the day again, with it in mind.
+      if (changed) npc.mind.planDay = -1;
+    };
+
+    /** Does what they decided (the AI's choice stands: the game only shows it). */
     const act = (npc: Npc, d: Decision) => {
       share(npc, d);
-      if (npc.member.id === OFFICER) return policeAct(npc, d);
+      // Chose to stay up past their bedtime: nobody sends them home for an hour.
+      if (d.ai && bedtime(npc) && d.action !== 'go home' && d.action !== 'rest') npc.upLate = clock + HOUR;
+      if (npc.member.id === OFFICER && policeAct(npc, d)) return;
       const who = d.person && d.person !== 'driver' ? (byId.get(d.person) ?? null) : null;
       const eat: PlaceKind[] = ['diner', 'coffee', 'bakery', 'market'];
       switch (d.action) {
@@ -717,10 +774,50 @@ const pack: Pack = {
         case 'report the driver to the police':
           report(npc);
           return ruleNext(npc);
+        case 'something else':
+          return freeAct(npc, d, who);
         default:
           return ruleNext(npc);
       }
     };
+
+    /**
+     * Something they chose in their own words. The game shows what it can:
+     * they go where it needs (to the place, or with the person), look the
+     * part, say so, and it's in the journal and their memories.
+     */
+    const freeAct = (npc: Npc, d: Decision, who: Npc | null) => {
+      const what = d.doing;
+      npc.activity = { text: what, until: clock + 3 * HOUR };
+      remember(npc.mind, clock, `Decided to ${what}.`, 4, who ? [who.member.id] : d.person === 'driver' ? ['driver'] : [], 'saw');
+      tellNews(`${npc.member.name} decided to ${what}`);
+      emote(npc, feelingFor(what), 60);
+      if (!d.say && !npc.convo && !npc.chatting) npc.label.say(`✨ ${what}`, 4.5, clock, true);
+      if (/danc|celebrat|cheer|sing|party|jump/i.test(what)) {
+        npc.reaction = 'cheer';
+        npc.reactionUntil = clock + 4;
+      } else if (/wave|greet|hello/i.test(what)) {
+        npc.reaction = 'wave';
+        npc.reactionUntil = clock + 3;
+      }
+      if (who && who !== npc) return seek(npc, who, /talk|ask|tell|chat|apolog|confess|visit/i.test(what) ? 'talk' : 'tag');
+      if (d.place) return headTo(npc, d.place, /\bdriv|\bcar\b/i.test(what));
+      // Right where they are, for a while.
+      npc.path = [];
+      npc.plan = { kind: 'pause', until: clock + 60 + Math.random() * 90 };
+    };
+
+    /** The look on someone's face for something they chose to do. */
+    const feelingFor = (what: string): Emotion =>
+      /danc|party|celebrat|sing|race|explor|adventure/i.test(what)
+        ? 'excited'
+        : /joke|prank|laugh|silly/i.test(what)
+          ? 'amused'
+          : /cry|mourn|alone|sulk/i.test(what)
+            ? 'sad'
+            : /paint|build|write|fix|train|learn|practi|cook/i.test(what)
+              ? 'proud'
+              : 'happy';
 
     /** Off to a kind of place (the one they like best), or home. `drive` takes a car if one's free. */
     const headTo = (npc: Npc, kind: PlaceKind | 'home', drive = false) => {
@@ -813,13 +910,14 @@ const pack: Pack = {
       const brain = thinking ? local : rules;
       npc.planning = true;
       if (brain === local) aiPlans++;
+      const asked = era;
       void brain
         .plan(person(npc), moment())
         .catch(() => rules.plan(person(npc), moment()))
         .then((result) => {
           if (brain === local) aiPlans--;
           npc.planning = false;
-          if (disposed) return;
+          if (disposed || era !== asked) return;
           npc.mind.planDay = day;
           npc.mind.plan = result.plan.slice(0, 8);
           if (result.goal) setGoal(npc.mind, result.goal);
@@ -953,6 +1051,7 @@ const pack: Pack = {
      */
     const offence = (what: string, x: number, z: number, reach = 30, severity = 1) => {
       if (!active) return;
+      lastOffence = clock;
       heat = Math.min(5, heat + severity * (chase ? 0.3 : 1));
       if (crimes[0] !== what) crimes.unshift(what);
       if (crimes.length > 6) crimes.pop();
@@ -979,32 +1078,45 @@ const pack: Pack = {
       officer.thinking = true;
       if (brain === local) aiDecides++;
       const situation: Situation = { why, nearby: nearbyNames(officer), crimes: crime || heat >= 0.5 ? { list: crimes.slice(0, 5), heat: Math.round(heat) } : undefined };
+      const asked = era;
       void brain
         .decide(person(officer), moment(), situation)
         .catch(() => rules.decide(person(officer), moment(), situation))
         .then((d) => {
           if (brain === local) aiDecides--;
           officer.thinking = false;
-          if (disposed || !active) return;
+          if (disposed || era !== asked || !active) return;
           act(officer, d);
         });
     };
 
-    /** What BUDDY does about it. */
-    const policeAct = (officer: Npc, d: Decision) => {
+    /**
+     * What BUDDY does as a police officer, if that's what he chose (his
+     * choice stands: the game doesn't overrule it). Returns false for
+     * anything else he chose, which he does like anyone would.
+     */
+    const policeAct = (officer: Npc, d: Decision): boolean => {
       switch (d.action) {
-        // Too little for a chase: a ticket (or, with nothing at all against you, a drive instead).
         case 'chase the driver down':
-          if (heat < 1.5) return heat >= 0.5 ? ticket(officer) : patrol(officer);
-          return canChase() ? startChase() : ticket(officer);
+          // Only what he can't do stops him: chases switched off (your setting), or no police car.
+          if (canChase()) startChase();
+          else ticket(officer);
+          return true;
         case 'ticket the driver':
-          return heat >= 0.5 ? ticket(officer) : undefined;
+          ticket(officer);
+          return true;
         case 'let it go':
-          return heat >= 0.5 ? warn(officer) : undefined;
+        case 'call off the chase':
+          if (heat >= 0.5) warn(officer);
+          return true;
         case 'go for a drive with GUY':
-          return patrol(officer);
+          patrol(officer);
+          return true;
         case 'text the driver':
-          return sendText(officer, d.say || 'Drive safe out there. I mean it.');
+          sendText(officer, d.say || 'Drive safe out there. I mean it.');
+          return true;
+        default:
+          return false;
       }
     };
 
@@ -1045,14 +1157,15 @@ const pack: Pack = {
       if (place) startTrip(officer, place);
     };
 
-    /** Someone who's had enough of you calls BUDDY. */
+    /** Someone who's had enough of you calls BUDDY (it's up to them what for, and up to him what he does). */
     const report = (npc: Npc) => {
-      if (heat < 0.5 || !crimes.length) return;
+      const what = crimes[0] ?? 'the way they drive';
       npc.label.say(pick(["I'm reporting you!", 'BUDDY needs to hear about this.']), 2.6, clock);
-      remember(npc.mind, clock, `Reported the driver to BUDDY for ${crimes[0]}.`, 5, ['driver', 'buddy'], 'saw');
+      remember(npc.mind, clock, `Reported the driver to BUDDY for ${what}.`, 5, ['driver', 'buddy'], 'saw');
       heat = Math.min(5, heat + 0.5);
+      if (!crimes.length) crimes.unshift(what);
       tellNews(`${npc.member.name} reported the driver to the police`);
-      policeConsider(`${npc.member.name} called you to report the driver for ${crimes[0]}.`);
+      policeConsider(`${npc.member.name} called you to report the driver for ${what}.`);
     };
 
     // ---------- mischief, and BUDDY on the case ----------
@@ -1072,10 +1185,15 @@ const pack: Pack = {
         remember(other.mind, clock, `Saw ${npc.member.name} ${what} at ${place.label}.`, 4, [npc.member.id], 'saw');
         feel(other.mind, npc.member.id, -0.05);
       }
-      // BUDDY hears about it and goes after them (unless he's busy).
+      // BUDDY hears about it and goes after them (unless he's busy, or it's his call not to:
+      // he's sworn off fines, or he's too fond of them).
       const officer = byId.get(OFFICER);
       if (!officer || officer.asleep || officer.inCar || officer.trip || officer.chatting || chase || npc === officer) return;
       if (officer.plan.kind !== 'follow' || officer.plan.who !== PARTNER || Math.hypot(officer.x - npc.x, officer.z - npc.z) > 400) return;
+      if (forbids(officer.mind, 'ticket', `${npc.member.name} ${what}`) || (officer.mind.feelings[npc.member.id] ?? 0) > 0.8) {
+        remember(officer.mind, clock, `Heard ${npc.member.name} ${what} at ${place.label}. Let it slide.`, 3, [npc.member.id], 'heard');
+        return;
+      }
       fines.set(npc.member.id, what);
       officer.plan = { kind: 'follow', who: npc.member.id, until: clock + 150, why: 'arrest' };
       if (Math.hypot(officer.x - npc.x, officer.z - npc.z) < 60) officer.label.say(pick(['Hold it right there!', 'I saw that!', 'Hey! Stop!']), 2.5, clock);
@@ -1105,7 +1223,8 @@ const pack: Pack = {
     // ---------- the chase ----------
 
     let chase: Chase | null = null;
-    let chaseCooldown = 0; // no new chase before this (city clock)
+    /** When you last did something BUDDY could hold against you (city clock). */
+    let lastOffence = -Infinity;
     let police: PoliceCar | null = null;
 
     /** BUDDY's police car (made the first time it's needed). */
@@ -1127,9 +1246,10 @@ const pack: Pack = {
       return car;
     };
 
+    /** Whether BUDDY can go after you: chases on (your setting), awake, and with a police car that isn't a wreck. When is his choice. */
     const canChase = () => {
       const officer = byId.get(OFFICER);
-      return options.chases && active && !chase && clock > chaseCooldown && !!officer && !officer.asleep && !(police && police.wrecked > 0);
+      return options.chases && active && !chase && !!officer && !officer.asleep && !(police && police.wrecked > 0);
     };
 
     /** Where to stand by a car to get in or out (on the pavement side). */
@@ -1157,7 +1277,9 @@ const pack: Pack = {
           const spot = parkingNear(officer.x, officer.z);
           car.place(spot.x, spot.z, spot.heading);
         }
-        if (partner && !partner.asleep && !partner.inCar && !partner.trip && !partner.chatting && Math.hypot(partner.x - officer.x, partner.z - officer.z) < 15) crew.push(partner);
+        // GUY jumps in too, if he's there (and hasn't sworn off riding in the police car).
+        const willing = partner && !forbids(partner.mind, 'ride') && !forbids(partner.mind, 'chase');
+        if (partner && willing && !partner.asleep && !partner.inCar && !partner.trip && !partner.chatting && Math.hypot(partner.x - officer.x, partner.z - officer.z) < 15) crew.push(partner);
         for (const npc of crew) {
           if (npc.convo) endTalk(npc.convo);
           npc.inCar = true;
@@ -1165,7 +1287,7 @@ const pack: Pack = {
         }
       }
       for (const npc of crew) npc.plan = { kind: 'follow', who: npc === officer ? PARTNER : OFFICER };
-      chase = { started: clock, lost: 0, stopped: 0, damage: 0, crew, seen: new Set() };
+      chase = { started: clock, lost: 0, stopped: 0, damage: 0, crew, seen: new Set(), rethink: clock + RETHINK * 1.5, thinking: false, hurtNoticed: false };
       car.mode = 'chase';
       car.firing = heat >= 4;
       car.setActive(true);
@@ -1211,6 +1333,12 @@ const pack: Pack = {
       c.stopped = seen && d < 16 && speed < 2 ? c.stopped + dt : Math.max(0, c.stopped - dt);
       if (c.stopped > 3) return endChase('busted');
       if (c.damage >= 100) return endChase('busted', true);
+      // Now and then BUDDY thinks it over: keep going, or give it up? Straight away once the police car is badly hurt.
+      if (!c.hurtNoticed && car.hp < 50) {
+        c.hurtNoticed = true;
+        c.rethink = Math.min(c.rethink, clock);
+      }
+      if (!c.thinking && clock >= c.rethink) rethinkChase(c, car, d);
       // The city watches it go by.
       for (const { npc } of near(p.x, p.z, 30)) {
         if (c.seen.has(npc) || npc.inCar) continue;
@@ -1221,6 +1349,53 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion);
         shout(npc, npc.mind.emotion);
       }
+    };
+
+    /** What GUY says about the chase from the passenger seat, if anything: up to how he feels about you. */
+    const partnerSays = (guy: Npc): string => {
+      const like = guy.mind.feelings.driver ?? 0;
+      if (forbids(guy.mind, 'chase') || like > 0.35) return pick(['Come on, BUDDY, let them go!', "They're not that bad. Drop it?", 'Can we stop now? Please?']);
+      if (like < -0.35) return pick(["Don't let them get away!", 'Faster, BUDDY!']);
+      return '';
+    };
+
+    /**
+     * BUDDY thinks the chase over (the AI if it can, the built-in rules
+     * otherwise): how long it's been, how battered his car is, whether
+     * you've stopped causing trouble, what GUY says. Keeping going or giving
+     * up is entirely his call.
+     */
+    const rethinkChase = (c: Chase, car: PoliceCar, distance: number) => {
+      const officer = c.crew[0];
+      c.thinking = true;
+      c.rethink = clock + RETHINK;
+      const partner = c.crew.find((n) => n.member.id === PARTNER);
+      const plea = partner ? partnerSays(partner) : '';
+      if (plea) partner!.label.say(plea, 3.5, clock);
+      const situation: Situation = {
+        why: 'Thinking the chase over: keep going, or give it up?',
+        nearby: c.crew.slice(1).map((n) => n.member.name),
+        crimes: { list: crimes.slice(0, 5), heat: Math.round(heat) },
+        chase: { seconds: clock - c.started, distance, hurt: Math.max(0, 1 - car.hp / 100), quiet: clock - lastOffence, partner: plea },
+      };
+      const brain = aiReady() && aiDecides < 2 ? local : rules;
+      if (brain === local) aiDecides++;
+      void brain
+        .decide(person(officer), moment(), situation)
+        .catch(() => rules.decide(person(officer), moment(), situation))
+        .then((d) => {
+          if (brain === local) aiDecides--;
+          c.thinking = false;
+          if (disposed || chase !== c) return; // it ended while he was thinking
+          if (d.action === 'chase the driver down' || d.action === 'ticket the driver') return share(officer, d);
+          // He's had enough: the chase is over, and he does what he'd rather do.
+          lastTicket = clock;
+          endChase('called off', false, d.say || d.thought);
+          if (d.action === 'let it go' || d.action === 'call off the chase') {
+            share(officer, d);
+            ruleNext(officer);
+          } else act(officer, d);
+        });
     };
 
     /** Your weapons wrecked the police car. */
@@ -1246,13 +1421,15 @@ const pack: Pack = {
       }
     };
 
-    /** The chase is over: busted (a fine), escaped, the police car wrecked, or called off (an event, the option switched off). */
-    const endChase = (outcome: 'busted' | 'escaped' | 'wrecked' | 'off', wrecked = false) => {
+    /**
+     * The chase is over: busted (a fine), escaped, the police car wrecked,
+     * called off (BUDDY's choice, with his reason), or off (chases switched off).
+     */
+    const endChase = (outcome: 'busted' | 'escaped' | 'wrecked' | 'called off' | 'off', wrecked = false, reason = '') => {
       const c = chase;
       const car = police;
       chase = null;
       if (!c || !car) return;
-      chaseCooldown = clock + (outcome === 'off' ? 30 : 120);
       if (car.mode === 'chase') car.mode = 'parked';
       car.setSiren(false);
       car.firing = false;
@@ -1286,6 +1463,12 @@ const pack: Pack = {
       } else if (outcome === 'wrecked') {
         record.escapes++;
         game.toast("💥 You wrecked BUDDY's police car! He won't forget that.", 3800);
+      } else if (outcome === 'called off') {
+        record.calledOff++;
+        game.toast(`🚓 BUDDY called off the chase${reason ? `: “${reason}”` : ''}`, 3800);
+        remember(officer.mind, clock, `Called off the chase after the driver near ${where}.${reason ? ` ${reason}` : ''}`.slice(0, 160), 7, ['driver'], 'saw');
+        if (partner) remember(partner.mind, clock, 'BUDDY called off the chase after the driver. I was in the car.', 5, ['buddy', 'driver'], 'saw');
+        tellNews(`BUDDY called off the chase after the driver near ${where}`);
       }
       // Everyone out (the police car stays where it stopped, and gets towed once nobody's looking).
       c.crew.forEach((npc, i) => {
@@ -1297,7 +1480,8 @@ const pack: Pack = {
           emote(npc, 'scared', 20);
           npc.label.say(pick(['My car!', 'Whoa!', 'Everyone okay?']), 2.5, clock);
         }
-        if (npc === officer) npc.plan = { kind: 'follow', who: PARTNER };
+        // What next is up to each of them (BUDDY, calling it off, has already chosen).
+        if (npc === officer && outcome === 'called off') npc.plan = { kind: 'follow', who: PARTNER };
         else decide(npc, 'just got out of the police car after a chase');
       });
       hud.classList.add('hidden');
@@ -1541,12 +1725,13 @@ const pack: Pack = {
       const brain = brainFor(a);
       if (brain === local) aiTalks++;
       const where = placeName(a.x, a.z);
+      const asked = era;
       void brain
         .conversation(person(a), person(b), moment())
         .catch(() => rules.conversation(person(a), person(b), moment()))
         .then((result) => {
           if (brain === local) aiTalks--;
-          if (disposed || a.convo !== convo) return; // switched off, or interrupted while thinking
+          if (disposed || era !== asked || a.convo !== convo) return; // switched off, or interrupted while thinking
           hear(a, b, result, where);
           convo.lines = result.lines.length ? result.lines : [{ speaker: a.member.id, text: 'Hi!', emotion: 'happy' }];
           convo.next = clock;
@@ -1645,13 +1830,14 @@ const pack: Pack = {
       npc.reflecting = true;
       npc.lastReflect = clock;
       if (brain === local) aiReflects++;
+      const asked = era;
       void brain
         .reflect(person(npc), moment())
         .catch(() => rules.reflect(person(npc), moment()))
         .then((result) => {
           if (brain === local) aiReflects--;
           npc.reflecting = false;
-          if (disposed) return;
+          if (disposed || era !== asked) return;
           npc.mind.pending = 0;
           for (const insight of result.insights) addInsight(npc.mind, clock, insight);
           if (result.trait) nudge(npc.mind, result.trait.name, result.trait.up, 0.04);
@@ -1682,10 +1868,13 @@ const pack: Pack = {
     const chat = buildChat(game, {
       send: async (npc: Npc, said: string) => {
         const brain: Brain = ai?.state === 'ready' ? local : rules;
+        const asked = era;
         const result = await brain.chat(person(npc), said, moment()).catch(() => rules.chat(person(npc), said, moment()));
-        if (disposed) return result.reply;
+        if (disposed || era !== asked) return result.reply;
         const mind = npc.mind;
         if (result.driverName) mind.driverName = result.driverName;
+        // A talk can change their mind for good (it's up to them).
+        settle(npc, result.release, result.resolve);
         // Every friendly chat helps a little; how it went counts for more.
         feel(mind, 'driver', result.opinion * 0.1 + 0.03);
         remember(mind, clock, result.memory || `The driver stopped to chat with me.`, result.importance, ['driver', ...mentions(result.memory)], 'chat');
@@ -1804,7 +1993,9 @@ const pack: Pack = {
       plans: plansWords,
       record: () =>
         `🚓 ${tickets} ticket${tickets === 1 ? '' : 's'}` +
-        (record.chases ? ` · ${record.chases} chase${record.chases === 1 ? '' : 's'} (${record.escapes} escaped, ${record.busts} busted, ${record.fines} coins in fines)` : '') +
+        (record.chases
+          ? ` · ${record.chases} chase${record.chases === 1 ? '' : 's'} (${record.escapes} escaped, ${record.busts} busted, ${record.calledOff ? `${record.calledOff} called off, ` : ''}${record.fines} coins in fines)`
+          : '') +
         (heat >= 0.5 ? ` · wanted ${'★'.repeat(Math.ceil(heat))}` : ''),
       messages: () => messages,
       find: (npc) => {
@@ -1852,7 +2043,8 @@ const pack: Pack = {
         // BUDDY drives (back to GUY's side when they get out); GUY rides along if he's with him.
         usePolice = true;
         driver = officer;
-        dests.set(officer, null);
+        // Going somewhere he chose, he stays there; driving GUY, he's back at GUY's side after.
+        dests.set(officer, who === officer ? dest : null);
         if (who === partner) riders = [partner, ...riders];
         else if (together(officer, partner)) {
           riders = [partner, ...riders];
@@ -2382,11 +2574,26 @@ const pack: Pack = {
         if (npc.asleep) m.needs.rest = Math.min(1, m.needs.rest + dt / (5 * HOUR));
         if (clock > npc.emotionUntil && m.emotion !== 'calm') m.emotion = m.mood < -0.3 ? 'sad' : 'calm';
         if (npc.member.id === OFFICER) {
-          // BUDDY sleeps when GUY does (he lives next door).
-          if (partner && npc.asleep !== partner.asleep && !npc.inCar && !npc.trip && !partner.inCar) {
+          const withGuy = npc.plan.kind === 'follow' && npc.plan.who === PARTNER;
+          // At GUY's side, BUDDY sleeps when GUY does (he lives next door).
+          if (withGuy && partner && npc.asleep !== partner.asleep && !npc.inCar && !npc.trip && !partner.inCar) {
             npc.asleep = partner.asleep;
             npc.x = partner.x + 1.4;
             npc.z = partner.z + 0.6;
+          }
+          // Off doing something he chose for himself: when it's done, he decides again (or goes back to GUY).
+          if (!withGuy && !npc.convo && !npc.chatting && !npc.trip && !npc.inCar) {
+            if (npc.plan.kind === 'sleep') {
+              if (clock >= npc.plan.until) wake(npc);
+            } else if (npc.plan.kind === 'pause') {
+              if (clock > npc.plan.until) {
+                const waited = npc.thinking;
+                npc.thinking = false;
+                if (waited) ruleNext(npc);
+                else decide(npc);
+              }
+            } else if (npc.plan.kind !== 'homeward' && bedtime(npc) && clock > npc.upLate) ruleNext(npc);
+            else if (npc.plan.kind === 'stay' && clock > npc.plan.until) decide(npc, `has spent a while at ${npc.plan.place.label}`);
           }
           // Now and then, on the beat, he thinks about what to do with his day.
           const free = !npc.asleep && !npc.inCar && !npc.trip && !npc.thinking && !npc.chatting && !npc.convo && npc.plan.kind === 'follow' && npc.plan.who === PARTNER;
@@ -2407,7 +2614,7 @@ const pack: Pack = {
               if (waited) ruleNext(npc);
               else decide(npc);
             }
-          } else if (npc.plan.kind !== 'homeward' && bedtime(npc)) travelHome(npc);
+          } else if (npc.plan.kind !== 'homeward' && bedtime(npc) && clock > npc.upLate) travelHome(npc);
           else if (npc.plan.kind === 'stay' && clock > npc.plan.until) decide(npc, `has spent a while at ${npc.plan.place.label}`);
         }
         planDay(npc);
@@ -2521,6 +2728,7 @@ const pack: Pack = {
     /** Takes in a saved city (from the data folder, or from older versions that kept it in the browser storage). */
     const restore = (saved: Partial<Saved> | null) => {
       if (!saved || typeof saved !== 'object') return;
+      era++;
       clock = typeof saved.clock === 'number' && Number.isFinite(saved.clock) ? saved.clock : 0;
       tickets = typeof saved.tickets === 'number' ? saved.tickets : 0;
       // Version 3 additions (an older city starts with a clean record).
@@ -2531,6 +2739,7 @@ const pack: Pack = {
       record.escapes = typeof r?.escapes === 'number' ? r.escapes : 0;
       record.busts = typeof r?.busts === 'number' ? r.busts : 0;
       record.fines = typeof r?.fines === 'number' ? r.fines : 0;
+      record.calledOff = typeof r?.calledOff === 'number' ? r.calledOff : 0; // since 1.2.1
       messages.splice(0, messages.length, ...(Array.isArray(saved.messages) ? saved.messages.filter((m) => m && typeof m.text === 'string' && typeof m.from === 'string').slice(0, 20) : []));
       meetups.splice(0, meetups.length, ...(Array.isArray(saved.meetups) ? saved.meetups.filter((m) => m && Array.isArray(m.ids) && typeof m.at === 'number') : []));
       news.splice(0, news.length, ...(Array.isArray(saved.news) ? saved.news.filter((n) => typeof n === 'string').slice(0, 10) : []));
@@ -2615,6 +2824,7 @@ const pack: Pack = {
           resetCity: () => {
             for (const convo of new Set(npcs.map((n) => n.convo).filter((c): c is Convo => !!c))) endTalk(convo);
             chat.hide();
+            if (chase) endChase('off');
             // The clock starts again, so everything timed by it starts again too.
             restore({ clock: 0, tickets: 0, meetups: [], news: [], talks: [], minds: {}, heat: 0, crimes: [], messages: [] });
             lastTicket = -Infinity;

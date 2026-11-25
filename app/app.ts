@@ -13,10 +13,10 @@ import { Input, type Action } from '../game/input';
 import { Minimap } from '../game/minimap';
 import { EFFECTS_AMOUNT, SHADOW_SIZES, TRAFFIC_COUNTS, loadSettings, saveSettings } from '../game/settings';
 import { TimeTrial, formatTime } from '../game/timeTrial';
-import { Weapons } from '../game/weapons';
+import { NO_WEAPONS, STOCK_WEAPONS, Weapons, type Loadout } from '../game/weapons';
 import { venue } from '../game/venues';
 import { World } from '../game/world';
-import { CHASSIS, awaitingChoice, careerCar, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
+import { CHASSIS, awaitingChoice, careerCar, carLoadout, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
 import { EventRun, type EventSpec } from '../game/event';
 import { MenuUI } from '../game/menuUI';
 import { FreeRoam, type FreeRoamEvent } from '../game/freeRoam';
@@ -87,17 +87,25 @@ const config: CarConfig = loadConfig();
 /** The car being driven now: the garage build, or the car for the event. */
 let driveConfig: CarConfig = config;
 let night = false;
-let car: CarRig = buildCar(driveConfig, night);
+// At the start it's the garage build in free roam: weapons as the setting says.
+weapons.setLoadout(settings.weapons ? STOCK_WEAPONS : NO_WEAPONS);
+let car: CarRig = buildCar(withWeapons(driveConfig, weapons.loadout), night);
 scene.add(car.root);
 physics.reset(world.spawn.x, world.spawn.z, world.spawn.heading);
 physics.y = world.heightAt(physics.x, physics.z);
 fitToCar();
 
-/** Rebuilds the car after a change. Returns true if its size changed a lot. */
-function rebuildCar(): boolean {
+/**
+ * Rebuilds the car after a change, with the weapons it has for `spec` (the
+ * event about to start or running, or null out of events). Returns true if
+ * its size changed a lot.
+ */
+function rebuildCar(spec: EventSpec | null = event?.spec ?? null): boolean {
   car.dispose();
-  car = buildCar(driveConfig, night);
+  weapons.setLoadout(loadout(spec));
+  car = buildCar(withWeapons(driveConfig, weapons.loadout), night);
   scene.add(car.root);
+  weaponName.textContent = `${weapons.selected + 1} · ${weapons.name}`;
   const resized = fitToCar();
   syncCar(0);
   return resized;
@@ -291,16 +299,21 @@ let slowMotion = false;
 
 const garage = new GarageUI(config, settings, {
   carChanged(change) {
+    // Leaving the career car for the garage build (even with just a tuning
+    // change) is a different car with its own weapons: it's built again.
+    const switched = driveConfig !== config;
     driveConfig = config;
     roamingInCareerCar = false;
     // A much bigger or smaller car needs the garage camera moved to fit it.
-    const resized = change === 'look' ? rebuildCar() : fitToCar();
+    const resized = change === 'look' || switched ? rebuildCar() : fitToCar();
     if (resized && mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
     // Save right away: a delayed save is lost if the window closes first.
     saveConfig(config);
   },
   settingsChanged() {
     saveSettings(settings);
+    // Weapons switched on or off out of events: the roof guns come or go with them.
+    if (!event && !sameLoadout(loadout(null))) rebuildCar();
     applySettings();
     // Traffic or pedestrians switched on or off: put the right ones in the city.
     const npcs = `${settings.traffic}/${settings.pedestrians}`;
@@ -588,8 +601,12 @@ function handleAction(action: Action): void {
     case 'weapon2':
     case 'weapon3':
       if (!weaponsOn()) break;
-      if (action === 'nextWeapon') weapons.select(weapons.selected + 1);
-      else weapons.select(Number(action.slice(-1)) - 1); // 'weapon2' -> 1
+      if (action === 'nextWeapon') weapons.selectNext();
+      else if (!weapons.select(Number(action.slice(-1)) - 1)) {
+        // 'weapon2' -> 1, if the car has it.
+        toast(playing || driveConfig !== config ? 'Not bought yet: weapons are under Cars & upgrades' : 'Not fitted');
+        break;
+      }
       weaponName.textContent = `${weapons.selected + 1} · ${weapons.name}`;
       toast(weapons.name);
       break;
@@ -1008,9 +1025,30 @@ let eventHudTimer = 0;
 /** No controls pressed: for holding the car still. */
 const STOPPED = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, jump: false, fire: false };
 
-/** Weapons are on in free roam if the setting says so, and in events that have them. */
+/**
+ * The weapons the car has: in events that have weapons, and in free roam if
+ * the Weapons setting is on. The career car carries what you've bought;
+ * quick races and the garage build have all three, stock.
+ */
+function loadout(spec: EventSpec | null): Loadout {
+  // A career level or the daily challenge, or the career car out of events.
+  const careerCarNow = spec ? playing !== null : driveConfig !== config;
+  return carLoadout(spec ? spec.weapons : settings.weapons, careerCarNow ? career.arsenal : null);
+}
+
+/** A car config wearing only the roof weapons the car has (so guns on the roof always fire). */
+function withWeapons(c: CarConfig, levels: Loadout): CarConfig {
+  return { ...c, armed: { gun: levels[0] > 0, rockets: levels[1] > 0 } };
+}
+
+/** Whether the car already has these weapons (so it needn't be rebuilt). */
+function sameLoadout(levels: Loadout): boolean {
+  return levels.every((level, i) => level === weapons.loadout[i]);
+}
+
+/** Whether the car has weapons to fire right now. */
 function weaponsOn(): boolean {
-  return event ? event.spec.weapons : settings.weapons;
+  return weapons.armed;
 }
 
 /** Lights and sky for day or night (some venues are always at night). */
@@ -1049,8 +1087,10 @@ const menu = new MenuUI(career, config, {
     // Show off the career car behind the menu (rebuilt only when it looks different).
     if (mode === 'menu' && !event) {
       const next = careerCar(config, career.car, career.upgrades);
-      if (JSON.stringify(next) !== JSON.stringify(driveConfig)) {
-        driveConfig = next;
+      const looksChanged = JSON.stringify(next) !== JSON.stringify(driveConfig);
+      driveConfig = next;
+      // A weapon bought or upgraded shows on the car too (when weapons are on).
+      if (looksChanged || !sameLoadout(loadout(null))) {
         rebuildCar();
         cameraRig.setGarage(true, carPosition(), physics.heading);
       }
@@ -1108,7 +1148,7 @@ function startEvent(spec: EventSpec, drivenCar: CarConfig, level: Level | null, 
   else world.rebuildAll(1e6, 1e6, 0); // put back anything destroyed last time
   applyNight();
   driveConfig = drivenCar;
-  rebuildCar();
+  rebuildCar(spec);
   physics.allTerrain = allTerrain;
   damage = 0;
   scoreEl.textContent = '';
@@ -1159,7 +1199,7 @@ function leaveEvents(): void {
   paused = false;
   physics.allTerrain = false;
   roamingInCareerCar = false;
-  if (driveConfig !== config) {
+  if (driveConfig !== config || !sameLoadout(loadout(null))) {
     driveConfig = config;
     rebuildCar();
   }
@@ -1461,7 +1501,7 @@ function frame(now: number): void {
   } else if (driving) {
     const waitingToStart = trial.active && trial.countdown > 0;
     if (!waitingToStart) drive(dt, controls);
-    if (settings.weapons && !waitingToStart) useWeapons(dt, controls.fire);
+    if (weaponsOn() && !waitingToStart) useWeapons(dt, controls.fire);
     updateFreeRoam(dt);
     updateNpcs(dt);
     // The lap clock and countdown use real time, so slow motion can't
@@ -1573,7 +1613,7 @@ window.addEventListener('keydown', (e) => {
 // Sound can only start after the player presses something.
 for (const type of ['keydown', 'pointerdown'] as const) window.addEventListener(type, () => audio.unlock());
 
-weaponName.textContent = `1 · ${weapons.name}`;
+weaponName.textContent = `${weapons.selected + 1} · ${weapons.name}`;
 freeRoam.load(world, career.found);
 loadNpcs();
 applySettings();

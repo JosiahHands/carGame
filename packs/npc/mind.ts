@@ -12,6 +12,7 @@
 // They also learn, in a simple way, which places they enjoy: each visit
 // either lifts their mood or doesn't, and they come back to the ones that do.
 import { CAST, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName, type Traits } from './cast';
+import { MAX_RESOLUTIONS } from './protocol';
 
 export interface Memory {
   /** When, in city time (seconds the city has been running). */
@@ -69,6 +70,12 @@ export interface Mind {
   planDay: number;
   /** Their latest private thoughts, newest last. */
   thoughts: string[];
+  /**
+   * Standing decisions, in their own words ("I'm done chasing the driver",
+   * "I'm going to quit my job and paint"): made freely, kept until they
+   * choose to change their mind, and part of every later thought.
+   */
+  resolutions: string[];
 }
 
 /** One step of a day plan: from this hour, be here, doing this. */
@@ -119,6 +126,7 @@ export function newMind(member: CastMember): Mind {
     plan: [],
     planDay: -1,
     thoughts: [],
+    resolutions: [],
   };
 }
 
@@ -265,6 +273,108 @@ export function setGoal(mind: Mind, goal: string): void {
   if (text.length > 3) mind.goal = text;
 }
 
+/**
+ * A standing decision, made for themselves. Returns whether it's new. Only
+ * they can let one go: with no room left, a new one isn't taken until they
+ * drop one (the AI is told so), rather than quietly forgetting the oldest.
+ */
+export function resolve(mind: Mind, now: number, decision: string): boolean {
+  const text = decision.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (text.length < 6 || mind.resolutions.some((r) => r.toLowerCase() === text.toLowerCase())) return false;
+  if (mind.resolutions.length >= MAX_RESOLUTIONS) return false;
+  mind.resolutions.push(text);
+  remember(mind, now, `I made up my mind: ${text}`, 8, [], 'insight');
+  return true;
+}
+
+/** Changes their mind about a standing decision (by its number, from 1). Returns what they let go of. */
+export function release(mind: Mind, now: number, number: number): string {
+  const [text] = mind.resolutions.splice(number - 1, 1);
+  if (text) remember(mind, now, `I changed my mind about "${text}"`, 7, [], 'insight');
+  return text ?? '';
+}
+
+/**
+ * The kinds of thing a standing decision can rule out, by the words it uses.
+ * The AI reads the decisions in their own words; the built-in brain (which
+ * can't) uses these so it keeps them too.
+ */
+export const VOW_WORDS = {
+  chase: /\bchas|\bpursu/i,
+  ticket: /\bticket|\bfin(e|ing)\b/i,
+  work: /\bwork|\bjob\b|\bshifts?\b/i,
+  mischief: /mischief|prank|trouble|vandal/i,
+  text: /\btext|\bmessag|\bphone/i,
+  report: /\breport|snitch|call (the )?police|call buddy/i,
+  drive: /\bdriv(e|es|ing)\b|\bcars?\b/i,
+  ride: /\bride|\blift|police car/i,
+} as const;
+export type VowKind = keyof typeof VOW_WORDS;
+
+/** Words that make a decision a "won't" rather than a "will". */
+const NOT = /\b(no|never|not|won't|wont|don't|dont|stop|stopping|quit|quitting|refuse|swear off|no more|give up|giving up|avoid|without)\b|\b(done|finished|through) (with|\w+ing)\b|n't\b/i;
+/** ...unless it's a "never stop" (a will after all). */
+const NEVER_STOP = /\b(never|won't|wont|not|don't|dont)\s+(stop|quit|give up)\b/i;
+
+/** Whether they have room for another standing decision. */
+export function roomToResolve(mind: Mind): boolean {
+  return mind.resolutions.length < MAX_RESOLUTIONS;
+}
+
+/** "...unless they're speeding": when that's happening, the decision doesn't hold. */
+const UNLESS = /\b(unless|except|apart from|but not if|but not when)\b/i;
+/** "...if GUY's in the car": the decision only holds when that's happening. */
+const ONLY_IF = /\b(if|when|whenever|while|as long as|so long as)\b/i;
+/** "even if" changes nothing: the decision always holds. */
+const EVEN_IF = /\beven (if|when|though)\b.*$/i;
+/** Words too common to tell what a condition is about. */
+const COMMON = new Set(['the', 'and', 'you', 'are', 'not', 'but', 'for', 'she', 'her', 'his', 'him', 'was', 'who', 'its', 'any', 'all', 'get', 'got', 'one', 'out', 'way', 'they', 'them', 'their', 'theyre', 'driver', 'drivers', 'again', 'really', 'very', 'that', 'this', 'with', 'what', 'there', 'would', 'could', 'should', 'about', 'being', 'going', 'does', 'doing', 'anyone', 'someone', 'something', 'everyone', 'actually', 'start', 'starts', 'keep', 'keeps', 'while', 'when', 'into', 'from', 'then', 'just']);
+/** A condition that says what isn't happening ("unless they're not speeding"): too hard to judge from words. */
+const NEGATED = /\b(not|no|never|without|nobody|nothing)\b|n't\b/i;
+
+/**
+ * How much of a condition turns up in what's going on: 'all' of its words,
+ * 'some', or 'none' (by the first five letters of each word of three or more,
+ * names like GUY included).
+ */
+function overlap(condition: string, context: string): 'all' | 'some' | 'none' {
+  const text = context.toLowerCase();
+  const words = (condition.toLowerCase().replace(/[^a-z\s]/g, '').match(/[a-z]{3,}/g) ?? []).filter((w) => !COMMON.has(w));
+  const found = words.filter((w) => text.includes(w.slice(0, 5))).length;
+  return found === 0 ? 'none' : found === words.length ? 'all' : 'some';
+}
+
+/**
+ * Whether one of their standing decisions rules this kind of thing out right
+ * now. `context` is what's going on (why they're deciding, what the driver
+ * has done, who's around): a decision with a condition ("I won't chase the
+ * driver unless they're speeding") holds or not depending on it. Only the
+ * part before the condition says what's ruled out.
+ */
+export function forbids(mind: Mind, kind: VowKind, context = ''): boolean {
+  return mind.resolutions.some((decision) => {
+    const r = decision.replace(EVEN_IF, '');
+    const unless = UNLESS.exec(r);
+    const onlyIf = unless ? null : ONLY_IF.exec(r);
+    const cut = unless ?? onlyIf;
+    const rule = cut ? r.slice(0, cut.index) : r;
+    if (!VOW_WORDS[kind].test(rule) || !NOT.test(rule) || NEVER_STOP.test(rule)) return false;
+    // Matching words can't be sure what a condition means, so when in doubt
+    // the promise is kept: an exception ("unless they hit a pedestrian while
+    // speeding") lifts it only when all of it is happening, and a condition
+    // about what isn't happening never lifts it.
+    if (unless) {
+      const condition = r.slice(unless.index + unless[0].length);
+      return NEGATED.test(condition) || overlap(condition, context) !== 'all';
+    }
+    if (onlyIf) {
+      const condition = r.slice(onlyIf.index + onlyIf[0].length);
+      return NEGATED.test(condition) || overlap(condition, context) !== 'none';
+    }
+    return true;
+  });
+}
+
 /** Their life story, rewritten after reflecting. */
 export function setStory(mind: Mind, story: string): void {
   const text = story.replace(/\s+/g, ' ').trim().slice(0, MAX_STORY);
@@ -313,5 +423,7 @@ export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined
     plan: Array.isArray(saved.plan) ? saved.plan.filter((p) => p && typeof p.hour === 'number' && typeof p.place === 'string').slice(0, 8) : [],
     planDay: typeof saved.planDay === 'number' ? saved.planDay : -1,
     thoughts: Array.isArray(saved.thoughts) ? saved.thoughts.filter((t) => typeof t === 'string').slice(-MAX_THOUGHTS) : [],
+    // Since 1.2.1 (older cities start without any).
+    resolutions: Array.isArray(saved.resolutions) ? saved.resolutions.filter((r) => typeof r === 'string').map((r) => r.slice(0, 120)).slice(-MAX_RESOLUTIONS) : [],
   };
 }
