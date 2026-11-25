@@ -39,9 +39,9 @@ interface Job {
 }
 
 /** Most answers needed for each kind of request, in tokens. */
-const MAX_TOKENS: Record<ThinkKind, number> = { conversation: 800, chat: 320, reflect: 640 };
-/** The driver's chats go first, then conversations, then quiet reflection. */
-const PRIORITY: Record<ThinkKind, number> = { chat: 0, conversation: 1, reflect: 2 };
+const MAX_TOKENS: Record<ThinkKind, number> = { conversation: 800, chat: 320, reflect: 640, decide: 360, plan: 640 };
+/** The driver's chats go first, then decisions and conversations, then quiet reflection and planning the day. */
+const PRIORITY: Record<ThinkKind, number> = { chat: 0, decide: 1, conversation: 1, reflect: 2, plan: 3 };
 /** Requests waiting longer than this are dropped: the moment has passed. */
 const STALE_MS = 45_000;
 const MAX_QUEUE = 8;
@@ -216,7 +216,7 @@ export function activate(host: PackMainHost): void {
           const text = await session.prompt(job.request.prompt, {
             grammar,
             maxTokens: MAX_TOKENS[job.request.kind],
-            temperature: job.request.kind === 'reflect' ? 0.6 : 0.85,
+            temperature: job.request.kind === 'reflect' || job.request.kind === 'plan' ? 0.6 : 0.85,
             topP: 0.9,
             signal: AbortSignal.timeout(90_000),
           });
@@ -336,7 +336,7 @@ function readJson<T>(file: string, fallback: T): T {
 function checkRequest(raw: unknown): ThinkRequest | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Partial<ThinkRequest>;
-  const kinds: ThinkKind[] = ['conversation', 'chat', 'reflect'];
+  const kinds: ThinkKind[] = ['conversation', 'chat', 'reflect', 'decide', 'plan'];
   if (!kinds.includes(r.kind as ThinkKind) || !Array.isArray(r.ids) || typeof r.prompt !== 'string') return null;
   if (r.ids.length < 1 || r.ids.length > 4 || !r.ids.every((id) => typeof id === 'string' && CAST.some((c) => c.id === id))) return null;
   if (r.prompt.length > 12_000) return null;

@@ -41,20 +41,29 @@ first if it isn't installed yet, then adds the pack.
 
 **🌅 Photo Real** (`graphics`): makes the game look real. It adds a physically
 based sky with a real sun and clouds, and light reflected from the sky onto
-every surface. Roads get wet and puddles in the rain. Cars get sculpted, rounded
-bodies that follow your garage settings, with clearcoat paint, metal flake,
-brake discs and calipers. It also adds ambient occlusion, soft bloom, street
-lamps that light the road at night, headlights, and a camera lens with
-film-style looks and photo-mode depth of field.
+every surface. Roads get wet and puddles in the rain. Cars get real, detailed
+car bodies with no badges or logos (by Daniel Zhabotinsky, CC BY 4.0), shaped
+and painted by your garage settings, with clearcoat paint, metal flake, brake
+discs and calipers; the Packs tab can switch them back to sculpted bodies. It
+also adds ambient occlusion, soft bloom, street lamps that light the road at
+night, headlights that shine beams through the night air and throw shadows,
+raindrops on the lens, and a camera lens with film-style looks and photo-mode
+depth of field.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
 ```
 
-**🧪 Real Physics** (`physics`): realistic driving. Each of the four tyres has
-real grip curves. Weight shifts under braking and cornering. The engine has a
-torque curve and gears, and every surface has its own grip. Glancing crashes
-spin the car and dent it, and a telemetry panel shows the tyres at work.
+**🧪 Real Physics** (`physics`): realistic driving. The body rides on real
+springs, dampers and anti-roll bars, so it dives under braking, leans in
+corners and bounces over kerbs, and the weight on each tyre moves with it.
+Each of the four tyres has real grip curves, warms up as you push and wears
+as it slides. Each kind of engine has its own torque curve, and turbos lag.
+Gear changes take a moment, and limited-slip differentials put the power
+down. Hard-used brakes fade, and every surface has its own grip. Crashes spin
+the car, dent it, and can hurt the engine or bend a wheel and the steering.
+There are realism levels from Friendly to Simulation. A telemetry panel shows
+it all at work, and a controller rumbles as the tyres slide.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
@@ -69,6 +78,17 @@ meet again, which they keep. Over time they change: they form beliefs, pick up
 habits, make friends and hold grudges, and write their own life stories. Among
 them are GUY, the cheerful bank teller in the blue shirt, and his best friend
 BUDDY, a police officer who goes everywhere with him and writes you tickets.
+
+They're free to do what they like. Each has a goal and a plan for the day, and
+private thoughts (💭) you can read in the journal. They choose for themselves
+what to do next, whether that's lunch, a drive across town in their car, giving
+a friend a lift, getting up to mischief or texting you. BUDDY drives a police
+car with lights and a siren, and GUY rides along. If BUDDY decides you've gone
+too far, he comes after you: he rams you and fires the roof gun, and a wanted
+level shows how much trouble you're in. Lose him to escape, or pull over and
+pay the fine. Everyone remembers the chase. People also wave you down for
+lifts and tip you when you drop them off. On Saturday nights the whole city
+throws a street party in the park. You can turn chases off in the Packs tab.
 
 Their conversations and thoughts are written by a free, open-source AI model
 (Qwen3.5, Apache 2.0) that runs on your own computer through

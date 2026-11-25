@@ -9,7 +9,7 @@
 // trimmed before the city uses it.
 import { castMember, EMOTIONS, PLACE_KINDS, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName } from './cast';
 import { feelingWord, friendship, moodWord, recall, traitWords, type Mind } from './mind';
-import type { ThinkKind, ThinkResponse } from './protocol';
+import { ACTIONS, POLICE_ACTIONS, type Action, type ThinkKind, type ThinkResponse } from './protocol';
 
 /** A person as the brain sees them. */
 export interface Person {
@@ -18,6 +18,8 @@ export interface Person {
   /** Where they are ("the coffee cart") and what they're up to. */
   where: string;
   doing: string;
+  /** How the driver is talking to them: pulled up beside them, on the phone, or giving them a ride. */
+  contact?: 'beside' | 'phone' | 'passenger';
 }
 
 /** The moment: time of day, what's been happening, who the driver is. */
@@ -25,6 +27,8 @@ export interface Moment {
   now: number;
   /** The time in the city, in words ("Tuesday, late afternoon"). */
   time: string;
+  /** The hour of the day, 0..24. */
+  hour: number;
   /** The player's car, in words ("a red sports car"). */
   car: string;
   /** Things that happened in the city lately, newest first. */
@@ -72,10 +76,41 @@ export interface ReflectResult {
   ai: boolean;
 }
 
+/** What's going on when someone decides what to do next. */
+export interface Situation {
+  /** Why they're deciding now ("just finished at the diner", "the driver just smashed a car in front of you"). */
+  why: string;
+  /** Who's around (names). */
+  nearby: string[];
+  /** For the police officer: what the driver has done lately, and how bad it is (0 nothing .. 5 terrible). */
+  crimes?: { list: string[]; heat: number };
+}
+
+/** What someone chose to do. */
+export interface Decision {
+  thought: string;
+  goal: string;
+  action: Action;
+  place: PlaceKind | 'home' | null;
+  /** A cast id, 'driver', or null. */
+  person: string | null;
+  say: string;
+  ai: boolean;
+}
+
+/** Someone's plan for the day. */
+export interface DayPlanResult {
+  goal: string;
+  plan: { hour: number; place: PlaceKind | 'home'; what: string }[];
+  ai: boolean;
+}
+
 export interface Brain {
   conversation(a: Person, b: Person, moment: Moment): Promise<ConversationResult>;
   chat(person: Person, said: string, moment: Moment): Promise<ChatResult>;
   reflect(person: Person, moment: Moment): Promise<ReflectResult>;
+  decide(person: Person, moment: Moment, situation: Situation): Promise<Decision>;
+  plan(person: Person, moment: Moment): Promise<DayPlanResult>;
 }
 
 const IMPORTANCE: Record<string, number> = { low: 3, medium: 5, high: 8 };
@@ -154,12 +189,19 @@ export class LocalBrain implements Brain {
       .slice(-6)
       .map((c) => `The driver: "${c.you}"\n${member.name}: "${c.them}"`)
       .join('\n');
+    const contact = person.contact ?? 'beside';
+    const opening =
+      contact === 'phone'
+        ? `The driver calls ${member.name} on the phone and says`
+        : contact === 'passenger'
+          ? `${member.name} is riding in the driver's car, and the driver says`
+          : `The driver pulls up next to ${member.name} and says`;
     const prompt = [
-      scene(moment, person.where, true),
+      scene(moment, person.where, contact !== 'phone'),
       describe(person, moment, ['driver']),
       `How ${member.name} sees the driver: ${friendship(mind)}${mind.driverName ? `, knows them as ${mind.driverName}` : ''}. They have talked ${mind.met.driver ?? 0} time${mind.met.driver === 1 ? '' : 's'}.`,
       history ? `Their last talks:\n${history}` : 'They have never talked before.',
-      `The driver pulls up next to ${member.name} and says: "${said.slice(0, 300)}"\n\n` +
+      `${opening}: "${said.slice(0, 300)}"\n\n` +
         `Write ${member.name}'s reply: at most 2 short sentences, in their own voice, shaped by their mood, their feelings about the driver and what they remember (they may bring up something they remember, ask the driver something back, or invite the driver somewhere). ` +
         'Say how their opinion of the driver changes, and what they will remember about this talk. If the driver said their own name, give it as driverName; otherwise "".',
     ].join('\n\n');
@@ -200,6 +242,73 @@ export class LocalBrain implements Brain {
       ai: true,
     };
   }
+
+  async decide(person: Person, moment: Moment, situation: Situation): Promise<Decision> {
+    const { member, mind } = person;
+    const police = member.id === 'buddy';
+    // The police officer's own choices first when the driver has been up to something.
+    const actions = police ? (situation.crimes ? [...POLICE_ACTIONS, ...ACTIONS] : [...ACTIONS, ...POLICE_ACTIONS]) : [...ACTIONS];
+    const step = currentStep(mind, moment);
+    const prompt = [
+      scene(moment, person.where, false),
+      describe(person, moment, []),
+      mind.goal ? `${member.name}'s goal: ${mind.goal}` : `${member.name} has no particular goal yet.`,
+      mind.plan.length ? `Their plan for today: ${mind.plan.map((p) => `${p.hour}:00 ${p.what} (${p.place})`).join('; ')}.${step ? ` Right now the plan says: ${step.what}.` : ''}` : '',
+      situation.nearby.length ? `Nearby: ${situation.nearby.slice(0, 6).join(', ')}.` : 'Nobody they know is nearby.',
+      situation.crimes ? `What the driver has done lately: ${situation.crimes.list.slice(0, 5).join('; ') || 'nothing much'}. How serious it is: ${situation.crimes.heat} out of 5.` : '',
+      `Now: ${situation.why}`,
+      `${member.name} decides freely what to do next: whatever they truly want, from these actions: ${actions.join(', ')}. ` +
+        'Give their honest private thought, their goal (or "" to keep it), the action, the place and person it needs (or "none"), and anything they say out loud ("" for nothing).' +
+        (police && situation.crimes
+          ? ' As the police officer, they choose for themselves what the driver deserves: "chase the driver down" (siren on, after them in the police car), "ticket the driver", or "let it go".'
+          : ''),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const data = (await this.ask('decide', [member.id], prompt)) as { thought?: string; goal?: string; action?: string; place?: string; person?: string; say?: string } | null;
+    if (!data?.action || !actions.includes(data.action as Action)) return this.fallback.decide(person, moment, situation);
+    const place = data.place === 'home' ? 'home' : PLACE_KINDS.includes(data.place as PlaceKind) ? (data.place as PlaceKind) : null;
+    const who = data.person && data.person !== 'none' && data.person !== member.id && (data.person === 'driver' || castMember(data.person)) ? data.person : null;
+    return {
+      thought: unquote(String(data.thought ?? '')).slice(0, 200),
+      goal: String(data.goal ?? '').slice(0, 140),
+      action: data.action as Action,
+      place,
+      person: who,
+      say: short(unquote(String(data.say ?? ''))),
+      ai: true,
+    };
+  }
+
+  async plan(person: Person, moment: Moment): Promise<DayPlanResult> {
+    const { member, mind } = person;
+    const prompt = [
+      describe(person, moment, []),
+      mind.goal ? `Their goal so far: ${mind.goal}` : '',
+      `It's ${moment.time}. ${member.name} plans their day, freely: what they want from today, given who they are, their job (${member.job ?? 'none'}), their friends, their feelings and their memories. ` +
+        'Give their goal (a sentence: what they are working towards these days, kept or changed) and 3 to 6 steps, each from an hour of the day: where, and what they will do there (a few words).',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const data = (await this.ask('plan', [member.id], prompt)) as { goal?: string; plan?: { hour: string; place: string; what: string }[] } | null;
+    if (!data?.plan?.length) return this.fallback.plan(person, moment);
+    return {
+      goal: String(data.goal ?? '').slice(0, 140),
+      plan: data.plan
+        .map((p) => ({ hour: Number(p.hour), place: (p.place === 'home' ? 'home' : p.place) as PlaceKind | 'home', what: String(p.what).slice(0, 60) }))
+        .filter((p) => Number.isFinite(p.hour) && (p.place === 'home' || PLACE_KINDS.includes(p.place)))
+        .sort((a, b) => a.hour - b.hour),
+      ai: true,
+    };
+  }
+}
+
+/** The step of their day plan they're on now, if any. */
+export function currentStep(mind: Mind, moment: Moment): Mind['plan'][number] | null {
+  const hour = moment.hour;
+  let step: Mind['plan'][number] | null = null;
+  for (const p of mind.plan) if (p.hour <= hour) step = p;
+  return step;
 }
 
 /** The time and place, where the driver is, and the latest news. */
@@ -232,6 +341,7 @@ function describe(person: Person, moment: Moment, about: string[]): string {
     mind.story ? `Their life so far: ${mind.story}` : '',
     mind.insights.length ? `Believes: ${mind.insights.slice(-3).join(' ')}` : '',
     mind.habits.length ? `Habits: ${mind.habits.join('; ')}.` : '',
+    mind.thoughts.length ? `Lately thinking: ${mind.thoughts.slice(-2).join(' ')}` : '',
     feelings.length ? `${member.name} ${feelings.join(', ')}.` : '',
     `Right now: ${person.doing}, feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}${needsWords(mind)}.`,
     memories.length ? `${member.name} remembers:\n${memories.join('\n')}` : '',
@@ -368,4 +478,43 @@ export class RuleBrain implements Brain {
       ai: false,
     };
   }
+
+  async decide(person: Person, moment: Moment, situation: Situation): Promise<Decision> {
+    const { mind } = person;
+    const n = mind.needs;
+    const decision = (action: Action, thought: string, extra: Partial<Decision> = {}): Decision => ({ thought, goal: '', action, place: null, person: null, say: '', ai: false, ...extra });
+    // The police officer: how bad has the driver been?
+    if (situation.crimes) {
+      const heat = situation.crimes.heat;
+      const soft = (mind.feelings.driver ?? 0) > 0.55;
+      if (heat >= (soft ? 4 : 3)) return decision('chase the driver down', 'That driver has gone too far this time.', { say: pick(['Pull over! Now!', "That's it, you're nicked!", 'Stop right there!']) });
+      if (heat >= 2) return decision('ticket the driver', 'Time somebody wrote that driver a ticket.');
+      return decision('let it go', "Not worth the paperwork. Yet.");
+    }
+    if (n.food < 0.3) return decision('eat', "I'm starving.", { place: pick(['diner', 'bakery', 'coffee'] as const) });
+    if (n.rest < 0.25) return decision(moment.hour >= 20 ? 'go home' : 'rest', 'I can barely keep my eyes open.', { place: moment.hour >= 20 ? 'home' : 'park' });
+    if (n.social < 0.3) {
+      const friend = Object.entries(mind.feelings).filter(([id, v]) => id !== 'driver' && v > 0.4).sort((a, b) => b[1] - a[1])[0];
+      if (friend) return decision('find someone', `I miss ${castMember(friend[0])?.name ?? 'my friend'}.`, { person: friend[0] });
+    }
+    // Mischief, now and then, for the prickly and the bored.
+    if (mind.traits.kindness < 0.4 && n.fun < 0.5 && Math.random() < 0.15) return decision('get up to mischief', 'Nobody is watching. Probably.');
+    // Friends of the driver send a message sometimes.
+    if ((mind.feelings.driver ?? 0) > 0.45 && Math.random() < 0.08) {
+      return decision('text the driver', 'I wonder what the driver is up to.', { say: pick(['Hey! Fancy meeting at the diner later?', 'Saw you fly past earlier. Show-off!', 'Come by and say hi sometime!']) });
+    }
+    return decision('carry on', pick(['Same as always.', 'Not a bad day.', `I wonder what's going on at ${person.where}.`]));
+  }
+
+  async plan(person: Person): Promise<DayPlanResult> {
+    const { member, mind } = person;
+    const likes = Object.entries(mind.likes).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([k]) => k as PlaceKind);
+    const fun = likes.find((k) => k !== member.job) ?? 'park';
+    const plan: DayPlanResult['plan'] = [{ hour: 7, place: 'coffee', what: 'grab a coffee' }];
+    if (member.job) plan.push({ hour: 9, place: member.job, what: 'work' }, { hour: 12, place: 'diner', what: 'lunch' }, { hour: 13, place: member.job, what: 'back to work' });
+    else plan.push({ hour: 10, place: fun, what: 'spend the morning' }, { hour: 12, place: 'bakery', what: 'lunch' });
+    plan.push({ hour: 18, place: fun, what: 'unwind' }, { hour: 22, place: 'home', what: 'head home' });
+    return { goal: mind.goal || `Make the most of ${member.job ? 'work and ' : ''}the city.`, plan, ai: false };
+  }
+
 }

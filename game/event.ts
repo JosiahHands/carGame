@@ -240,7 +240,7 @@ export class EventRun {
     const track = this.track;
     if (!track) {
       const s = this.world.spawn;
-      this.me.physics.reset(s.x, s.z, s.heading);
+      this.me.physics.reset(s.x, s.z, s.heading, true);
       return;
     }
     const edge = track.style.width / 2;
@@ -249,7 +249,7 @@ export class EventRun {
     order.forEach((r, i) => {
       const along = -10 - Math.floor(i / 2) * 9 - (i % 2) * 4;
       const offset = order.length === 1 ? 0 : (i % 2 === 0 ? 1 : -1) * edge * 0.4;
-      this.placeOnTrack(r, along, offset);
+      this.placeOnTrack(r, along, offset, true);
       r.distance = along;
       r.along = ((along % track.length) + track.length) % track.length;
     });
@@ -259,10 +259,11 @@ export class EventRun {
     }
   }
 
-  private placeOnTrack(r: Racer, along: number, offset: number): void {
+  /** `fresh`: lining up for a new start, rather than putting a car back on the track. */
+  private placeOnTrack(r: Racer, along: number, offset: number, fresh = false): void {
     const track = this.track!;
     const p = track.pose(along, offset);
-    r.physics.reset(p.x, p.z, p.heading);
+    r.physics.reset(p.x, p.z, p.heading, fresh);
     r.physics.y = this.world.heightAt(p.x, p.z);
     r.offset = offset;
   }

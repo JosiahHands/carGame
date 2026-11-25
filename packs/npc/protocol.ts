@@ -5,7 +5,32 @@
 // Electron code here).
 import { CAST, EMOTIONS, PLACE_KINDS, TRAIT_NAMES } from './cast';
 
-export type ThinkKind = 'conversation' | 'chat' | 'reflect';
+export type ThinkKind = 'conversation' | 'chat' | 'reflect' | 'decide' | 'plan';
+
+/** What anyone can choose to do next (the AI picks one, with a place and a person where it needs them). */
+export const ACTIONS = [
+  'carry on',
+  'go somewhere',
+  'find someone',
+  'go home',
+  'wander',
+  'drive somewhere',
+  'give someone a lift',
+  'follow someone',
+  'avoid someone',
+  'work',
+  'eat',
+  'rest',
+  'get up to mischief',
+  'text the driver',
+  'report the driver to the police',
+] as const;
+/** What the police officer can also choose (about the driver, or a drive with GUY in the police car). */
+export const POLICE_ACTIONS = ['chase the driver down', 'ticket the driver', 'let it go', 'go for a drive with GUY'] as const;
+export type Action = (typeof ACTIONS)[number] | (typeof POLICE_ACTIONS)[number];
+
+/** Hours a day plan can use. */
+export const PLAN_HOURS = ['6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23'];
 
 export interface ThinkRequest {
   kind: ThinkKind;
@@ -88,11 +113,13 @@ export interface AiStatus {
 export function systemPrompt(): string {
   return `You bring to life the people of a small, sunny city in a driving game. They are ordinary people living ordinary days: working, eating, meeting friends, gossiping, worrying, dreaming. Fast cars race through their streets; the person driving the player's car is "the driver". To them this is simply their city and their life.
 
+They are free. They choose their own goals and change their minds, keep honest private thoughts about anything, like or dislike whoever they want, and do whatever they want among the things they can do: even bend the rules, make mischief, or chase the driver if they are the police.
+
 Rules:
 - Stay true to each person: their personality, way of talking, mood, beliefs, feelings and memories. Let them change slowly and surprise a little.
 - Spoken lines are short and natural, like real people: at most 20 words each.
 - Write in plain English.
-- Family-friendly. No real brands, films, celebrities or real people.
+- No sexual content and no slurs. No real brands, films, celebrities or real people.
 - Never mention being an AI, a game or a simulation.
 - Call the player "the driver", or by their name if the person knows it. Nobody knows whether the driver is a man or a woman, so say "they".
 - Memories are first person, written by the one remembering, at most 25 words.
@@ -132,6 +159,23 @@ export function schemaFor(kind: ThinkKind, ids: string[]): Record<string, unknow
         direction: oneOf(['up', 'down']),
         habit: { type: 'string', maxLength: 100 },
         story: text(600),
+      });
+    case 'decide':
+      return object({
+        // What's on their mind, honestly (no one else hears it).
+        thought: text(200),
+        // Their goal for now and the days ahead: "" keeps the one they have.
+        goal: { type: 'string', maxLength: 140 },
+        action: oneOf(ids[0] === 'buddy' ? [...POLICE_ACTIONS, ...ACTIONS] : ACTIONS),
+        place: oneOf([...PLACE_KINDS, 'home', 'none']),
+        person: oneOf([...everyone, 'none']),
+        // Something they say out loud as they do it ("" for nothing).
+        say: { type: 'string', maxLength: 120 },
+      });
+    case 'plan':
+      return object({
+        goal: text(140),
+        plan: { type: 'array', minItems: 3, maxItems: 6, items: object({ hour: oneOf(PLAN_HOURS), place: oneOf([...PLACE_KINDS, 'home']), what: text(80) }) },
       });
   }
 }

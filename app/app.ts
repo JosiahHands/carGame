@@ -1543,6 +1543,16 @@ function startPacks(): void {
     inEvent: () => event !== null,
     paused: () => mode !== 'drive' || paused,
     toast,
+    audio,
+    coins: () => career.coins,
+    addCoins: (amount) => {
+      const change = Math.max(-career.coins, Math.round(amount));
+      if (change === 0) return 0;
+      career.coins += change;
+      if (change > 0) career.earned += change;
+      saveCareer(career);
+      return change;
+    },
   }, packOverlay);
   packs.startAll();
 }

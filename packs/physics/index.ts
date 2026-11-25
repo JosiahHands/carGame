@@ -1,21 +1,25 @@
-// 🧪 Real Physics: realistic driving for every car (see model.ts), crashes
-// that spin the car and dent its bodywork, and a telemetry panel that shows
-// the grip at work.
+// 🧪 Real Physics: realistic driving for every car (see model.ts): real
+// suspension, tyres that warm up and wear, an engine with a torque curve and
+// turbo, crashes that spin the car, dent its bodywork and bend its steering,
+// a telemetry panel that shows it all at work, and controller rumble.
 import * as THREE from 'three';
 import { CarPhysics } from '../../game/carPhysics';
 import type { CarRig } from '../../game/carModel';
 import type { GameApi, Pack, PackInstance } from '../../game/packs';
-import { RealisticDynamics, stateOf, type Assists } from './model';
+import { RealisticDynamics, stateOf, type Assists, type Realism } from './model';
+import { Rumble } from './rumble';
 import { Telemetry } from './telemetry';
 
 interface Options {
   grip: 'road' | 'sport' | 'race';
   assists: Assists;
+  realism: Realism;
   telemetry: boolean;
   dents: boolean;
+  rumble: boolean;
 }
 
-const DEFAULTS: Options = { grip: 'sport', assists: 'some', telemetry: true, dents: true };
+const DEFAULTS: Options = { grip: 'sport', assists: 'some', realism: 'real', telemetry: true, dents: true, rumble: true };
 const GRIP = { road: 0.95, sport: 1.2, race: 1.45 };
 
 /** A dent waiting to be pressed into the player's car: where it was hit, in the car's own directions. */
@@ -32,11 +36,12 @@ const pack: Pack = {
   name: 'Real Physics',
   icon: '🧪',
   about:
-    'Realistic driving: four tyres with real grip curves, weight that shifts under braking and cornering, an engine with a torque curve and gears, ' +
-    'and different grip on every surface. Glancing crashes spin the car and dent it, and a telemetry panel shows the tyres at work.',
+    'Realistic driving: a body that leans, dives and bounces on real springs and dampers, four tyres with real grip curves that warm up and wear, ' +
+    'an engine with a torque curve, turbo lag and gear changes, limited-slip differentials, brakes that fade, and different grip on every surface. ' +
+    'Crashes spin the car, dent it and can bend its steering. A telemetry panel shows it all at work, and a controller rumbles as the tyres slide.',
   activate(game: GameApi): PackInstance {
     const options: Options = { ...DEFAULTS, ...game.load<Partial<Options>>('options', {}) };
-    const model = new RealisticDynamics({ grip: GRIP[options.grip], assists: options.assists, player: game.player });
+    const model = new RealisticDynamics({ grip: GRIP[options.grip], assists: options.assists, realism: options.realism, player: game.player });
     const dents: Dent[] = [];
     // Every car's model, and each car's driving state, start fresh.
     const baseImpact = model.impact.bind(model);
@@ -47,12 +52,14 @@ const pack: Pack = {
     CarPhysics.dynamics = model;
     game.player.dynamicsState = null;
     const telemetry = new Telemetry(game.overlay);
+    const rumble = new Rumble();
     const dentedMeshes = new Map<THREE.Mesh, THREE.BufferGeometry>(); // the original shape of each dented part
     let dentedRig: CarRig | null = null;
 
     const save = () => {
       model.options.grip = GRIP[options.grip];
       model.options.assists = options.assists;
+      model.options.realism = options.realism;
       game.save('options', options);
     };
 
@@ -117,7 +124,7 @@ const pack: Pack = {
     };
 
     return {
-      frame() {
+      frame(_dt, realDt) {
         const driving = game.mode() === 'drive';
         // Dents are pressed in outside the physics step (it runs many times a frame).
         const rig = game.playerCar();
@@ -125,8 +132,12 @@ const pack: Pack = {
         else dents.length = 0;
         // The garage always shows the car as new.
         if (!driving && dentedMeshes.size > 0) repair();
+        // ...and in the garage the mechanics fix any damage, fit fresh tyres and let the brakes cool.
+        if (game.mode() === 'garage' || game.mode() === 'menu') model.repair(game.player);
         telemetry.setVisible(driving && options.telemetry && !game.paused());
-        if (driving && options.telemetry) telemetry.draw(stateOf(game.player), game.player, options.grip);
+        if (driving && options.telemetry) telemetry.draw(stateOf(game.player), game.player, options.grip, options.realism);
+        if (driving && options.rumble && !game.paused()) rumble.update(stateOf(game.player), realDt);
+        else rumble.stop();
       },
       settings(panel) {
         panel.choice('Tyre grip', [
@@ -140,6 +151,12 @@ const pack: Pack = {
           { value: 'off', label: 'Off' },
         ], () => options.assists, (v) => ((options.assists = v), save()));
         panel.hint('Driving aids are traction control, ABS and stability control, plus a wheel that helps catch slides. Rivals always have them.');
+        panel.choice('Realism', [
+          { value: 'friendly', label: 'Friendly' },
+          { value: 'real', label: 'Real' },
+          { value: 'sim', label: 'Simulation' },
+        ], () => options.realism, (v) => ((options.realism = v), save()));
+        panel.hint('Friendly: tyres always warm, instant gear changes. Real: tyres warm up and wear, gear changes take a moment, turbo lag, brakes fade when hot, and crashes can damage the engine, wheels and steering. Simulation: cold tyres at the start and harsher damage.');
         panel.choice('Telemetry panel', [
           { value: 'on', label: 'On' },
           { value: 'off', label: 'Off' },
@@ -148,9 +165,14 @@ const pack: Pack = {
           { value: 'on', label: 'On' },
           { value: 'off', label: 'Off' },
         ], () => (options.dents ? 'on' : 'off'), (v) => ((options.dents = v === 'on'), save()));
+        panel.choice('Controller rumble', [
+          { value: 'on', label: 'On' },
+          { value: 'off', label: 'Off' },
+        ], () => (options.rumble ? 'on' : 'off'), (v) => ((options.rumble = v === 'on'), save()));
       },
       dispose() {
         CarPhysics.dynamics = null;
+        rumble.stop();
         repair();
         telemetry.dispose();
       },

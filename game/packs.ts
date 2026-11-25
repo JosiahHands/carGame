@@ -4,9 +4,10 @@
 // stops and removes packs, and keeps a broken pack from breaking the game.
 import type * as THREE from 'three';
 import { bridge } from './bridge';
-import type { CarRig } from './carModel';
+import { liveCars, type CarRig } from './carModel';
 import type { CarPhysics } from './carPhysics';
 import type { Effects } from './effects';
+import type { EngineAudio } from './engineAudio';
 import type { Pedestrians } from './pedestrians';
 import type { Settings } from './settings';
 import type { Traffic } from './traffic';
@@ -97,6 +98,12 @@ export interface GameApi {
   paused(): boolean;
   /** A short message in the middle of the screen. */
   toast(text: string, ms?: number): void;
+  /** The game's sounds (gunshots, explosions...), and its audio context and volume for a pack's own sounds. */
+  readonly audio: EngineAudio;
+  /** The player's career coins. */
+  coins(): number;
+  /** Adds coins to the player's career (or takes them away, for a negative amount; never below 0). Returns the change made. */
+  addCoins(amount: number): number;
   /** A layer over the game for the pack's own labels and panels. */
   overlay: HTMLElement;
   /** Listens for something happening in the game. Returns a function that stops listening. */
@@ -305,7 +312,10 @@ export class PackHost {
     };
     try {
       const instance = pack.activate(game);
-      this.running.set(pack.id, { pack, instance, errors: 0, cleanup });
+      const run: Running = { pack, instance, errors: 0, cleanup };
+      this.running.set(pack.id, run);
+      // Cars built before the pack started (traffic, parked cars, the player's) get its carBuilt too.
+      if (instance.carBuilt) for (const rig of liveCars()) this.guard(run, 'carBuilt', () => instance.carBuilt!(rig));
     } catch (error) {
       console.error(`The ${pack.name} pack failed to start:`, error);
       for (const undo of cleanup) undo();

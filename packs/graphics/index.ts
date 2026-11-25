@@ -2,18 +2,23 @@
 // drifting clouds (and stars at night) that also lights and reflects in
 // everything, soft shadows in every corner (ambient occlusion), glowing
 // lights, filmic colour, detailed ground that gets wet in the rain, street
-// lamps and headlights that really light the road, sculpted car bodies (see
-// carBody.ts) with metal-flake paint, and a lens with grain, vignette and
-// speed blur.
+// lamps and headlights that really light the road (and throw shadows), real
+// car models (realCars.ts) over sculpted car bodies (carBody.ts) with
+// metal-flake paint, headlight beams in the night air (beams.ts), and a lens
+// with grain, vignette, speed blur and raindrops.
 import * as THREE from 'three';
 import type { GameApi, Pack, PackInstance } from '../../game/packs';
+import type { CarRig } from '../../game/carModel';
 import { SkySystem, SUN_HEIGHT, weatherFor, type TimeOfDay } from './sky';
 import { PostFX, type Look, type Quality } from './post';
 import { NightLights } from './lights';
 import { sculptCar, unsculptCars } from './carBody';
+import { realCar, setRealCars, unrealCars } from './realCars';
+import { addBeams, beamStrength, removeBeams } from './beams';
 import { detailGround, dressCar, forgetOldGround, groundUniforms, sharpenTextures, undoGround, undressCars } from './surfaces';
 
 type Tone = 'agx' | 'aces' | 'neutral';
+type OnOff = 'on' | 'off';
 
 interface Options {
   quality: Quality;
@@ -25,6 +30,14 @@ interface Options {
   grain: number;
   aberration: number;
   speedBlur: number;
+  /** Real car models, or the sculpted bodies only. */
+  models: 'real' | 'sculpted';
+  /** Raindrops on the lens when it rains. */
+  lensRain: OnOff;
+  /** How bright the headlight beams in the air are at night (0 for none). */
+  beams: number;
+  /** Whether the player's headlights throw shadows at night. */
+  headlightShadows: OnOff;
 }
 
 const DEFAULTS: Options = {
@@ -37,6 +50,10 @@ const DEFAULTS: Options = {
   grain: 0.25,
   aberration: 0.35,
   speedBlur: 0.5,
+  models: 'real',
+  lensRain: 'on',
+  beams: 0.5,
+  headlightShadows: 'on',
 };
 
 const TONES: Record<Tone, THREE.ToneMapping> = {
@@ -62,7 +79,9 @@ const pack: Pack = {
   about:
     'Makes the game look real: a true sky with drifting clouds and stars that lights and reflects in everything, soft shadows in every corner, ' +
     'glowing lights, filmic colour, detailed roads that shine in the rain, street lamps and headlights that light the road, and a real camera lens. ' +
-    'Every car gets a sculpted body with curved glass, pillars, mirrors and wheel wells, real tyres, brake discs and metal-flake paint, shaped by your garage settings.',
+    'Every car gets a real, detailed car body with no badges or logos, shaped and painted by your garage settings, with real tyres, brake discs and metal-flake paint. ' +
+    'At night, headlights shine beams through the air and throw shadows; in the rain, drops land on the lens. ' +
+    'Car models by Daniel Zhabotinsky (CC BY 4.0), see packs/graphics/models/CREDITS.md.',
   activate(game: GameApi): PackInstance {
     const { renderer, scene, camera, world } = game;
     const options: Options = { ...DEFAULTS, ...game.load<Partial<Options>>('options', {}) };
@@ -87,6 +106,8 @@ const pack: Pack = {
     const sky = new SkySystem(renderer);
     sky.attach(scene);
     const lights = new NightLights(scene);
+    lights.shadows = options.headlightShadows === 'on';
+    let lensRain = 0; // eases in and out as the rain starts and stops
     let post: PostFX | null = null;
     let skyEnv: THREE.Texture | null = null;
     let skyKey = '';
@@ -157,11 +178,20 @@ const pack: Pack = {
       refreshSky();
     };
 
-    // The map that's already loaded, and the player's car as it is now.
+    /** Everything this pack does to a car: sculpted body, then the real model (when loaded), beams, contact shadow. */
+    const dressUp = (rig: CarRig) => {
+      sculptCar(rig);
+      realCar(rig, anisotropy);
+      addBeams(rig);
+      dressCar(rig, (x, z) => world.heightAt(x, z));
+      sharpenTextures(rig.root, anisotropy);
+    };
+
+    // The map that's already loaded. (The cars already built, the player's
+    // among them, come to carBuilt below once the pack has started.)
     detailGround(world.group);
     sharpenTextures(world.group, anisotropy);
-    sculptCar(game.playerCar());
-    dressCar(game.playerCar(), (x, z) => world.heightAt(x, z));
+    setRealCars(options.models === 'real', anisotropy);
     refreshSky();
     buildPost();
 
@@ -179,9 +209,7 @@ const pack: Pack = {
         refreshSky();
       },
       carBuilt(rig) {
-        sculptCar(rig);
-        dressCar(rig, (x, z) => world.heightAt(x, z));
-        sharpenTextures(rig.root, anisotropy);
+        dressUp(rig);
       },
       frame(_dt, realDt) {
         time += realDt;
@@ -193,7 +221,13 @@ const pack: Pack = {
         lights.frame(realDt, world, game.player, camera, night, mode === 'drive');
         const speed = mode === 'drive' ? Math.min(1, game.player.speed / 55) : 0;
         const focus = mode === 'photo' ? camera.position.distanceTo(new THREE.Vector3(game.player.x, game.player.y + 0.8, game.player.z)) : null;
-        post?.set(options, night, speed, focus, time);
+        // Raindrops gather on the lens over a few seconds of rain while driving, and dry off after.
+        const raining = options.lensRain === 'on' && mode === 'drive' && world.theme.weather === 'rain';
+        lensRain = THREE.MathUtils.clamp(lensRain + (raining ? realDt / 4 : -realDt / 2), 0, 1);
+        post?.set(options, night, speed, focus, time, lensRain);
+        // Headlight beams show up more in rain and snow, when the light catches the drops and flakes.
+        const weather = world.theme.weather;
+        beamStrength.value = options.beams * (weather === 'rain' ? 1.8 : weather === 'snow' ? 1.5 : 1);
       },
       render() {
         if (!post) return false;
@@ -230,6 +264,29 @@ const pack: Pack = {
         panel.slider('Film grain', 0, 1, 0.05, () => options.grain, (v) => ((options.grain = v), save()), percent);
         panel.slider('Lens fringing', 0, 1, 0.05, () => options.aberration, (v) => ((options.aberration = v), save()), percent);
         panel.hint('Photo mode focuses on your car and blurs the background, like a real camera.');
+        panel.choice('Car models', [
+          { value: 'real', label: 'Real' },
+          { value: 'sculpted', label: 'Sculpted' },
+        ], () => options.models, (v) => {
+          options.models = v;
+          setRealCars(v === 'real', anisotropy);
+          save();
+        });
+        panel.hint('Real: detailed car bodies with no badges or logos, by Daniel Zhabotinsky (CC BY 4.0). Sculpted: smooth bodies made from your garage shape.');
+        panel.choice('Rain on the lens', [
+          { value: 'on', label: 'On' },
+          { value: 'off', label: 'Off' },
+        ], () => options.lensRain, (v) => ((options.lensRain = v), save()));
+        panel.slider('Light beams', 0, 1, 0.05, () => options.beams, (v) => ((options.beams = v), save()), percent);
+        panel.choice('Headlight shadows', [
+          { value: 'on', label: 'On' },
+          { value: 'off', label: 'Off' },
+        ], () => options.headlightShadows, (v) => {
+          options.headlightShadows = v;
+          lights.shadows = v === 'on';
+          save();
+        });
+        panel.hint('At night, headlights shine beams through the air (brighter in rain and snow), and yours make posts, trees and cars throw shadows.');
       },
       dispose() {
         post?.dispose();
@@ -238,6 +295,8 @@ const pack: Pack = {
         lights.dispose();
         undoGround();
         undressCars(scene);
+        removeBeams(scene);
+        unrealCars();
         unsculptCars(scene);
         renderer.toneMapping = saved.toneMapping;
         renderer.toneMappingExposure = saved.exposure;

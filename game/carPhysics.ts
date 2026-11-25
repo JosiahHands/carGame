@@ -63,7 +63,9 @@ export interface CarDynamics {
   /** The car hit something: (nx, nz) points away from it, at a point `along` metres forward and `across` metres left of the centre. */
   impact?(car: CarPhysics, nx: number, nz: number, along: number, across: number, lost: number): void;
   /** The car was put somewhere new, standing still. */
-  reset?(car: CarPhysics): void;
+  reset?(car: CarPhysics, fresh?: boolean): void;
+  /** After each step: may set the body's lean (roll and bodyPitch) from the model's own suspension. */
+  pose?(car: CarPhysics, dt: number): void;
 }
 
 export class CarPhysics {
@@ -177,7 +179,11 @@ export class CarPhysics {
     this.height = dims.height;
   }
 
-  reset(x: number, z: number, heading: number): void {
+  /**
+   * Puts the car somewhere, standing still. `fresh` is a new start (an
+   * event's grid), rather than putting the same car back on the road.
+   */
+  reset(x: number, z: number, heading: number, fresh = false): void {
     this.x = x;
     this.z = z;
     this.y = 0;
@@ -192,7 +198,7 @@ export class CarPhysics {
     this.gear = 1;
     this.revs = 0;
     this.limiter = false;
-    CarPhysics.dynamics?.reset?.(this);
+    CarPhysics.dynamics?.reset?.(this, fresh);
   }
 
   /** Changes up a gear (manual gearbox). Returns false in top gear. */
@@ -359,6 +365,7 @@ export class CarPhysics {
     const pitchTarget = this.airborne ? 0 : Math.max(-0.06, Math.min(0.06, -longAccel * 0.003));
     this.roll += (rollTarget - this.roll) * Math.min(1, dt * 6);
     this.bodyPitch += (pitchTarget - this.bodyPitch) * Math.min(1, dt * 6);
+    CarPhysics.dynamics?.pose?.(this, dt);
     return events;
   }
 
