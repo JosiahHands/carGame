@@ -75,7 +75,8 @@ export interface CarConfig {
   /**
    * Which roof weapons the car has right now: set by the game when it builds
    * the car you drive (none when weapons are off, what you've bought in the
-   * career), never saved. Left out, both are shown, as in the garage.
+   * career), never saved. Left out, the car has none, so parked cars and
+   * traffic (which can't fire) never carry guns.
    */
   armed?: { gun: boolean; rockets: boolean };
   // Lights, sound and effects

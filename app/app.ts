@@ -299,10 +299,13 @@ let slowMotion = false;
 
 const garage = new GarageUI(config, settings, {
   carChanged(change) {
+    // Leaving the career car for the garage build (even with just a tuning
+    // change) is a different car with its own weapons: it's built again.
+    const switched = driveConfig !== config;
     driveConfig = config;
     roamingInCareerCar = false;
     // A much bigger or smaller car needs the garage camera moved to fit it.
-    const resized = change === 'look' ? rebuildCar() : fitToCar();
+    const resized = change === 'look' || switched ? rebuildCar() : fitToCar();
     if (resized && mode === 'garage') cameraRig.setGarage(true, carPosition(), physics.heading);
     // Save right away: a delayed save is lost if the window closes first.
     saveConfig(config);

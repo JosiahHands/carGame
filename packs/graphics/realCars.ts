@@ -388,6 +388,9 @@ export function unrealCars(): void {
       }
     }
     for (const g of geometries) g.dispose();
+    // The rears made for the exhausts go with their models.
+    for (const slices of rears.values()) for (const g of slices) g.dispose();
+    rears.clear();
     for (const m of materials) {
       for (const value of Object.values(m)) if ((value as THREE.Texture | null)?.isTexture) (value as THREE.Texture).dispose();
       m.dispose();

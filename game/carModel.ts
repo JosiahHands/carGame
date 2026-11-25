@@ -770,11 +770,11 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
 
   // ---------- roof weapons ----------
   // A twin machine gun on the right and a rocket pod on the left: only the
-  // ones the car has (config.armed), so guns on the roof always fire.
+  // ones the car has (config.armed; none if it isn't said), so guns on the roof always fire.
   const gunMuzzle = new THREE.Vector3(0.32, body.position.y + roofTop + 0.2, roofMid + 0.9);
   const rocketMuzzle = new THREE.Vector3(-0.32, body.position.y + roofTop + 0.22, roofMid + 0.55);
-  const roofGun = config.roofGuns && (config.armed?.gun ?? true);
-  const roofPod = config.roofGuns && (config.armed?.rockets ?? true);
+  const roofGun = config.roofGuns && !!config.armed?.gun;
+  const roofPod = config.roofGuns && !!config.armed?.rockets;
   const gunMetal = roofGun || roofPod ? track(new THREE.MeshStandardMaterial({ color: 0x2b2e33, metalness: 0.8, roughness: 0.35 })) : null;
   if (gunMetal) {
     const base = add(new THREE.BoxGeometry(1.0, 0.06, 0.9), blackPlastic);

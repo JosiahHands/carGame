@@ -97,7 +97,7 @@ const MAX_STORY = 700;
 const MAX_INSIGHTS = 6;
 const MAX_HABITS = 4;
 const MAX_THOUGHTS = 8;
-const MAX_RESOLUTIONS = 3;
+const MAX_RESOLUTIONS = 5;
 
 export function newMind(member: CastMember): Mind {
   const feelings: Record<string, number> = { driver: 0 };
@@ -273,12 +273,16 @@ export function setGoal(mind: Mind, goal: string): void {
   if (text.length > 3) mind.goal = text;
 }
 
-/** A standing decision, made for themselves (the oldest goes if there are too many). Returns whether it's new. */
+/**
+ * A standing decision, made for themselves. Returns whether it's new. Only
+ * they can let one go: with no room left, a new one isn't taken until they
+ * drop one (the AI is told so), rather than quietly forgetting the oldest.
+ */
 export function resolve(mind: Mind, now: number, decision: string): boolean {
   const text = decision.replace(/\s+/g, ' ').trim().slice(0, 120);
   if (text.length < 6 || mind.resolutions.some((r) => r.toLowerCase() === text.toLowerCase())) return false;
+  if (mind.resolutions.length >= MAX_RESOLUTIONS) return false;
   mind.resolutions.push(text);
-  if (mind.resolutions.length > MAX_RESOLUTIONS) mind.resolutions.shift();
   remember(mind, now, `I made up my mind: ${text}`, 8, [], 'insight');
   return true;
 }
@@ -312,9 +316,50 @@ const NOT = /\b(no|never|not|won't|wont|don't|dont|stop|stopping|quit|quitting|r
 /** ...unless it's a "never stop" (a will after all). */
 const NEVER_STOP = /\b(never|won't|wont|not|don't|dont)\s+(stop|quit|give up)\b/i;
 
-/** Whether one of their standing decisions rules this kind of thing out. */
-export function forbids(mind: Mind, kind: VowKind): boolean {
-  return mind.resolutions.some((r) => VOW_WORDS[kind].test(r) && NOT.test(r) && !NEVER_STOP.test(r));
+/** Whether they have room for another standing decision. */
+export function roomToResolve(mind: Mind): boolean {
+  return mind.resolutions.length < MAX_RESOLUTIONS;
+}
+
+/** "...unless they're speeding": when that's happening, the decision doesn't hold. */
+const UNLESS = /\b(unless|except|apart from|but not if|but not when)\b/i;
+/** "...if GUY's in the car": the decision only holds when that's happening. */
+const ONLY_IF = /\b(if|when|whenever|while|as long as|so long as)\b/i;
+/** "even if" changes nothing: the decision always holds. */
+const EVEN_IF = /\beven (if|when|though)\b.*$/i;
+/** Words too common to tell what a condition is about. */
+const COMMON = new Set(['the', 'and', 'you', 'are', 'not', 'but', 'for', 'she', 'her', 'his', 'him', 'was', 'who', 'its', 'any', 'all', 'get', 'got', 'one', 'out', 'way', 'they', 'them', 'their', 'theyre', 'driver', 'drivers', 'again', 'really', 'very', 'that', 'this', 'with', 'what', 'there', 'would', 'could', 'should', 'about', 'being', 'going', 'does', 'doing', 'anyone', 'someone', 'something', 'everyone', 'actually', 'start', 'starts', 'keep', 'keeps']);
+
+/**
+ * Roughly whether a condition is happening: whether its words (the first five
+ * letters of each word of three or more, names like GUY included) turn up in
+ * what's going on.
+ */
+function happening(condition: string, context: string): boolean {
+  const text = context.toLowerCase();
+  const words = condition.toLowerCase().replace(/[^a-z\s]/g, '').match(/[a-z]{3,}/g) ?? [];
+  return words.filter((w) => !COMMON.has(w)).some((w) => text.includes(w.slice(0, 5)));
+}
+
+/**
+ * Whether one of their standing decisions rules this kind of thing out right
+ * now. `context` is what's going on (why they're deciding, what the driver
+ * has done, who's around): a decision with a condition ("I won't chase the
+ * driver unless they're speeding") holds or not depending on it. Only the
+ * part before the condition says what's ruled out.
+ */
+export function forbids(mind: Mind, kind: VowKind, context = ''): boolean {
+  return mind.resolutions.some((decision) => {
+    const r = decision.replace(EVEN_IF, '');
+    const unless = UNLESS.exec(r);
+    const onlyIf = unless ? null : ONLY_IF.exec(r);
+    const cut = unless ?? onlyIf;
+    const rule = cut ? r.slice(0, cut.index) : r;
+    if (!VOW_WORDS[kind].test(rule) || !NOT.test(rule) || NEVER_STOP.test(rule)) return false;
+    if (unless) return !happening(r.slice(unless.index + unless[0].length), context);
+    if (onlyIf) return happening(r.slice(onlyIf.index + onlyIf[0].length), context);
+    return true;
+  });
 }
 
 /** Their life story, rewritten after reflecting. */

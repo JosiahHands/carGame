@@ -8,7 +8,7 @@
 // Both return the same things, and everything they return is checked and
 // trimmed before the city uses it.
 import { castMember, EMOTIONS, PLACE_KINDS, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName } from './cast';
-import { feelingWord, forbids, friendship, moodWord, recall, traitWords, type Mind, type VowKind } from './mind';
+import { feelingWord, forbids, friendship, moodWord, recall, roomToResolve, traitWords, type Mind, type VowKind } from './mind';
 import { ACTIONS, POLICE_ACTIONS, type Action, type ThinkKind, type ThinkResponse } from './protocol';
 
 /** A person as the brain sees them. */
@@ -382,7 +382,8 @@ function describe(person: Person, moment: Moment, about: string[]): string {
     mind.insights.length ? `Believes: ${mind.insights.slice(-3).join(' ')}` : '',
     mind.habits.length ? `Habits: ${mind.habits.join('; ')}.` : '',
     mind.resolutions.length
-      ? `Standing decisions ${member.name} has made (their own: they stick to them, unless they change their mind):\n${mind.resolutions.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+      ? `Standing decisions ${member.name} has made (their own: they stick to them, unless they change their mind):\n${mind.resolutions.map((r, i) => `${i + 1}. ${r}`).join('\n')}` +
+        (roomToResolve(mind) ? '' : `\nThat's as many as they can hold: to make a new one, they'd drop one of these first.`)
       : '',
     mind.thoughts.length ? `Lately thinking: ${mind.thoughts.slice(-2).join(' ')}` : '',
     feelings.length ? `${member.name} ${feelings.join(', ')}.` : '',
@@ -576,7 +577,7 @@ export class RuleBrain implements Brain {
   async decide(person: Person, moment: Moment, situation: Situation): Promise<Decision> {
     const d = this.choose(person, moment, situation);
     const kind = VOW_FOR[d.action];
-    return kind && forbids(person.mind, kind) ? ruleDecision('carry on', "No. I made my mind up about that.") : d;
+    return kind && forbids(person.mind, kind, contextOf(situation)) ? ruleDecision('carry on', "No. I made my mind up about that.") : d;
   }
 
   private choose(person: Person, moment: Moment, situation: Situation): Decision {
@@ -587,7 +588,7 @@ export class RuleBrain implements Brain {
     const chase = situation.chase;
     if (chase) {
       const fond = (mind.feelings.driver ?? 0) > 0.3;
-      const why = forbids(mind, 'chase')
+      const why = forbids(mind, 'chase', contextOf(situation))
         ? 'I said I was done with chases. I meant it.'
         : chase.hurt > 0.6
           ? "The car can't take much more of this."
@@ -605,8 +606,8 @@ export class RuleBrain implements Brain {
     if (situation.crimes) {
       const heat = situation.crimes.heat;
       const soft = (mind.feelings.driver ?? 0) > 0.55;
-      const chases = !forbids(mind, 'chase');
-      const tickets = !forbids(mind, 'ticket');
+      const chases = !forbids(mind, 'chase', contextOf(situation));
+      const tickets = !forbids(mind, 'ticket', contextOf(situation));
       if (heat >= (soft ? 4 : 3) && chases) return decision('chase the driver down', 'That driver has gone too far this time.', { say: pick(['Pull over! Now!', "That's it, you're nicked!", 'Stop right there!']) });
       if (heat >= 2 && tickets) return decision('ticket the driver', 'Time somebody wrote that driver a ticket.');
       return decision('let it go', chases && tickets ? 'Not worth the paperwork. Yet.' : "I made my mind up about that. I'm sticking to it.");
@@ -639,4 +640,9 @@ export class RuleBrain implements Brain {
     return { goal: mind.goal || `Make the most of ${member.job ? 'work and ' : ''}the city.`, plan, ai: false };
   }
 
+}
+
+/** What's going on, in words, for standing decisions with conditions ("unless they're speeding"). */
+function contextOf(situation: Situation): string {
+  return [situation.why, ...(situation.crimes?.list ?? []), ...situation.nearby].join(' ');
 }

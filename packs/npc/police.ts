@@ -26,6 +26,8 @@ const POLICE_CONFIG: CarConfig = {
   plate: 'POLICE',
   raceNumber: 0,
   roofGuns: true,
+  // BUDDY's roof gun fires (he has no rockets).
+  armed: { gun: true, rockets: false },
   bullBar: true,
   underglow: 'off',
   boostTrail: 'smoke',

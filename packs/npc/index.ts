@@ -302,6 +302,12 @@ const pack: Pack = {
     const talks: Talk[] = []; // conversations overheard, newest first
     /** Switched off: answers still on their way are ignored. */
     let disposed = false;
+    /**
+     * Which city this is: it goes up whenever a saved city is loaded or the
+     * city is reset. An AI answer asked for in an older city is thrown away,
+     * so nothing from before a reset (a chase, a text, a memory) leaks into it.
+     */
+    let era = 0;
 
     // ---------- the local AI ----------
     let ai: AiStatus | null = null; // null: not in the desktop game
@@ -686,12 +692,13 @@ const pack: Pack = {
         aiDecides++;
         lastAiDecide = clock;
       }
+      const asked = era;
       void brain
         .decide(person(npc), moment(), situation)
         .catch(() => rules.decide(person(npc), moment(), situation))
         .then((d) => {
           if (brain === local) aiDecides--;
-          if (disposed || !npc.thinking) return;
+          if (disposed || era !== asked || !npc.thinking) return;
           npc.thinking = false;
           act(npc, d);
         });
@@ -903,13 +910,14 @@ const pack: Pack = {
       const brain = thinking ? local : rules;
       npc.planning = true;
       if (brain === local) aiPlans++;
+      const asked = era;
       void brain
         .plan(person(npc), moment())
         .catch(() => rules.plan(person(npc), moment()))
         .then((result) => {
           if (brain === local) aiPlans--;
           npc.planning = false;
-          if (disposed) return;
+          if (disposed || era !== asked) return;
           npc.mind.planDay = day;
           npc.mind.plan = result.plan.slice(0, 8);
           if (result.goal) setGoal(npc.mind, result.goal);
@@ -1070,13 +1078,14 @@ const pack: Pack = {
       officer.thinking = true;
       if (brain === local) aiDecides++;
       const situation: Situation = { why, nearby: nearbyNames(officer), crimes: crime || heat >= 0.5 ? { list: crimes.slice(0, 5), heat: Math.round(heat) } : undefined };
+      const asked = era;
       void brain
         .decide(person(officer), moment(), situation)
         .catch(() => rules.decide(person(officer), moment(), situation))
         .then((d) => {
           if (brain === local) aiDecides--;
           officer.thinking = false;
-          if (disposed || !active) return;
+          if (disposed || era !== asked || !active) return;
           act(officer, d);
         });
     };
@@ -1181,7 +1190,7 @@ const pack: Pack = {
       const officer = byId.get(OFFICER);
       if (!officer || officer.asleep || officer.inCar || officer.trip || officer.chatting || chase || npc === officer) return;
       if (officer.plan.kind !== 'follow' || officer.plan.who !== PARTNER || Math.hypot(officer.x - npc.x, officer.z - npc.z) > 400) return;
-      if (forbids(officer.mind, 'ticket') || (officer.mind.feelings[npc.member.id] ?? 0) > 0.8) {
+      if (forbids(officer.mind, 'ticket', `${npc.member.name} ${what}`) || (officer.mind.feelings[npc.member.id] ?? 0) > 0.8) {
         remember(officer.mind, clock, `Heard ${npc.member.name} ${what} at ${place.label}. Let it slide.`, 3, [npc.member.id], 'heard');
         return;
       }
@@ -1716,12 +1725,13 @@ const pack: Pack = {
       const brain = brainFor(a);
       if (brain === local) aiTalks++;
       const where = placeName(a.x, a.z);
+      const asked = era;
       void brain
         .conversation(person(a), person(b), moment())
         .catch(() => rules.conversation(person(a), person(b), moment()))
         .then((result) => {
           if (brain === local) aiTalks--;
-          if (disposed || a.convo !== convo) return; // switched off, or interrupted while thinking
+          if (disposed || era !== asked || a.convo !== convo) return; // switched off, or interrupted while thinking
           hear(a, b, result, where);
           convo.lines = result.lines.length ? result.lines : [{ speaker: a.member.id, text: 'Hi!', emotion: 'happy' }];
           convo.next = clock;
@@ -1820,13 +1830,14 @@ const pack: Pack = {
       npc.reflecting = true;
       npc.lastReflect = clock;
       if (brain === local) aiReflects++;
+      const asked = era;
       void brain
         .reflect(person(npc), moment())
         .catch(() => rules.reflect(person(npc), moment()))
         .then((result) => {
           if (brain === local) aiReflects--;
           npc.reflecting = false;
-          if (disposed) return;
+          if (disposed || era !== asked) return;
           npc.mind.pending = 0;
           for (const insight of result.insights) addInsight(npc.mind, clock, insight);
           if (result.trait) nudge(npc.mind, result.trait.name, result.trait.up, 0.04);
@@ -1857,8 +1868,9 @@ const pack: Pack = {
     const chat = buildChat(game, {
       send: async (npc: Npc, said: string) => {
         const brain: Brain = ai?.state === 'ready' ? local : rules;
+        const asked = era;
         const result = await brain.chat(person(npc), said, moment()).catch(() => rules.chat(person(npc), said, moment()));
-        if (disposed) return result.reply;
+        if (disposed || era !== asked) return result.reply;
         const mind = npc.mind;
         if (result.driverName) mind.driverName = result.driverName;
         // A talk can change their mind for good (it's up to them).
@@ -2716,6 +2728,7 @@ const pack: Pack = {
     /** Takes in a saved city (from the data folder, or from older versions that kept it in the browser storage). */
     const restore = (saved: Partial<Saved> | null) => {
       if (!saved || typeof saved !== 'object') return;
+      era++;
       clock = typeof saved.clock === 'number' && Number.isFinite(saved.clock) ? saved.clock : 0;
       tickets = typeof saved.tickets === 'number' ? saved.tickets : 0;
       // Version 3 additions (an older city starts with a clean record).
@@ -2811,6 +2824,7 @@ const pack: Pack = {
           resetCity: () => {
             for (const convo of new Set(npcs.map((n) => n.convo).filter((c): c is Convo => !!c))) endTalk(convo);
             chat.hide();
+            if (chase) endChase('off');
             // The clock starts again, so everything timed by it starts again too.
             restore({ clock: 0, tickets: 0, meetups: [], news: [], talks: [], minds: {}, heat: 0, crimes: [], messages: [] });
             lastTicket = -Infinity;
