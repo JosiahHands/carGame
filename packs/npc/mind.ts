@@ -12,6 +12,7 @@
 // They also learn, in a simple way, which places they enjoy: each visit
 // either lifts their mood or doesn't, and they come back to the ones that do.
 import { CAST, TRAIT_NAMES, type CastMember, type Emotion, type PlaceKind, type TraitName, type Traits } from './cast';
+import { MAX_RESOLUTIONS } from './protocol';
 
 export interface Memory {
   /** When, in city time (seconds the city has been running). */
@@ -97,7 +98,6 @@ const MAX_STORY = 700;
 const MAX_INSIGHTS = 6;
 const MAX_HABITS = 4;
 const MAX_THOUGHTS = 8;
-const MAX_RESOLUTIONS = 5;
 
 export function newMind(member: CastMember): Mind {
   const feelings: Record<string, number> = { driver: 0 };

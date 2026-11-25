@@ -132,8 +132,10 @@ Rules:
 }
 
 const IMPORTANCE = ['low', 'medium', 'high'];
-/** Their standing decisions: kept (the usual), or one dropped because they've truly changed their mind. */
-export const RELEASE = ['keep them all', 'drop 1', 'drop 2', 'drop 3'];
+/** How many standing decisions someone can hold at once. */
+export const MAX_RESOLUTIONS = 5;
+/** Their standing decisions: kept (the usual), or one dropped because they've truly changed their mind (any of them). */
+export const RELEASE = ['keep them all', ...Array.from({ length: MAX_RESOLUTIONS }, (_, i) => `drop ${i + 1}`)];
 
 /** The shape of the answer for each kind of request. */
 export function schemaFor(kind: ThinkKind, ids: string[]): Record<string, unknown> {
