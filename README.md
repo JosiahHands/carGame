@@ -253,7 +253,8 @@ each finished career).
 
 **Quick race** lets you pick any event, venue, track, number of laps and rivals,
 and a difficulty from Easy to Insane. Drive any car: your garage build, any career
-car (stock or fully upgraded), or a showcase build. Rivals get cars as quick as yours.
+car (stock or fully upgraded), or a showcase build. Rivals get cars as quick as yours,
+or pick their top speed yourself, from 60 to 1,000 mph.
 
 ## Skills, XP and rewards
 
