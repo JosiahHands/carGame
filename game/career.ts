@@ -8,7 +8,7 @@
 // time you finish the career and start again ("reset"), coins pay 25% more.
 // Weapons are bought too (about 50,000 for all three, fully upgraded): a
 // career starts with none, and each one unlocks further into the career.
-import { DEFAULT_CONFIG, PAINT_SWATCHES, cloneConfig, type BodyShape, type CarConfig, type SpoilerStyle, type Topper, type Tuning } from './carConfig';
+import { DEFAULT_CONFIG, PAINT_SWATCHES, RANGES, cloneConfig, type BodyShape, type CarConfig, type SpoilerStyle, type Topper, type Tuning } from './carConfig';
 import type { EventKind, EventSpec } from './event';
 import { RIVAL_NAMES, type RivalSpec } from './rivals';
 import { seededRandom } from '../libs/random';
@@ -824,18 +824,34 @@ export interface QuickRaceOptions {
   difficulty: number;
   /** The player's car: the rivals get the same performance, scaled by the difficulty. */
   car: CarConfig;
+  /** The rivals' top speed in mph, or 0 to match the player's car (scaled by the difficulty). */
+  rivalTopSpeed: number;
   night: boolean;
   weapons: boolean;
 }
 
-/** A quick race: everything chosen by the player. The rivals drive cars as quick as the player's. */
+/** The rivals' top speeds a quick race offers, in mph (0 matches the player's car). */
+export const RIVAL_TOP_SPEEDS = [0, 60, 90, 120, 150, 200, 300, 500, 1000];
+
+/**
+ * A quick race: everything chosen by the player. The rivals drive cars like
+ * the player's, at the top speed the player picked: the player's own (scaled
+ * by the difficulty) unless another one is chosen.
+ */
 export function quickRaceSpec(o: QuickRaceOptions): EventSpec {
   const d = DIFFICULTIES[o.difficulty];
   const rand = seededRandom(Date.now() % 1e9);
+  const mine = o.car.tuning.topSpeed;
+  const top = o.rivalTopSpeed > 0 ? o.rivalTopSpeed : mine * d.power;
+  // Horsepower follows the top speed, so a rival given a faster car than
+  // yours also pulls hard enough to reach it, and a slower one doesn't
+  // out-accelerate you.
   const rivalTuning: Tuning = {
     ...o.car.tuning,
-    horsepower: o.car.tuning.horsepower * d.power,
-    topSpeed: o.car.tuning.topSpeed * d.power,
+    horsepower: o.rivalTopSpeed > 0
+      ? Math.min(RANGES.horsepower[1], Math.max(RANGES.horsepower[0], (o.car.tuning.horsepower * top) / mine))
+      : o.car.tuning.horsepower * d.power,
+    topSpeed: top,
     jump: 0, gravity: 1, infiniteNitro: false,
   };
   const looks = () => {

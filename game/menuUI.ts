@@ -5,7 +5,7 @@ import { button, el } from '../libs/dom';
 import {
   BOSS_STARS, CHAPTERS, CHASSIS, DIFFICULTIES, LEVELS, UPGRADES, WEAPON_SHOP, WEAPON_UPGRADE_ABOUT,
   awaitingChoice, buyWeapon, careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
-  quickRaceSpec, resetCareer, today, totalStars, upgradeCap, upgradeCost, weaponCost, weaponLockedReason,
+  quickRaceSpec, resetCareer, RIVAL_TOP_SPEEDS, today, totalStars, upgradeCap, upgradeCost, weaponCost, weaponLockedReason,
   type CareerSave, type Level, type Payout, type UpgradeId,
 } from './career';
 import { MAX_WEAPON_LEVEL } from './weapons';
@@ -48,7 +48,7 @@ export class MenuUI {
   private tab: CareerTab = 'Levels';
   private quick = {
     kind: 'race' as EventKind, map: 'circuit' as MapName, layout: 0, laps: 3, rivals: 5, difficulty: 1,
-    car: 'garage', night: false, weapons: false,
+    car: 'garage', night: false, weapons: false, rivalTopSpeed: 0,
   };
 
   constructor(
@@ -595,11 +595,20 @@ export class MenuUI {
     }
     const cars = this.quickCars();
     choice('Your car', cars.map((c) => ({ value: c.id, label: c.label })), () => q.car, (v) => (q.car = v));
+    const rivals = ['race', 'duel', 'elimination', 'takedown'].includes(q.kind);
+    if (rivals) {
+      const speed = (mph: number) => (this.events.units() === 'mph' ? `${Math.round(mph)} mph` : `${Math.round(mph * 1.609)} km/h`);
+      choice('Rivals\' top speed', RIVAL_TOP_SPEEDS.map((mph) => ({ value: mph, label: mph ? speed(mph) : 'Same as my car' })), () => q.rivalTopSpeed, (v) => (q.rivalTopSpeed = v));
+    }
     choice('Time of day', [{ value: 'day', label: '☀️ Day' }, { value: 'night', label: '🌙 Night' }], () => (q.night ? 'night' : 'day'), (v) => (q.night = v === 'night'));
     if (q.kind === 'race' || q.kind === 'duel' || q.kind === 'elimination') {
       choice('Weapons', [{ value: 'off', label: 'Off' }, { value: 'on', label: '🔫 On (combat race)' }], () => (q.weapons ? 'on' : 'off'), (v) => (q.weapons = v === 'on'));
     }
-    form.append(el('p', 'muted', 'Rivals drive cars as quick as yours, so any car makes a close race. Difficulty sets how well they drive.'));
+    if (rivals) {
+      form.append(el('p', 'muted', q.rivalTopSpeed
+        ? 'Rivals drive cars like yours with the top speed you picked. Difficulty sets how well they drive.'
+        : 'Rivals drive cars as quick as yours, so any car makes a close race. Difficulty sets how well they drive.'));
+    }
     const actions = el('div', 'actions');
     actions.append(button('Start ▶', 'btn primary big', () => {
       const car = (cars.find((c) => c.id === q.car) ?? cars[0]).config();

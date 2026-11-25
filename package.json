@@ -1,7 +1,7 @@
 {
   "name": "car-game",
   "productName": "Car Game",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "A 3D driving game where you drive around a small city and customize your car.",
   "main": "dist-electron/main.js",
