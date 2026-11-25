@@ -163,8 +163,10 @@ files outside the archive.
 - `mind.ts`: memory (scored by recency, importance and relevance), feelings,
   needs, mood, learned likes, reflection into beliefs, habits and a life
   story, talks with you, and friendship with you. Standing decisions too:
-  up to three, in their own words, kept until they drop one (`forbids`
-  reads the ones it can, so the built-in brain keeps them as well).
+  up to five, in their own words, kept until they drop one (with no room
+  left, a new one waits until they do). `forbids` reads the ones it can,
+  conditions included ("unless they're speeding"), so the built-in brain
+  keeps them as well.
 - `brain.ts`: what they say and decide. `LocalBrain` asks the local AI.
   `RuleBrain` needs nothing, and covers whatever the AI hasn't time for.
   `decide` is a free choice: a private thought, a goal, an action from an open
