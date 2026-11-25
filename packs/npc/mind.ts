@@ -328,17 +328,20 @@ const ONLY_IF = /\b(if|when|whenever|while|as long as|so long as)\b/i;
 /** "even if" changes nothing: the decision always holds. */
 const EVEN_IF = /\beven (if|when|though)\b.*$/i;
 /** Words too common to tell what a condition is about. */
-const COMMON = new Set(['the', 'and', 'you', 'are', 'not', 'but', 'for', 'she', 'her', 'his', 'him', 'was', 'who', 'its', 'any', 'all', 'get', 'got', 'one', 'out', 'way', 'they', 'them', 'their', 'theyre', 'driver', 'drivers', 'again', 'really', 'very', 'that', 'this', 'with', 'what', 'there', 'would', 'could', 'should', 'about', 'being', 'going', 'does', 'doing', 'anyone', 'someone', 'something', 'everyone', 'actually', 'start', 'starts', 'keep', 'keeps']);
+const COMMON = new Set(['the', 'and', 'you', 'are', 'not', 'but', 'for', 'she', 'her', 'his', 'him', 'was', 'who', 'its', 'any', 'all', 'get', 'got', 'one', 'out', 'way', 'they', 'them', 'their', 'theyre', 'driver', 'drivers', 'again', 'really', 'very', 'that', 'this', 'with', 'what', 'there', 'would', 'could', 'should', 'about', 'being', 'going', 'does', 'doing', 'anyone', 'someone', 'something', 'everyone', 'actually', 'start', 'starts', 'keep', 'keeps', 'while', 'when', 'into', 'from', 'then', 'just']);
+/** A condition that says what isn't happening ("unless they're not speeding"): too hard to judge from words. */
+const NEGATED = /\b(not|no|never|without|nobody|nothing)\b|n't\b/i;
 
 /**
- * Roughly whether a condition is happening: whether its words (the first five
- * letters of each word of three or more, names like GUY included) turn up in
- * what's going on.
+ * How much of a condition turns up in what's going on: 'all' of its words,
+ * 'some', or 'none' (by the first five letters of each word of three or more,
+ * names like GUY included).
  */
-function happening(condition: string, context: string): boolean {
+function overlap(condition: string, context: string): 'all' | 'some' | 'none' {
   const text = context.toLowerCase();
-  const words = condition.toLowerCase().replace(/[^a-z\s]/g, '').match(/[a-z]{3,}/g) ?? [];
-  return words.filter((w) => !COMMON.has(w)).some((w) => text.includes(w.slice(0, 5)));
+  const words = (condition.toLowerCase().replace(/[^a-z\s]/g, '').match(/[a-z]{3,}/g) ?? []).filter((w) => !COMMON.has(w));
+  const found = words.filter((w) => text.includes(w.slice(0, 5))).length;
+  return found === 0 ? 'none' : found === words.length ? 'all' : 'some';
 }
 
 /**
@@ -356,8 +359,18 @@ export function forbids(mind: Mind, kind: VowKind, context = ''): boolean {
     const cut = unless ?? onlyIf;
     const rule = cut ? r.slice(0, cut.index) : r;
     if (!VOW_WORDS[kind].test(rule) || !NOT.test(rule) || NEVER_STOP.test(rule)) return false;
-    if (unless) return !happening(r.slice(unless.index + unless[0].length), context);
-    if (onlyIf) return happening(r.slice(onlyIf.index + onlyIf[0].length), context);
+    // Matching words can't be sure what a condition means, so when in doubt
+    // the promise is kept: an exception ("unless they hit a pedestrian while
+    // speeding") lifts it only when all of it is happening, and a condition
+    // about what isn't happening never lifts it.
+    if (unless) {
+      const condition = r.slice(unless.index + unless[0].length);
+      return NEGATED.test(condition) || overlap(condition, context) !== 'all';
+    }
+    if (onlyIf) {
+      const condition = r.slice(onlyIf.index + onlyIf[0].length);
+      return NEGATED.test(condition) || overlap(condition, context) !== 'none';
+    }
     return true;
   });
 }
