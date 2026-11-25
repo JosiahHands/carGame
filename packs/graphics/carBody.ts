@@ -13,6 +13,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { BEVEL, type CarRig, type CarShape } from '../../game/carModel';
+import { seatExhausts, unseatExhausts, type Moved } from './exhausts';
+import { fastRays } from './fastRays';
 
 /** Smooth height of the body's top outline (bonnet, roof line of the lower body, boot) at any z. */
 function topLine(shape: CarShape): (z: number) => number {
@@ -278,6 +280,7 @@ interface Undo {
   hidden: THREE.Object3D[];
   added: THREE.Object3D[];
   swapped: { mesh: THREE.Mesh; geometry: THREE.BufferGeometry }[];
+  moved: Moved[];
   dispose: { dispose(): void }[];
 }
 
@@ -288,7 +291,7 @@ export function sculptCar(rig: CarRig): void {
   if (!rig.shape || rig.root.userData[UNDO]) return;
   const shape = rig.shape;
   const { spec } = shape;
-  const undo: Undo = { hidden: [], added: [], swapped: [], dispose: [] };
+  const undo: Undo = { hidden: [], added: [], swapped: [], moved: [], dispose: [] };
   const keep = <T extends { dispose(): void }>(x: T) => (undo.dispose.push(x), x);
 
   // The game's own body parts, and their materials (so paint, patterns and glass tint carry over).
@@ -408,6 +411,11 @@ export function sculptCar(rig: CarRig): void {
     add(caliper, wheel.steer);
   }
 
+  // ---------- exhausts ----------
+  // Stacks stand on the new body. (Pipes out the back already go into it:
+  // its rear is the game's own shape.)
+  seatExhausts(rig, [shell.mesh, cabin.group], undo.moved, { stacksOnly: true });
+
   // A see-through car (the time trial's ghost) has one see-through material
   // on every part: the new parts wear it too, so none of them show solid.
   if (bodyPaint.transparent) {
@@ -479,6 +487,7 @@ export function stripeStrip(
   for (let i = 0; i <= steps; i++) {
     const z = shape.rearZ + 0.02 + ((length - 0.04) * i) / steps;
     const row: THREE.Vector3[] = [];
+    fastRays(surfaces(z));
     for (let j = 0; j <= across; j++) {
       const px = x - width / 2 + (width * j) / across;
       raycaster.set(new THREE.Vector3(px, 5, z), down);
@@ -526,6 +535,7 @@ export function unsculptCars(scene: THREE.Scene): void {
     for (const o of undo.hidden) o.visible = true;
     for (const o of undo.added) o.removeFromParent();
     for (const { mesh, geometry } of undo.swapped) mesh.geometry = geometry;
+    unseatExhausts(undo.moved);
     for (const x of undo.dispose) x.dispose();
     undo.dispose.length = 0;
     delete root.userData[UNDO];

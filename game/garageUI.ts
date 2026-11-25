@@ -203,6 +203,7 @@ export class GarageUI {
         onOff('Bull bar', () => c.bullBar, (on) => ((c.bullBar = on), look()));
         onOff('Roof light bar', () => c.lightBar, (on) => ((c.lightBar = on), look()));
         onOff('Roof weapons', () => c.roofGuns, (on) => ((c.roofGuns = on), look()));
+        this.hint('Roof weapons show when weapons are on (Settings → Weapons). In the career, your car carries the weapons you have bought.');
         break;
       case 'Lights':
         this.color('Headlight colour', LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look()));

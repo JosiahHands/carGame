@@ -2,6 +2,9 @@
 //   1. Machine gun: fast, weak, overheats if you hold the trigger too long.
 //   2. Rockets: fly forward and explode, wrecking everything nearby.
 //   3. Shockwave: a blast all around the car, then a few seconds to recharge.
+// Which of them the car has, and how upgraded each one is, is its loadout:
+// all three at level 1 in free roam and quick races, what you've bought in
+// the career (see career.ts).
 import * as THREE from 'three';
 import type { CarRig } from './carModel';
 import type { Effects } from './effects';
@@ -25,6 +28,18 @@ const ROCKET_DAMAGE = 170;
 const SHOCKWAVE_RELOAD = 6;
 const SHOCKWAVE_RADIUS = 16;
 const SHOCKWAVE_DAMAGE = 150;
+
+/** The highest level a weapon can be upgraded to. Level 1 is stock. */
+export const MAX_WEAPON_LEVEL = 5;
+/** Each level above 1: this much more damage... */
+const DAMAGE_PER_LEVEL = 0.15;
+/** ...and this much less gun heat per shot, and time to reload a rocket or recharge the shockwave. */
+const QUICKER_PER_LEVEL = 0.08;
+
+/** A weapon's level in each slot (machine gun, rockets, shockwave); 0 means the car doesn't have it. */
+export type Loadout = [number, number, number];
+export const NO_WEAPONS: Loadout = [0, 0, 0];
+export const STOCK_WEAPONS: Loadout = [1, 1, 1];
 
 /** An explosion near the player, so the game can shake the camera and push the car. */
 export interface Blast {
@@ -50,6 +65,8 @@ export class Weapons {
   private shockwaveWait = 0;
   private nextTube = 0; // which of the 4 rocket pod tubes fires next
   private rockets: Rocket[] = [];
+  /** What the car has: see setLoadout. */
+  private levels: Loadout = [...STOCK_WEAPONS];
 
   constructor(
     scene: THREE.Scene,
@@ -84,12 +101,55 @@ export class Weapons {
   /** 0..1, for the bar under the weapon name: 1 means ready to fire. */
   get readiness(): number {
     if (this.selected === 0) return 1 - this.heat;
-    if (this.selected === 1) return 1 - Math.max(0, this.rocketWait) / ROCKET_RELOAD;
-    return 1 - Math.max(0, this.shockwaveWait) / SHOCKWAVE_RELOAD;
+    if (this.selected === 1) return 1 - Math.max(0, this.rocketWait) / this.quicker(ROCKET_RELOAD, 1);
+    return 1 - Math.max(0, this.shockwaveWait) / this.quicker(SHOCKWAVE_RELOAD, 2);
   }
 
-  select(index: number): void {
-    this.selected = (index + WEAPON_NAMES.length) % WEAPON_NAMES.length;
+  /** Whether the car has any weapon at all. */
+  get armed(): boolean {
+    return this.levels.some((level) => level > 0);
+  }
+
+  /** The level of each weapon (0: not fitted). */
+  get loadout(): Loadout {
+    return [...this.levels];
+  }
+
+  /**
+   * Fits the car with weapons, by level (0 for one it doesn't have). If the
+   * selected weapon is gone, the first one it does have is selected.
+   */
+  setLoadout(levels: Loadout): void {
+    this.levels = [...levels];
+    if (!this.levels[this.selected]) this.selected = Math.max(0, this.levels.findIndex((level) => level > 0));
+  }
+
+  /** Whether the car has weapon `index`. */
+  has(index: number): boolean {
+    return (this.levels[index] ?? 0) > 0;
+  }
+
+  /** Selects weapon `index`, if the car has it. Returns false if it doesn't. */
+  select(index: number): boolean {
+    const i = (index + WEAPON_NAMES.length) % WEAPON_NAMES.length;
+    if (!this.has(i)) return false;
+    this.selected = i;
+    return true;
+  }
+
+  /** Selects the next weapon the car has, after the selected one. */
+  selectNext(): void {
+    for (let step = 1; step <= WEAPON_NAMES.length; step++) if (this.select(this.selected + step)) return;
+  }
+
+  /** Damage from weapon `index`, with its upgrades. */
+  private damage(base: number, index: number): number {
+    return base * (1 + DAMAGE_PER_LEVEL * Math.max(0, this.levels[index] - 1));
+  }
+
+  /** A heat or reload time for weapon `index`, cut by its upgrades. */
+  private quicker(base: number, index: number): number {
+    return base * (1 - QUICKER_PER_LEVEL * Math.max(0, this.levels[index] - 1));
   }
 
   /** Removes rockets in flight (when the car is reset). */
@@ -106,6 +166,8 @@ export class Weapons {
    */
   update(dt: number, firing: boolean, car: CarRig, carVelocity: THREE.Vector3): Blast[] {
     const blasts: Blast[] = [];
+    // Only weapons the car has can fire (rockets already flying still fly).
+    if (!this.has(this.selected)) firing = false;
     this.gunWait -= dt;
     this.rocketWait -= dt;
     this.shockwaveWait -= dt;
@@ -125,15 +187,15 @@ export class Weapons {
     if (this.gunWait < 0) this.gunWait = 0;
 
     if (firing && this.selected === 1 && this.rocketWait <= 0) {
-      this.rocketWait = ROCKET_RELOAD;
+      this.rocketWait = this.quicker(ROCKET_RELOAD, 1);
       this.fireRocket(car, carVelocity);
     }
 
     if (firing && this.selected === 2 && this.shockwaveWait <= 0) {
-      this.shockwaveWait = SHOCKWAVE_RELOAD;
+      this.shockwaveWait = this.quicker(SHOCKWAVE_RELOAD, 2);
       const at = car.root.position.clone();
       this.effects.shockwave(at, SHOCKWAVE_RADIUS);
-      this.world.explode(at, SHOCKWAVE_RADIUS, SHOCKWAVE_DAMAGE);
+      this.world.explode(at, SHOCKWAVE_RADIUS, this.damage(SHOCKWAVE_DAMAGE, 2));
       this.audio.shockwave();
       blasts.push({ at, radius: 0 }); // the car is at the centre; it shouldn't be thrown
     }
@@ -145,7 +207,7 @@ export class Weapons {
   private fireBullet(car: CarRig): void {
     const from = car.root.localToWorld(car.gunMuzzle.clone());
     const direction = this.aim(car, from, false);
-    this.heat += GUN_HEAT_PER_SHOT;
+    this.heat += this.quicker(GUN_HEAT_PER_SHOT, 0);
     if (this.heat >= 1) {
       this.heat = 1;
       this.overheated = true;
@@ -159,7 +221,7 @@ export class Weapons {
     const to = hit ? hit.point : from.clone().addScaledVector(direction, GUN_RANGE);
     this.effects.tracer(from, to);
     if (hit) {
-      this.world.applyHit(hit, GUN_DAMAGE, direction);
+      this.world.applyHit(hit, this.damage(GUN_DAMAGE, 0), direction);
       this.effects.bulletHit(hit.point, hit.ground || hit.target?.kind === 'building');
     }
   }
@@ -199,9 +261,10 @@ export class Weapons {
       const inGround = position.y < this.world.heightAt(position.x, position.z);
       if (hit || tooOld || inGround) {
         const at = hit ? hit.point : position.clone();
-        if (hit) this.world.applyHit(hit, ROCKET_DAMAGE / 2, direction); // a direct hit does extra damage
+        const damage = this.damage(ROCKET_DAMAGE, 1);
+        if (hit) this.world.applyHit(hit, damage / 2, direction); // a direct hit does extra damage
         this.effects.explosion(at, 2);
-        this.world.explode(at, ROCKET_RADIUS, ROCKET_DAMAGE);
+        this.world.explode(at, ROCKET_RADIUS, damage);
         blasts.push({ at, radius: ROCKET_RADIUS });
         r.flying = false;
         r.mesh.visible = false;

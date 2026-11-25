@@ -69,6 +69,12 @@ export interface Mind {
   planDay: number;
   /** Their latest private thoughts, newest last. */
   thoughts: string[];
+  /**
+   * Standing decisions, in their own words ("I'm done chasing the driver",
+   * "I'm going to quit my job and paint"): made freely, kept until they
+   * choose to change their mind, and part of every later thought.
+   */
+  resolutions: string[];
 }
 
 /** One step of a day plan: from this hour, be here, doing this. */
@@ -91,6 +97,7 @@ const MAX_STORY = 700;
 const MAX_INSIGHTS = 6;
 const MAX_HABITS = 4;
 const MAX_THOUGHTS = 8;
+const MAX_RESOLUTIONS = 3;
 
 export function newMind(member: CastMember): Mind {
   const feelings: Record<string, number> = { driver: 0 };
@@ -119,6 +126,7 @@ export function newMind(member: CastMember): Mind {
     plan: [],
     planDay: -1,
     thoughts: [],
+    resolutions: [],
   };
 }
 
@@ -265,6 +273,50 @@ export function setGoal(mind: Mind, goal: string): void {
   if (text.length > 3) mind.goal = text;
 }
 
+/** A standing decision, made for themselves (the oldest goes if there are too many). Returns whether it's new. */
+export function resolve(mind: Mind, now: number, decision: string): boolean {
+  const text = decision.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (text.length < 6 || mind.resolutions.some((r) => r.toLowerCase() === text.toLowerCase())) return false;
+  mind.resolutions.push(text);
+  if (mind.resolutions.length > MAX_RESOLUTIONS) mind.resolutions.shift();
+  remember(mind, now, `I made up my mind: ${text}`, 8, [], 'insight');
+  return true;
+}
+
+/** Changes their mind about a standing decision (by its number, from 1). Returns what they let go of. */
+export function release(mind: Mind, now: number, number: number): string {
+  const [text] = mind.resolutions.splice(number - 1, 1);
+  if (text) remember(mind, now, `I changed my mind about "${text}"`, 7, [], 'insight');
+  return text ?? '';
+}
+
+/**
+ * The kinds of thing a standing decision can rule out, by the words it uses.
+ * The AI reads the decisions in their own words; the built-in brain (which
+ * can't) uses these so it keeps them too.
+ */
+export const VOW_WORDS = {
+  chase: /\bchas|\bpursu/i,
+  ticket: /\bticket|\bfin(e|ing)\b/i,
+  work: /\bwork|\bjob\b|\bshifts?\b/i,
+  mischief: /mischief|prank|trouble|vandal/i,
+  text: /\btext|\bmessag|\bphone/i,
+  report: /\breport|snitch|call (the )?police|call buddy/i,
+  drive: /\bdriv(e|es|ing)\b|\bcars?\b/i,
+  ride: /\bride|\blift|police car/i,
+} as const;
+export type VowKind = keyof typeof VOW_WORDS;
+
+/** Words that make a decision a "won't" rather than a "will". */
+const NOT = /\b(no|never|not|won't|wont|don't|dont|stop|stopping|quit|quitting|refuse|swear off|no more|give up|giving up|avoid|without)\b|\b(done|finished|through) (with|\w+ing)\b|n't\b/i;
+/** ...unless it's a "never stop" (a will after all). */
+const NEVER_STOP = /\b(never|won't|wont|not|don't|dont)\s+(stop|quit|give up)\b/i;
+
+/** Whether one of their standing decisions rules this kind of thing out. */
+export function forbids(mind: Mind, kind: VowKind): boolean {
+  return mind.resolutions.some((r) => VOW_WORDS[kind].test(r) && NOT.test(r) && !NEVER_STOP.test(r));
+}
+
 /** Their life story, rewritten after reflecting. */
 export function setStory(mind: Mind, story: string): void {
   const text = story.replace(/\s+/g, ' ').trim().slice(0, MAX_STORY);
@@ -313,5 +365,7 @@ export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined
     plan: Array.isArray(saved.plan) ? saved.plan.filter((p) => p && typeof p.hour === 'number' && typeof p.place === 'string').slice(0, 8) : [],
     planDay: typeof saved.planDay === 'number' ? saved.planDay : -1,
     thoughts: Array.isArray(saved.thoughts) ? saved.thoughts.filter((t) => typeof t === 'string').slice(-MAX_THOUGHTS) : [],
+    // Since 1.2.1 (older cities start without any).
+    resolutions: Array.isArray(saved.resolutions) ? saved.resolutions.filter((r) => typeof r === 'string').map((r) => r.slice(0, 120)).slice(-MAX_RESOLUTIONS) : [],
   };
 }

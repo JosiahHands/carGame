@@ -297,6 +297,12 @@ export function buildJournal(
     page.append(el('p', 'npc-bio', npc.member.bio));
     page.append(el('p', '', `Now: ${hooks.doing(npc)}, near ${hooks.placeName(npc)}. Feeling ${moodWord(mind)}${mind.emotion !== 'calm' ? `, ${mind.emotion}` : ''}.`));
     if (mind.goal) page.append(el('p', 'npc-goal', `🎯 ${mind.goal}`));
+    // Standing decisions they've made for themselves (kept until they change their mind).
+    if (mind.resolutions.length) {
+      const made = el('ul');
+      for (const r of mind.resolutions) made.append(el('li', 'npc-goal', `🤝 “${r}”`));
+      section('Has made up their mind', made);
+    }
     if (mind.story) section('Their story so far', el('p', 'npc-story', mind.story));
     if (mind.plan.length || mind.thoughts.length) {
       const today = el('ul');
