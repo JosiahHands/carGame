@@ -5,7 +5,7 @@ import { button, el } from '../libs/dom';
 import {
   BOSS_STARS, CHAPTERS, CHASSIS, DIFFICULTIES, LEVELS, UPGRADES, WEAPON_SHOP, WEAPON_UPGRADE_ABOUT,
   awaitingChoice, buyWeapon, careerCar, careerTuning, chapterStars, dailyLevel, lockedReason, makeLevel, nextLevel, noUpgrades, prestige,
-  quickRaceSpec, resetCareer, RIVAL_TOP_SPEEDS, today, totalStars, upgradeCap, upgradeCost, weaponCost, weaponLockedReason,
+  quickRaceSpec, resetCareer, RIVAL_SPEED_KINDS, RIVAL_TOP_SPEEDS, today, totalStars, upgradeCap, upgradeCost, weaponCost, weaponLockedReason,
   type CareerSave, type Level, type Payout, type UpgradeId,
 } from './career';
 import { MAX_WEAPON_LEVEL } from './weapons';
@@ -595,7 +595,7 @@ export class MenuUI {
     }
     const cars = this.quickCars();
     choice('Your car', cars.map((c) => ({ value: c.id, label: c.label })), () => q.car, (v) => (q.car = v));
-    const rivals = ['race', 'duel', 'elimination', 'takedown'].includes(q.kind);
+    const rivals = RIVAL_SPEED_KINDS.includes(q.kind);
     if (rivals) {
       const speed = (mph: number) => (this.events.units() === 'mph' ? `${Math.round(mph)} mph` : `${Math.round(mph * 1.609)} km/h`);
       choice('Rivals\' top speed', RIVAL_TOP_SPEEDS.map((mph) => ({ value: mph, label: mph ? speed(mph) : 'Same as my car' })), () => q.rivalTopSpeed, (v) => (q.rivalTopSpeed = v));
@@ -612,7 +612,7 @@ export class MenuUI {
     const actions = el('div', 'actions');
     actions.append(button('Start ▶', 'btn primary big', () => {
       const car = (cars.find((c) => c.id === q.car) ?? cars[0]).config();
-      const spec = quickRaceSpec({ ...q, car, layout: city ? 0 : q.layout });
+      const spec = quickRaceSpec({ ...q, car, layout: city ? 0 : q.layout, rivalTopSpeed: rivals ? q.rivalTopSpeed : 0 });
       this.events.playQuick(spec, car);
     }));
     this.open('career', head, form, actions);

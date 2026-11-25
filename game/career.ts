@@ -824,7 +824,10 @@ export interface QuickRaceOptions {
   difficulty: number;
   /** The player's car: the rivals get the same performance, scaled by the difficulty. */
   car: CarConfig;
-  /** The rivals' top speed in mph, or 0 to match the player's car (scaled by the difficulty). */
+  /**
+   * The rivals' top speed in mph, or 0 to match the player's car (scaled by
+   * the difficulty). Only used for the events in RIVAL_SPEED_KINDS.
+   */
   rivalTopSpeed: number;
   night: boolean;
   weapons: boolean;
@@ -832,6 +835,13 @@ export interface QuickRaceOptions {
 
 /** The rivals' top speeds a quick race offers, in mph (0 matches the player's car). */
 export const RIVAL_TOP_SPEEDS = [0, 60, 90, 120, 150, 200, 300, 500, 1000];
+
+/**
+ * Quick race events with rivals to race against: the only ones where the
+ * rivals' top speed can be chosen. The others use a pace car to set their
+ * targets, and it always matches the player's car.
+ */
+export const RIVAL_SPEED_KINDS: readonly EventKind[] = ['race', 'duel', 'elimination', 'takedown'];
 
 /**
  * A quick race: everything chosen by the player. The rivals drive cars like
@@ -842,13 +852,14 @@ export function quickRaceSpec(o: QuickRaceOptions): EventSpec {
   const d = DIFFICULTIES[o.difficulty];
   const rand = seededRandom(Date.now() % 1e9);
   const mine = o.car.tuning.topSpeed;
-  const top = o.rivalTopSpeed > 0 ? o.rivalTopSpeed : mine * d.power;
+  const chosen = RIVAL_SPEED_KINDS.includes(o.kind) ? o.rivalTopSpeed : 0;
+  const top = chosen > 0 ? chosen : mine * d.power;
   // Horsepower follows the top speed, so a rival given a faster car than
   // yours also pulls hard enough to reach it, and a slower one doesn't
   // out-accelerate you.
   const rivalTuning: Tuning = {
     ...o.car.tuning,
-    horsepower: o.rivalTopSpeed > 0
+    horsepower: chosen > 0
       ? Math.min(RANGES.horsepower[1], Math.max(RANGES.horsepower[0], (o.car.tuning.horsepower * top) / mine))
       : o.car.tuning.horsepower * d.power,
     topSpeed: top,
