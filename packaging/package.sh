@@ -21,6 +21,20 @@ copy_licenses() {
         \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' -o -name 'UNLICENSE' \) -print0)
 }
 
+copy_linux_library() {
+    local destination=$1 soname=$2 package=$3 license_fallback=$4 library license
+    library=$(ldconfig -p | awk -v soname="$soname" '$1 == soname && !found { print $NF; found = 1 }')
+    if [ -z "$library" ]; then
+        printf 'Missing Linux packaging dependency %s (%s)\n' "$soname" "$package" >&2
+        return 1
+    fi
+    license="/usr/share/doc/$package/copyright"
+    if [ ! -f "$license" ]; then license="$license_fallback"; fi
+    mkdir -p "$destination/lib" "$destination/licenses/linux"
+    cp -L "$library" "$destination/lib/$soname"
+    cp -L "$license" "$destination/licenses/linux/$soname.txt"
+}
+
 case "$target" in
     mac-arm|mac-intel)
         app="$work/Car Game.app"
@@ -71,16 +85,29 @@ PLIST
     linux)
         pkg="$work/Car Game"
         mkdir -p "$pkg"
-        cp "$binary" "$pkg/car-game"
+        cp "$binary" "$pkg/car-game-bin"
         cp -R assets "$pkg/assets"
         copy_licenses "$pkg/licenses"
+        # Winit loads these dynamically, so linking the game doesn't require them.
+        copy_linux_library "$pkg" libxkbcommon.so.0 libxkbcommon0 /usr/share/licenses/libxkbcommon/LICENSE
+        copy_linux_library "$pkg" libxkbcommon-x11.so.0 libxkbcommon-x11-0 /usr/share/licenses/libxkbcommon-x11/LICENSE
+        copy_linux_library "$pkg" libxcb-xkb.so.1 libxcb-xkb1 /usr/share/licenses/libxcb/COPYING
+        cat > "$pkg/car-game" <<'RUN'
+#!/usr/bin/env bash
+set -e
+here=$(dirname "$(readlink -f "$0")")
+export LD_LIBRARY_PATH="$here/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$here/car-game-bin" "$@"
+RUN
+        chmod +x "$pkg/car-game"
         cp build/icon.png "$pkg/car-game.png"
         cp packaging/car-game.desktop "$pkg/car-game.desktop"
         (cd "$work" && zip -qr "$output/Car-Game-Linux.zip" "Car Game")
 
         app="$work/CarGame.AppDir"
         mkdir -p "$app/usr/bin" "$app/usr/share/car-game"
-        cp "$binary" "$app/usr/bin/car-game"
+        cp "$pkg/car-game" "$pkg/car-game-bin" "$app/usr/bin/"
+        cp -R "$pkg/lib" "$app/usr/bin/lib"
         cp -R assets "$app/usr/share/car-game/assets"
         cp -R "$pkg/licenses" "$app/usr/share/car-game/licenses"
         cp build/icon.png "$app/car-game.png"

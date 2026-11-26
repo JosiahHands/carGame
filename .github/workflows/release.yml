@@ -68,7 +68,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libclang-dev cmake zip squashfs-tools xvfb xauth mesa-vulkan-drivers
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 libclang-dev cmake zip squashfs-tools xvfb xauth mesa-vulkan-drivers
       - name: Windows libclang
         if: runner.os == 'Windows'
         shell: pwsh
