@@ -10,7 +10,7 @@
 // career starts with none, and each one unlocks further into the career.
 import { DEFAULT_CONFIG, PAINT_SWATCHES, RANGES, cloneConfig, type BodyShape, type CarConfig, type SpoilerStyle, type Topper, type Tuning } from './carConfig';
 import type { EventKind, EventSpec } from './event';
-import { RIVAL_NAMES, type RivalSpec } from './rivals';
+import { RENAMED_RIVALS, RIVAL_NAMES, type RivalSpec } from './rivals';
 import { seededRandom } from '../libs/random';
 import { MAX_WEAPON_LEVEL, NO_WEAPONS, STOCK_WEAPONS, type Loadout } from './weapons';
 import { VENUES, type MapName } from './venues';
@@ -328,6 +328,12 @@ export function loadCareer(): CareerSave {
     save.found = strings(raw.found);
     save.zones = numbers(raw.zones, 3);
     save.nemesis = numbers(raw.nemesis, 1e6);
+    // A rival who was renamed keeps their wins over you under the new name.
+    for (const [old, now] of Object.entries(RENAMED_RIVALS)) {
+      if (!(old in save.nemesis)) continue;
+      save.nemesis[now] = Math.min(1e6, (save.nemesis[now] ?? 0) + save.nemesis[old]);
+      delete save.nemesis[old];
+    }
   } catch {
     // Unreadable save: start fresh.
   }
@@ -585,7 +591,7 @@ const SANDBOX_BOSSES = ['The Phantom', 'Nova', 'Ghost Rider', 'Mach Morgan', 'Ve
 
 /**
  * Sandbox level n (101 and up): a random event that gets harder with every
- * level. The rivals get more skilful (up to well past the career's best),
+ * level. The rivals get more skillful (up to well past the career's best),
  * their cars get more upgrades (past the career's limit of 10), and the
  * challenge targets keep rising. Every tenth level is a boss duel.
  */

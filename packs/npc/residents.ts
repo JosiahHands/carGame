@@ -40,7 +40,7 @@ const HOBBIES = [
 const QUIRKS = [
   'Always early, never on time for anything fun.', 'Hums when nervous.', 'Remembers every birthday in the city.', 'Cannot keep a secret.',
   'Talks to plants.', 'Gives everyone a nickname.', 'Apologizes to furniture.', 'Has a different hat for every mood.', 'Hates loud engines.',
-  'Loves loud engines.', 'Believes in lucky numbers.', 'Overthinks every decision.', 'Laughs at their own jokes first.', 'Never forgets a favour.',
+  'Loves loud engines.', 'Believes in lucky numbers.', 'Overthinks every decision.', 'Laughs at their own jokes first.', 'Never forgets a favor.',
   'Quotes their grandmother constantly.', 'Is suspicious of anyone in a hurry.',
 ];
 

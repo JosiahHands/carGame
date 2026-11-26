@@ -667,7 +667,7 @@ export class EventRun {
       r.burst--;
       r.gunWait = r.burst > 0 ? 0.11 : 2.5 + Math.random() * 2.5;
       const from = new THREE.Vector3(p.x + Math.sin(p.heading) * p.length * 0.5, p.y + p.height * 0.8, p.z + Math.cos(p.heading) * p.length * 0.5);
-      // Closer and more skilful shooters hit more often.
+      // Closer and more skillful shooters hit more often.
       const hits = Math.random() < rival.skill * (0.75 - distance / 300);
       const miss = hits ? 0 : 2 + Math.random() * 3;
       const to = new THREE.Vector3(me.x + (Math.random() - 0.5) * miss, me.y + 0.7, me.z + (Math.random() - 0.5) * miss);

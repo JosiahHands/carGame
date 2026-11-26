@@ -39,6 +39,9 @@ export interface RacerPosition {
   offset: number;
 }
 
+/** Rivals who were renamed, old name to new, so saved records follow them (Kiki Kerb became Kiki Curb in 1.2.3). */
+export const RENAMED_RIVALS: Record<string, string> = { 'Kiki Kerb': 'Kiki Curb' };
+
 export const RIVAL_NAMES = [
   'Max Power', 'Lola Lightning', 'Rico Revs', 'Dash Delgado', 'Penny Piston', 'Turbo Tim', 'Gina Gearbox', 'Axel Grease',
   'Skid Marx', 'Nitro Nina', 'Bruno Burnout', 'Holly Hairpin', 'Vince Vroom', 'Zoe Zoom', 'Duke Drift', 'Cleo Clutch',
