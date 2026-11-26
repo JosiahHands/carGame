@@ -7,7 +7,9 @@ pub mod storage {
     //! unchanged). Kept in one file in the player's data folder, written safely:
     //! to a new file first, which then replaces the old one.
     use std::collections::BTreeMap;
-    use std::path::PathBuf;
+    use std::fs::OpenOptions;
+    use std::io::{self, ErrorKind, Write};
+    use std::path::{Path, PathBuf};
 
     use bevy::prelude::Resource;
     use serde::Serialize;
@@ -33,17 +35,31 @@ pub mod storage {
     impl Storage {
         /// Opens the saves (none yet is fine).
         pub fn open() -> Self {
-            let file = data_dir().map(|d| d.join("saves.json"));
-            let entries = file
-                .as_ref()
-                .and_then(|f| std::fs::read_to_string(f).ok())
-                .and_then(|text| serde_json::from_str(&text).ok())
-                .unwrap_or_default();
-            Storage {
-                entries,
-                file,
-                dirty: false,
+            Self::open_file(data_dir().map(|d| d.join("saves.json")))
+        }
+
+        /// Preserves damaged saves before allowing the game to write a new save.
+        fn open_file(file: Option<PathBuf>) -> Self {
+            let mut storage = Self { file, ..Self::default() };
+            let Some(path) = storage.file.as_deref() else { return storage };
+            match std::fs::read(path) {
+                Ok(bytes) => match serde_json::from_slice(&bytes) {
+                    Ok(entries) => storage.entries = entries,
+                    Err(error) => match backup_damaged_save(path, &bytes) {
+                        Ok(backup) => bevy::log::warn!("Couldn't parse the saves ({error}). Backed them up to {}", backup.display()),
+                        Err(e) => {
+                            bevy::log::warn!("Couldn't parse or back up the saves ({error}, {e}). Saves are disabled for this session.");
+                            storage.file = None;
+                        }
+                    },
+                },
+                Err(e) if e.kind() == ErrorKind::NotFound => {}
+                Err(e) => {
+                    bevy::log::warn!("Couldn't read the saves ({e}). Saves are disabled for this session.");
+                    storage.file = None;
+                }
             }
+            storage
         }
 
         /// Saves kept only in memory (tests, or no data folder).
@@ -110,6 +126,70 @@ pub mod storage {
             if let Err(e) = write() {
                 bevy::log::warn!("Couldn't save the game: {e}");
             }
+        }
+    }
+
+    fn backup_damaged_save(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let backup = path.with_file_name(format!("saves-unreadable-{time}-{}.json", std::process::id()));
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&backup)?;
+        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+            drop(file);
+            let _ = std::fs::remove_file(&backup);
+            return Err(error);
+        }
+        Ok(backup)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn damaged_save_is_preserved_byte_for_byte() {
+            let dir = std::env::temp_dir().join(format!("car-game-damaged-save-test-{}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
+            let file = dir.join("saves.json");
+            let damaged = [b"{\"carGame.career.v1\": \"\xff".as_slice(), b"{\"missing-end\":".as_slice()];
+            for bytes in damaged {
+                std::fs::write(&file, bytes).unwrap();
+                let mut storage = Storage::open_file(Some(file.clone()));
+                assert!(storage.is_new());
+                storage.set("carGame.muted", "1");
+                storage.flush();
+            }
+
+            let kept: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .map(|entry| entry.unwrap())
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("saves-unreadable-"))
+                .map(|entry| std::fs::read(entry.path()).unwrap())
+                .collect();
+            assert_eq!(kept.len(), damaged.len());
+            for bytes in damaged {
+                assert!(kept.iter().any(|copy| copy == bytes));
+            }
+            assert_eq!(Storage::open_file(Some(file)).get("carGame.muted"), Some("1"));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+
+        #[test]
+        fn io_failure_leaves_the_save_path_alone() {
+            let dir = std::env::temp_dir().join(format!("car-game-save-io-test-{}", std::process::id()));
+            let path = dir.join("saves.json");
+            std::fs::create_dir_all(&path).unwrap();
+            let marker = path.join("keep");
+            std::fs::write(&marker, b"unchanged").unwrap();
+
+            let mut storage = Storage::open_file(Some(path));
+            storage.set("carGame.muted", "1");
+            storage.flush();
+
+            let actual = std::fs::read(marker);
+            std::fs::remove_dir_all(&dir).unwrap();
+            assert_eq!(actual.unwrap(), b"unchanged");
         }
     }
 }

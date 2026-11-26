@@ -330,6 +330,16 @@ pub mod packs {
                     .filter_map(Value::as_str)
                     .map(str::to_string)
                     .collect();
+            } else if storage.get(STATE_KEY).is_none()
+                && storage.get("carGame.imported") == Some("1")
+                && storage.get("carGame.pack.npc.city").is_some()
+            {
+                // A migrated city shows that Living City was installed and used.
+                let legacy = storage.get_json("carGame.packs.v1").unwrap_or_default();
+                let switched_off = legacy["off"].as_array().is_some_and(|ids| ids.iter().any(|id| id == "npc"));
+                if !switched_off && legacy["removed"].get("npc").is_none() {
+                    self.set_on("npc", true);
+                }
             }
             for key in storage.keys() {
                 if let Some(rest) = key.strip_prefix("carGame.pack.")
@@ -357,6 +367,38 @@ pub mod packs {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn legacy_city_is_enabled_only_if_previously_used_and_not_switched_off() {
+            for (imported, city, legacy, current, enabled) in [
+                (true, true, r#"{"off":[],"removed":{}}"#, None, true),
+                (true, true, r#"{"off":["npc"]}"#, None, false),
+                (true, true, r#"{"removed":{"npc":"old-build"}}"#, None, false),
+                (true, true, "{}", Some(r#"{"on":[]}"#), false),
+                (true, false, "{}", None, false),
+                (false, true, "{}", None, false),
+            ] {
+                let mut storage = Storage::in_memory();
+                if imported {
+                    storage.set("carGame.imported", "1");
+                }
+                if city {
+                    storage.set("carGame.pack.npc.city", r#"{"savedAt":42}"#);
+                }
+                storage.set("carGame.packs.v1", legacy);
+                if let Some(current) = current {
+                    storage.set(STATE_KEY, current);
+                }
+                let mut packs = Packs::default();
+                packs.load(&storage);
+
+                assert_eq!(packs.on.iter().any(|id| id == "npc"), enabled, "{legacy}, {current:?}");
+                if enabled {
+                    packs.save(&mut storage);
+                    assert_eq!(storage.get_json(STATE_KEY), Some(json!({ "on": ["npc"] })));
+                }
+            }
+        }
 
         /// A pack's own saved data (Living City's whole city) is read with the
         /// options, but changing an option must not write the old copy back
