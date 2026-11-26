@@ -1,9 +1,14 @@
 //! Things in the 3D view that belong to the game rather than the map: the
 //! time trial's arches and arrow, gold wrenches and challenge zones, rockets
 //! in flight and the city's people. Also saving photos and the frame limit.
+use bevy::camera::{ClearColorConfig, RenderTarget, visibility::RenderLayers};
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureFormat};
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+
+use bevy::window::PrimaryWindow;
+use bevy_egui::PrimaryEguiContext;
 
 use crate::canvas::{Canvas, Rgba};
 use crate::game::{Game, Mode};
@@ -43,10 +48,10 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Spawned>()
-            .add_systems(Startup, setup)
+            .add_systems(Startup, (setup, setup_display))
             .add_systems(
                 Update,
-                (trial_visuals, roam_visuals, rockets, people, billboards, photo).after(crate::GameSet::Frame),
+                (trial_visuals, roam_visuals, rockets, people, billboards, photo, render_resolution).after(crate::GameSet::Frame),
             )
             .add_systems(Last, frame_limit);
     }
@@ -526,4 +531,97 @@ fn frame_limit(game: Option<Res<Game>>, mut next: Local<Option<std::time::Instan
     } else {
         due + interval
     });
+}
+
+/// The window stays at full size so the HUD and menus stay sharp. Only the
+/// 3D camera renders into the scaled buffer. At 100% it renders directly.
+#[derive(Resource)]
+struct Display {
+    buffer: Handle<Image>,
+    size: UVec2,
+    scaled: bool,
+}
+
+#[derive(Component)]
+struct GameImage;
+
+fn setup_display(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let buffer = images.add(Image::new_target_texture(
+        1,
+        1,
+        TextureFormat::Rgba8Unorm,
+        Some(TextureFormat::Rgba8UnormSrgb),
+    ));
+    let layer = RenderLayers::layer(1);
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Msaa::Off,
+        layer.clone(),
+        PrimaryEguiContext,
+    ));
+    commands.spawn((GameImage, Sprite::from_image(buffer.clone()), Visibility::Hidden, layer));
+    commands.insert_resource(Display {
+        buffer,
+        size: UVec2::ONE,
+        scaled: false,
+    });
+}
+
+fn render_resolution(
+    game: Res<Game>,
+    packs: Res<crate::packs::Packs>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut camera: Query<(&mut RenderTarget, &mut Msaa), With<MainCamera>>,
+    mut image: Query<(&mut Sprite, &mut Visibility), With<GameImage>>,
+    mut display: ResMut<Display>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let (Ok(window), Ok((mut camera, mut msaa)), Ok((mut sprite, mut visibility))) =
+        (window.single(), camera.single_mut(), image.single_mut())
+    else {
+        return;
+    };
+    let mode = if game.settings.antialias && game.settings.shadows != "off" {
+        Msaa::Sample4
+    } else {
+        Msaa::Off
+    };
+    if !packs.is_on("graphics") && *msaa != mode {
+        *msaa = mode;
+    }
+    let scale = game.settings.resolution as f32;
+    let scaled = scale < 0.999;
+    if scaled != display.scaled {
+        display.scaled = scaled;
+        *camera = if scaled {
+            RenderTarget::Image(display.buffer.clone().into())
+        } else {
+            RenderTarget::default()
+        };
+        *visibility = if scaled { Visibility::Inherited } else { Visibility::Hidden };
+    }
+    if !scaled {
+        return;
+    }
+    let window_size = Vec2::new(window.physical_width() as f32, window.physical_height() as f32);
+    let size = (window_size * scale).round().as_uvec2().max(UVec2::ONE);
+    let logical_size = Vec2::new(window.width(), window.height());
+    if sprite.custom_size != Some(logical_size) {
+        sprite.custom_size = Some(logical_size);
+    }
+    if size != display.size
+        && let Some(mut image) = images.get_mut(&display.buffer)
+    {
+        image.resize(Extent3d {
+            width: size.x,
+            height: size.y,
+            depth_or_array_layers: 1,
+        });
+        display.size = size;
+    }
 }

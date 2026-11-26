@@ -4,7 +4,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::inconsistent_digit_grouping)]
 
 use bevy::prelude::*;
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass};
 
 pub mod audio;
 pub mod camera;
@@ -68,6 +68,10 @@ impl Plugin for GamePlugin {
             .insert_resource(world::World::empty())
             .init_resource::<camera::CameraRig>()
             .init_resource::<packs::Packs>()
+            .insert_resource(EguiGlobalSettings {
+                auto_create_primary_context: false,
+                ..default()
+            })
             .insert_resource(ClearColor(Color::srgb(0.55, 0.75, 0.95)))
             .add_plugins((
                 EguiPlugin::default(),
@@ -84,7 +88,7 @@ impl Plugin for GamePlugin {
                     game::load_and_build.in_set(GameSet::Load),
                     game::frame.in_set(GameSet::Frame),
                     game::place_camera.in_set(GameSet::Camera),
-                    quality::refine,
+                    quality::refine.before(GameSet::Load),
                 ),
             )
             .add_systems(EguiPrimaryContextPass, (game::menus, hud::hud).chain());

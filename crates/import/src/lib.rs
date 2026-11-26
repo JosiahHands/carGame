@@ -28,21 +28,52 @@ pub fn old_app_folders() -> Vec<PathBuf> {
 /// The old game's saves (name -> JSON text, like its browser storage), or
 /// None if there's no old game on this computer.
 pub fn read_old_saves() -> Option<BTreeMap<String, String>> {
+    const CITY_KEY: &str = "carGame.pack.npc.city";
     let mut found = BTreeMap::new();
+    let mut newest_city = None;
     for folder in old_app_folders() {
         let db = folder.join("Local Storage").join("leveldb");
         if db.is_dir()
-            && let Ok(entries) = read_local_storage(&db)
+            && let Ok(mut entries) = read_local_storage(&db)
         {
+            if let Some(text) = entries.remove(CITY_KEY) {
+                pick_city(&mut newest_city, text);
+            }
             found.extend(entries);
         }
-        // The Living City pack kept its people in a file of its own.
-        let city = folder.join("packs").join("npc").join("city.json");
-        if let Ok(text) = std::fs::read_to_string(&city) {
-            found.insert("carGame.pack.npc.city".to_string(), text);
+        let npc = folder.join("packs/npc");
+        // The backup predates the main file. Equal timestamps prefer the main file.
+        for name in ["city.json.backup", "city.json"] {
+            let file = npc.join(name);
+            if file.metadata().is_ok_and(|m| m.len() <= 40 * 1024 * 1024)
+                && let Ok(text) = std::fs::read_to_string(file)
+            {
+                pick_city(&mut newest_city, text);
+            }
+        }
+        if let Ok(text) = std::fs::read_to_string(npc.join("ai.json"))
+            && serde_json::from_str::<serde_json::Value>(&text).is_ok_and(|v| v.is_object())
+        {
+            found.insert("carGame.pack.npc.ai".into(), text);
         }
     }
+    if let Some((_, text)) = newest_city {
+        found.insert(CITY_KEY.into(), text);
+    }
     if found.is_empty() { None } else { Some(found) }
+}
+
+fn pick_city(newest: &mut Option<(u64, String)>, text: String) {
+    let Ok(city) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    if !city.is_object() {
+        return;
+    }
+    let timestamp = city["savedAt"].as_u64().unwrap_or(0);
+    if newest.as_ref().is_none_or(|(current, _)| timestamp >= *current) {
+        *newest = Some((timestamp, text));
+    }
 }
 
 /// Reads the game's entries from a copy of a Chromium "Local Storage/leveldb" folder.
@@ -115,6 +146,16 @@ mod tests {
         let folders = old_app_folders();
         assert_eq!(folders.len(), 2);
         assert!(folders[0].ends_with("Car Game") && folders[1].ends_with("car-game"));
+    }
+
+    #[test]
+    fn chooses_newest_readable_city() {
+        let mut city = None;
+        pick_city(&mut city, r#"{"savedAt":42,"clock":1}"#.into());
+        pick_city(&mut city, r#"{"savedAt":10,"clock":0}"#.into());
+        pick_city(&mut city, r#"{"savedAt":100,"#.into());
+        pick_city(&mut city, "null".into());
+        assert_eq!(city, Some((42, r#"{"savedAt":42,"clock":1}"#.into())));
     }
 
     #[test]

@@ -154,6 +154,8 @@ pub struct Game {
     /// The new-map toast is shown once the first map is up.
     loaded_once: bool,
     pub controls: Controls,
+    /// What happened this frame, for the packs (cleared at the start of each frame).
+    pub happened: Vec<crate::packs::Happening>,
 }
 
 impl Game {
@@ -877,6 +879,8 @@ impl<'w, 's> Ctx<'w, 's> {
         } else {
             self.game.free_roam.add_drift(points);
         }
+        let (x, z) = (self.game.physics.x, self.game.physics.z);
+        self.game.happened.push(crate::packs::Happening::Drift { x, z, points });
         self.skill(SkillKind::Drift, points / 2.0, Some(&format!("Drift {}", thousands(points))));
         if points > self.game.best_drift {
             self.game.best_drift = points;
@@ -890,6 +894,11 @@ impl<'w, 's> Ctx<'w, 's> {
     /// Something destroyed: the score, sounds and nitro.
     fn on_destroyed(&mut self, i: usize) {
         let t = self.world.targets[i].clone();
+        self.game.happened.push(crate::packs::Happening::Destroyed {
+            x: t.x,
+            z: t.z,
+            kind: t.kind,
+        });
         self.game.damage += t.value;
         if let Some(e) = self.game.event.as_mut() {
             e.add_damage(t.value);
@@ -1118,6 +1127,7 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         first_start,
         loaded_once: false,
         controls: Controls::default(),
+        happened: Vec::new(),
         settings,
     };
     if imported {
@@ -1212,6 +1222,7 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     let elapsed = input.time.delta_secs_f64();
     let real_dt = elapsed.min(MAX_FRAME);
     ctx.game.real_clock += real_dt;
+    ctx.game.happened.clear();
     let fps = &mut ctx.game.fps;
     fps.0 += 1;
     fps.1 += elapsed;
@@ -1504,6 +1515,8 @@ pub fn handle_action(ctx: &mut Ctx, action: Action, windows: &mut Query<&mut Win
         Action::Horn => {
             let horn = ctx.game.config.horn.clone();
             ctx.sound.horn(&horn);
+            let (x, z) = (ctx.game.physics.x, ctx.game.physics.z);
+            ctx.game.happened.push(crate::packs::Happening::Horn { x, z });
         }
         Action::ShiftUp | Action::ShiftDown => {
             if !ctx.game.physics.manual {
@@ -1583,6 +1596,8 @@ pub fn drive(ctx: &mut Ctx, dt: f64, controls: &Controls) {
                 e.add_air(t);
             }
             if t > 0.7 {
+                let (x, z) = (ctx.game.physics.x, ctx.game.physics.z);
+                ctx.game.happened.push(crate::packs::Happening::Jump { x, z, air_time: t });
                 ctx.toast(format!("Air time {t:.1} s"), 1600.0);
                 let p = &mut ctx.game.physics;
                 p.nitro = (p.nitro + t * 0.08).min(1.0);
@@ -1596,6 +1611,8 @@ pub fn drive(ctx: &mut Ctx, dt: f64, controls: &Controls) {
             ctx.game.air_time = 0.0;
         }
         if ev.impact > 3.0 {
+            let (x, z) = (ctx.game.physics.x, ctx.game.physics.z);
+            ctx.game.happened.push(crate::packs::Happening::Crash { x, z, impact: ev.impact });
             ctx.sound.crash(ev.impact);
             ctx.game.shake = (ev.impact * 0.03).min(0.6);
             if ctx.game.drift_score > 0.0 {
@@ -1765,6 +1782,10 @@ fn use_weapons(ctx: &mut Ctx, dt: f64, firing: bool) {
         let car_pos = DVec3::new(ctx.game.physics.x, ctx.game.physics.y, ctx.game.physics.z);
         let distance = blast.at.distance(car_pos);
         ctx.sound.explosion(1.5, distance);
+        ctx.game.happened.push(crate::packs::Happening::Explosion {
+            x: blast.at.x,
+            z: blast.at.z,
+        });
         ctx.game.people.panic(blast.at.x, blast.at.z, blast.radius * 3.0 + 12.0);
         ctx.game.shake = ctx.game.shake.max((6.0 / (distance + 4.0)).min(0.7));
         let reach = blast.radius * 1.3;
@@ -1851,6 +1872,8 @@ fn update_npcs(ctx: &mut Ctx, dt: f64) {
         game.traffic.update(dt, player, world)
     };
     for points in misses {
+        let (x, z) = (ctx.game.physics.x, ctx.game.physics.z);
+        ctx.game.happened.push(crate::packs::Happening::NearMiss { x, z });
         ctx.skill(SkillKind::NearMiss, points, Some("Near miss: traffic"));
         ctx.toast("Near miss!", 700.0);
     }

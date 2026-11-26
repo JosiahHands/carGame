@@ -107,6 +107,7 @@ impl Packs {
         for key in storage.keys() {
             if let Some(rest) = key.strip_prefix("carGame.pack.")
                 && let Some((pack, option)) = rest.split_once('.')
+                && !matches!((pack, option), ("npc", "city" | "options" | "ai"))
                 && let Some(v) = storage.get_json(key)
             {
                 self.values.insert((pack.to_string(), option.to_string()), v);
@@ -209,4 +210,48 @@ pub fn packs_tab(ui: &mut egui::Ui, packs: &mut Packs) -> bool {
         }
     }
     changed
+}
+
+/// Something that happened in the game this frame, for packs to react to
+/// (in `Game.happened`, cleared at the start of every frame).
+#[derive(Clone, Debug)]
+pub enum Happening {
+    /// The player's car hit something hard (impact in m/s).
+    Crash {
+        x: f64,
+        z: f64,
+        impact: f64,
+    },
+    /// Something in the world was destroyed.
+    Destroyed {
+        x: f64,
+        z: f64,
+        kind: crate::world::TargetKind,
+    },
+    /// The player's car landed a jump.
+    Jump {
+        x: f64,
+        z: f64,
+        air_time: f64,
+    },
+    /// A near miss with traffic.
+    NearMiss {
+        x: f64,
+        z: f64,
+    },
+    /// A rocket blew up.
+    Explosion {
+        x: f64,
+        z: f64,
+    },
+    Horn {
+        x: f64,
+        z: f64,
+    },
+    /// A drift was banked (points).
+    Drift {
+        x: f64,
+        z: f64,
+        points: f64,
+    },
 }

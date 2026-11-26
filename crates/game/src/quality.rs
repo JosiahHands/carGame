@@ -29,7 +29,6 @@ pub fn refine(
     mut game: ResMut<Game>,
     mut done: Local<bool>,
     mut storage: ResMut<crate::storage::Storage>,
-    mut graphics: ResMut<crate::world_render::Graphics>,
 ) {
     if *done {
         return;
@@ -58,8 +57,6 @@ pub fn refine(
         game.settings.apply_preset(cap);
         let s = game.settings.clone();
         crate::settings::save_settings(&mut storage, &s);
-        graphics.shadows = s.shadows.clone();
-        graphics.view_distance = s.view_distance as f32;
         if let Some(p) = game.popups.last_mut() {
             p.title = format!("Graphics: {cap}");
         }

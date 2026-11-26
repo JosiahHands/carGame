@@ -7,4 +7,4 @@ publish.workspace = true
 
 [dependencies]
 rusty-leveldb.workspace = true
-
+serde_json.workspace = true

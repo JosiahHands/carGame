@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::VisibilityRange;
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -56,6 +57,7 @@ impl Default for Graphics {
 struct Chunks {
     generation: u64,
     shapes: PropShapes,
+    distant_leaves: MeshData,
     spawned: HashMap<(i32, i32), Vec<Entity>>,
     members: HashMap<(i32, i32), Vec<usize>>,
     dirty: HashSet<(i32, i32)>,
@@ -268,6 +270,7 @@ fn apply_changes(
     if world.generation != chunks.generation {
         chunks.generation = world.generation;
         chunks.shapes = world.prop_shapes();
+        chunks.distant_leaves = distant_foliage(&chunks.shapes.leaves);
         chunks.spawned.clear(); // their entities went with the old map
         chunks.members.clear();
         for (i, p) in world.props.iter().enumerate() {
@@ -378,42 +381,85 @@ fn rebuild_chunks(
         }
         let Some(members) = chunks.members.get(&key) else { continue };
         let s = &chunks.shapes;
-        let (mut wood, mut leaves, mut heads) = (MeshData::default(), MeshData::default(), MeshData::default());
+        let (mut wood, mut leaves, mut heads, mut distant) =
+            (MeshData::default(), MeshData::default(), MeshData::default(), MeshData::default());
+        // Both detail levels use the same origin for a stable crossfade.
+        let size = crate::world::CHUNK as f32;
+        let center = Vec3::new((key.0 as f32 + 0.5) * size, 0.0, (key.1 as f32 + 0.5) * size);
         for &i in members {
             let p = &world.props[i];
             if !p.visible {
                 continue;
             }
+            let mut local = p.transform;
+            local.translation -= center;
             if p.lamp {
-                append_moved(&mut wood, &s.pole, &p.transform, crate::meshes::linear(0x3a3d42));
-                append_moved(&mut heads, &s.head, &p.transform, [1.0; 4]);
+                append_moved(&mut wood, &s.pole, &local, crate::meshes::linear(0x3a3d42));
+                append_moved(&mut heads, &s.head, &local, [1.0; 4]);
             } else {
-                append_moved(&mut wood, &s.trunk, &p.transform, s.trunk_color);
-                append_moved(&mut leaves, &s.leaves, &p.transform, p.color);
+                append_moved(&mut wood, &s.trunk, &local, s.trunk_color);
+                append_moved(&mut leaves, &s.leaves, &local, p.color);
+                append_moved(&mut distant, &chunks.distant_leaves, &local, p.color);
             }
         }
         let mut spawned = Vec::new();
-        for (data, mat) in [
-            (wood, mats.vertex_colored.clone()),
-            (leaves, mats.vertex_colored_flat.clone()),
-            (heads, mats.lamp_head.clone()),
+        let near = VisibilityRange {
+            end_margin: 115.0..145.0,
+            ..VisibilityRange::abrupt(0.0, 145.0)
+        };
+        let far = VisibilityRange {
+            start_margin: near.end_margin.clone(),
+            ..VisibilityRange::abrupt(115.0, f32::INFINITY)
+        };
+        for (data, mat, range) in [
+            (wood, mats.vertex_colored.clone(), None),
+            (leaves, mats.vertex_colored_flat.clone(), Some(near)),
+            (heads, mats.lamp_head.clone(), None),
+            (distant, mats.vertex_colored_flat.clone(), Some(far)),
         ] {
             if data.is_empty() {
                 continue;
             }
-            spawned.push(
-                commands
-                    .spawn((
-                        Mesh3d(meshes.add(data.build())),
-                        MeshMaterial3d(mat),
-                        Transform::default(),
-                        ChildOf(root),
-                    ))
-                    .id(),
-            );
+            let mut entity = commands.spawn((
+                Mesh3d(meshes.add(data.build())),
+                MeshMaterial3d(mat),
+                Transform::from_translation(center),
+                ChildOf(root),
+            ));
+            if let Some(range) = range {
+                entity.insert(range);
+            }
+            spawned.push(entity.id());
         }
         chunks.spawned.insert(key, spawned);
     }
+}
+
+/// Eight triangles retain the shape's height and spread at a distance.
+fn distant_foliage(shape: &MeshData) -> MeshData {
+    if shape.is_empty() {
+        return MeshData::default();
+    }
+    let (min, max) = shape
+        .positions
+        .iter()
+        .map(|p| Vec3::from_array(*p))
+        .fold((Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)), |(min, max), p| {
+            (min.min(p), max.max(p))
+        });
+    let half = (max - min) * 0.5;
+    let center = (max + min) * 0.5;
+    let mut data = MeshData::default();
+    for offset in [Vec3::Y, Vec3::NEG_Y, Vec3::X, Vec3::Z, Vec3::NEG_X, Vec3::NEG_Z] {
+        data.vertex((center + half * offset).as_dvec3().to_array(), [0.0, 0.0]);
+    }
+    for i in 0..4 {
+        let a = i + 2;
+        let b = (i + 1) % 4 + 2;
+        data.tri(0, b, a);
+        data.tri(1, a, b);
+    }
+    data.flat_shaded()
 }
 
 fn append_moved(out: &mut MeshData, shape: &MeshData, t: &Transform, color: [f32; 4]) {

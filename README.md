@@ -26,241 +26,54 @@ aren't signed by Apple or Microsoft, so the first time:
 - **Linux:** make the AppImage runnable (right-click, Properties, Allow executing,
   or `chmod +x Car-Game-Linux.AppImage`), then open it.
 
-## Install and update from source
+## Install or update
 
-Runs on macOS, Linux and Windows. It needs [Git](https://git-scm.com) and
-[Node.js](https://nodejs.org) 22.12 or newer. Each command comes three ways: pick the
-one for the terminal you use. The Windows PowerShell and Command Prompt versions run
-the same script through the bash that comes with Git (if you installed Git somewhere
-other than Program Files, change the path).
-Installing adds Car Game to your apps: open it from Launchpad or Spotlight on macOS,
-the Start Menu or Desktop on Windows, or the app menu on Linux. Press H in the game
-to see the controls.
+Run these commands in Terminal on macOS or Linux, or in Git Bash on Windows.
+They download the ready-built app from the same release as the links above.
+Press H in the game to see the controls.
 
-**Install:**
-
-*macOS, Linux, or Git Bash on Windows:*
+**Install**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
 ```
 
-*Windows PowerShell:*
-
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash"
-```
-
-**Update:**
-
-*macOS, Linux, or Git Bash on Windows:*
+**Update**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
 ```
 
-*Windows PowerShell:*
-
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash"
-```
-
-## Building the Rust version
-
-Car Game 1.3.0 is being rebuilt in [Rust](https://www.rust-lang.org) on the
-[Bevy](https://bevyengine.org) game engine, on the `features/v1.3.0` branch. Until
-it's finished, the commands above install the current version.
-
-To build it, install Rust with [rustup](https://rustup.rs). The `rust-toolchain.toml`
-file picks the exact Rust version, and rustup installs it the first time. Then:
-
-```bash
-cargo run --release
-```
-
-Every library the game uses is stored in `vendor/`, so building never downloads
-anything. Only the platforms the game ships for are kept (macOS on Apple Silicon and
-Intel, Windows x64, Linux x64). To add or update a library, change `Cargo.toml`, then
-refresh `vendor/` with
-[cargo-vendor-filterer](https://github.com/coreos/cargo-vendor-filterer):
-
-```bash
-cargo-vendor-filterer --versioned-dirs \
-  --platform aarch64-apple-darwin --platform x86_64-apple-darwin \
-  --platform x86_64-pc-windows-msvc --platform x86_64-unknown-linux-gnu \
-  --exclude-crate-path '*#tests' --exclude-crate-path '*#benches' vendor
-```
-
-(Move `.cargo/config.toml` aside while it runs, since it switches downloads off.)
-
-To check the game draws without watching it, set `CAR_GAME_SCREENSHOT` to a file
-name: it saves a picture once the game has settled, then quits.
-
 ## Packs
 
-Packs are optional add-ons. Each one changes a whole part of the game. Packs
-need the game installed from source, as above. Each command installs the game
-first if it isn't installed yet, then adds the pack.
+Open **Garage → Packs** to enable any of the three optional packs. Each can
+be switched off at any time.
 
-**🌅 Photo Real** (`graphics`): makes the game look real. It adds a physically
-based sky with a real sun and clouds, and light reflected from the sky onto
-every surface. Roads get wet and puddles in the rain. Cars get real, detailed
-car bodies with no badges or logos (by Daniel Zhabotinsky, CC BY 4.0), shaped
-and painted by your garage settings, with clearcoat paint, metal flake, brake
-discs and calipers; the Packs tab can switch them back to sculpted bodies. It
-also adds ambient occlusion, soft bloom, street lamps that light the road at
-night, headlights that shine beams through the night air and throw shadows,
-raindrops on the lens, and a camera lens with film-style looks and photo-mode
-depth of field.
+- **Photo Real** adds detailed car bodies, a physical sky and camera effects.
+  The car models are by Daniel Zhabotinsky (CC BY 4.0). See the [model credits](assets/packs/photo_real/CREDITS.md).
+- **Real Physics** adds suspension, individual tire grip and temperatures, a
+  powertrain model, crash damage and driving aids, with a telemetry panel while you drive.
+- **Living City** adds residents who work, meet, drive and remember what happens
+  around them, plus messages, a city journal and police pursuits. Press K near
+  someone to talk and L to open the journal. The built-in brain works offline.
+  An optional Qwen model can be downloaded in the Packs tab and runs on your computer.
 
-*macOS, Linux, or Git Bash on Windows:*
+## Build from source
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics
-```
+Install [Rust with rustup](https://rustup.rs), CMake and a C++ toolchain with
+libclang. On macOS install the Xcode command-line tools. On Windows use Visual
+Studio Build Tools with Desktop development with C++ and set `LIBCLANG_PATH`
+to LLVM’s `bin` folder if it is outside the default search paths. On Debian or
+Ubuntu install `libasound2-dev`, `libudev-dev`, `libwayland-dev`,
+`libxkbcommon-dev` and `libclang-dev`.
 
-*Windows PowerShell:*
+Run `cargo run --release --locked --offline` from the checkout. Cargo uses the
+locked libraries in `vendor/`. New installs select graphics settings based on
+the computer. Garage → Settings lets you change the preset, resolution,
+shadows, effects, draw distance and frame-rate cap.
 
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack graphics"
-```
-
-**🧪 Real Physics** (`physics`): realistic driving. The body rides on real
-springs, dampers and anti-roll bars, so it dives under braking, leans in
-corners and bounces over curbs, and the weight on each tire moves with it.
-Each of the four tires has real grip curves, warms up as you push and wears
-as it slides. Each kind of engine has its own torque curve, and turbos lag.
-Gear changes take a moment, and limited-slip differentials put the power
-down. Hard-used brakes fade, and every surface has its own grip. Crashes spin
-the car, dent it, and can hurt the engine or bend a wheel and the steering.
-There are realism levels from Friendly to Simulation. A telemetry panel shows
-it all at work, and a controller rumbles as the tires slide.
-
-*macOS, Linux, or Git Bash on Windows:*
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics
-```
-
-*Windows PowerShell:*
-
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack physics"
-```
-
-**🧠 Living City** (`npc`): a whole city of 48 people, each with a name over
-their head, a job, a home, friends and a personality of their own. They live
-through the city's days: they get up, grab a coffee, go to work, have lunch,
-meet friends in the evening and go home to sleep. They stop to talk when they
-run into each other, gossip about each other and about you, and make plans to
-meet again, which they keep. Over time they change: they form beliefs, pick up
-habits, make friends and hold grudges, and write their own life stories. Among
-them are GUY, the cheerful bank teller in the blue shirt, and his best friend
-BUDDY, a police officer who goes everywhere with him and writes you tickets.
-
-They're completely free. Each has a goal and a plan for the day, and private
-thoughts (💭) you can read in the journal. They choose for themselves what to
-do next, whether that's lunch, a drive across town in their car, giving a
-friend a lift, getting up to mischief, texting you, or anything else they can
-put into words, like painting a mural in the park or dancing in the street.
-They can make lasting decisions about their own lives ("I'm going to quit my
-job and paint"), which they keep, and the journal shows, until they change
-their mind. The game never overrules them.
-
-BUDDY drives a police car with lights and a siren, and GUY rides along. What
-to do about you is always BUDDY's call: let it go, write a ticket, or come
-after you. In a chase he rams you and fires the roof gun, and a wanted level
-shows how much trouble you're in. Lose him to escape, or pull over and pay the
-fine. Every so often he thinks the chase over (how battered his car is,
-whether you've calmed down, what GUY says) and may call it off. He can even
-decide he's done chasing you, and stick to it. Everyone remembers the chase.
-People also wave you down for lifts and tip you when you drop them off. On
-Saturday nights the whole city throws a street party in the park. You can
-turn chases off in the Packs tab.
-
-Their conversations and thoughts are written by a free, open-source AI model
-(Qwen3.5, Apache 2.0) that runs on your own computer through
-[llama.cpp](https://github.com/ggml-org/llama.cpp). Nothing is sent anywhere
-and it costs nothing. The first time the pack runs, it downloads the model that
-suits your computer, once: Qwen3.5 4B (2.7 GB) with 16 GB of memory or more,
-otherwise Qwen3.5 2B (1.3 GB). You can pick a smaller or larger model, or run
-it on the processor instead of the graphics chip, in the Packs tab. Until the
-model is ready, a simpler built-in brain keeps the city going.
-
-Click on anyone (or pull up next to them and press K) to talk to them. Talk to
-people often and treat them well, and they become your friends: they wave when
-you drive by, greet you by name and remember what you talked about. Everyone's
-memories, friendships and life stories are saved in the game's data folder,
-which updates leave alone, so they last as long as the game is installed. L
-opens the city journal: what everyone is doing, what they've been saying to each
-other, their plans, and your friends (city free roam).
-
-*macOS, Linux, or Git Bash on Windows:*
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc
-```
-
-*Windows PowerShell:*
-
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack npc"
-```
-
-**All three packs:**
-
-*macOS, Linux, or Git Bash on Windows:*
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all
-```
-
-*Windows PowerShell:*
-
-```powershell
-& "$env:ProgramFiles\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all"
-```
-
-*Windows Command Prompt:*
-
-```bat
-"%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash -s -- --pack all"
-```
-
-The update command above also updates your packs. To switch a pack off, change
-its options or remove it, open the garage (G) and go to the **Packs** tab. A
-removed pack stops straight away and is left out the next time the game
-updates. To make a pack of your own, see [packs/README.md](packs/README.md).
+On first launch the game imports 1.2.x career progress, garage builds, settings,
+best times, ghosts and city memories from the old app’s data folder.
 
 ## Career
 
@@ -408,10 +221,7 @@ limit yourself, and turn on the FPS counter to see the difference.
 
 ## Releasing a new version
 
-Put the version in the commit message on `main` (or in the pull request's title),
-like `v1.2.0: more maps`. GitHub Actions then builds the game for macOS, Windows
-and Linux, tags the commit, and publishes a release with the three downloads (see
-`.github/workflows/release.yml`). A commit without a version, or with one that's
-already out, doesn't release anything. Every pull request is also type-checked
-and built (`check.yml`).
-
+Set the workspace version in `Cargo.toml` and include the matching version
+(for example, `v1.3.0`) in the merge commit on `main`. The Native release
+workflow builds the six packages and publishes them together on GitHub Releases.
+The v1.3.0 feature pull request also builds the packages as workflow artifacts.
