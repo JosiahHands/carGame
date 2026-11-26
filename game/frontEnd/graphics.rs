@@ -56,9 +56,9 @@ pub mod scene {
                 .add_systems(Startup, (setup, setup_display.after(crate::game::setup_game)))
                 .add_systems(
                     Update,
-                    (trial_visuals, roam_visuals, rockets, people, billboards, photo, render_resolution).after(crate::GameSet::Frame),
+                    (trial_visuals, roam_visuals, rockets, people, billboards, render_resolution).after(crate::GameSet::Frame),
                 )
-                .add_systems(Last, frame_limit);
+                .add_systems(Last, (photo, frame_limit).chain());
         }
     }
 
@@ -494,16 +494,11 @@ pub mod scene {
     }
 
     /// Saves a photo of the view (without the menus) to the Pictures folder.
-    fn photo(mut game: ResMut<Game>, mut commands: Commands, mut wait: Local<u8>) {
+    fn photo(mut game: ResMut<Game>, mut commands: Commands) {
         if !game.screen_shot {
-            *wait = 0;
             return;
         }
-        // Wait a frame so the menus are gone from the picture.
-        *wait += 1;
-        if *wait < 2 {
-            return;
-        }
+        // The primary egui pass in PostUpdate has already skipped this frame's overlays.
         let dir = directories::UserDirs::new()
             .and_then(|u| u.picture_dir().map(|p| p.to_path_buf()))
             .or_else(crate::storage::data_dir)

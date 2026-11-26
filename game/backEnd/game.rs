@@ -510,6 +510,7 @@ impl<'w, 's> Ctx<'w, 's> {
     /// Loads the venue, puts everyone on the grid and starts the countdown.
     pub fn start_event(&mut self, spec: EventSpec, car: CarConfig, level: Option<Level>, all_terrain: bool) {
         self.dispose_event();
+        self.resume_event();
         self.clear_traffic();
         self.game.people.load(&self.world, false);
         self.game.playing = level;
@@ -538,7 +539,6 @@ impl<'w, 's> Ctx<'w, 's> {
         g.drift_score = 0.0;
         g.air_time = 0.0;
         g.slow_motion = false;
-        g.paused = false;
         g.ended_for = 0.0;
         g.results_shown = false;
         g.chain.clear();
@@ -2441,4 +2441,76 @@ pub fn menus(mut ctx: Ctx, mut contexts: bevy_egui::EguiContexts) -> Result {
     ctx.game.pointer_on_ui = egui_ctx.is_pointer_over_egui();
     ctx.game.typing = egui_ctx.egui_wants_keyboard_input();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restarting_or_advancing_an_event_returns_control_to_the_player() {
+        let mut storage = Storage::in_memory();
+        storage.set("carGame.settings.v1", r#"{"quality":"Low","announcer":false}"#);
+        storage.set("carGame.muted", "1");
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            crate::audio::AudioPlugin,
+            crate::world_render::WorldRenderPlugin,
+        ))
+        .insert_resource(storage)
+        .insert_resource(World::empty())
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .init_resource::<CameraRig>()
+        .init_resource::<crate::packs::Packs>()
+        .add_systems(Startup, setup_game);
+        app.world_mut().run_schedule(Startup);
+        app.world_mut()
+            .run_system_cached(|mut ctx: Ctx, mut windows: Query<&mut Window, With<PrimaryWindow>>| {
+                fn check_countdown(ctx: &mut Ctx, windows: &mut Query<&mut Window, With<PrimaryWindow>>, level: usize) {
+                    assert_eq!(ctx.game.playing.as_ref().unwrap().number, level);
+                    assert_eq!(ctx.game.event.as_ref().unwrap().state, EventState::Countdown);
+                    assert!(!ctx.game.paused);
+                    assert!(!ctx.game.menu.visible());
+                    let previous_camera = ctx.rig.mode;
+                    handle_action(ctx, Action::Camera, windows);
+                    assert_ne!(ctx.rig.mode, previous_camera);
+                }
+
+                ctx.menu_action(MenuAction::PlayLevel(Box::new(career::make_level(1))));
+                ctx.pause_event();
+                assert!(matches!(ctx.game.menu.screen, Screen::Pause(_)));
+                ctx.menu_action(MenuAction::Restart);
+                check_countdown(&mut ctx, &mut windows, 1);
+
+                for advance in [false, true] {
+                    let event = ctx.game.event.as_mut().unwrap();
+                    event.state = EventState::Done;
+                    event.result = Some(crate::event::EventResult {
+                        stars: 3,
+                        position: 1,
+                        score_text: "1st".into(),
+                        score: 1.0,
+                        passed: true,
+                        standings: Vec::new(),
+                        best_lap: 0.0,
+                    });
+                    show_results(&mut ctx);
+                    let Screen::Results { next: Some(next), .. } = &ctx.game.menu.screen else {
+                        panic!("Level 2 should be unlocked on the results screen");
+                    };
+                    let action = if advance {
+                        MenuAction::PlayLevel(next.clone())
+                    } else {
+                        MenuAction::Restart
+                    };
+                    ctx.menu_action(action);
+                    check_countdown(&mut ctx, &mut windows, if advance { 2 } else { 1 });
+                }
+            })
+            .unwrap();
+    }
 }
