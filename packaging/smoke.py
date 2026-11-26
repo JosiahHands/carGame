@@ -42,8 +42,8 @@ def check_png(path):
     width, height = struct.unpack(">II", data[16:24])
     if width < 320 or height < 180:
         raise ValueError(f"unexpected screenshot dimensions {width}x{height}")
-    # A flat clear-color frame compresses far below this ratio.
-    if len(data) < width * height // 64:
+    # Reject flat frames captured while the graphics pipelines are still loading.
+    if len(data) < width * height // 32:
         raise ValueError("the screenshot has too little detail for a game frame")
     return f"{width}x{height}"
 
