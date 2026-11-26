@@ -108,10 +108,10 @@ export interface EventHud {
 }
 
 const COUNTDOWN = 3.5;
-/** Progress jumps by more than this (metres) in one step mean the car has left the track: cutting across doesn't count. */
+/** Progress jumps by more than this (meters) in one step mean the car has left the track: cutting across doesn't count. */
 const MAX_JUMP = 40;
 /**
- * How far off the edge of the road (metres) a car can go and still be on
+ * How far off the edge of the road (meters) a car can go and still be on
  * course. Tracks with wide run-off areas or an apron (the speedway) allow
  * up to 2 m past those instead.
  */
@@ -124,10 +124,10 @@ interface Racer {
   name: string;
   physics: CarPhysics;
   rival: Rival | null;
-  /** Metres round the lap (0..length) the last time it was on the track. */
+  /** Meters round the lap (0..length) the last time it was on the track. */
   along: number;
   offset: number;
-  /** Metres driven round the track since the start line; starts negative on the grid. */
+  /** Meters driven round the track since the start line; starts negative on the grid. */
   distance: number;
   /** Seconds since GO when it finished, or null. */
   finished: number | null;
@@ -170,7 +170,7 @@ export class EventRun {
   unbankedDrift = 0;
   /** Seconds of the jump going on now: they still count in a stunt show if the time runs out mid-air. */
   unbankedAir = 0;
-  /** The furthest the player has got (metres round the track): each speed camera counts once per lap. */
+  /** The furthest the player has got (meters round the track): each speed camera counts once per lap. */
   private trapMark = -Infinity;
   readonly track: RaceTrack | null;
   readonly racers: Racer[] = [];
@@ -178,7 +178,7 @@ export class EventRun {
   private outCount = 0;
   private nextOut: number;
   private bestLap = 0;
-  /** Speed cameras: metres along the lap, and the meshes. */
+  /** Speed cameras: meters along the lap, and the meshes. */
   readonly traps: number[] = [];
   private trapGroup = new THREE.Group();
   private takedowns = 0;
@@ -360,7 +360,7 @@ export class EventRun {
     }
   }
 
-  /** How many speed cameras a car passed going from `from` to `to` metres. */
+  /** How many speed cameras a car passed going from `from` to `to` meters. */
   private trapsCrossed(from: number, to: number): number {
     if (!this.track || to <= from) return 0;
     const L = this.track.length;
@@ -943,7 +943,7 @@ export class EventRun {
     return { stats, standings, warning, health: s.weapons && track ? Math.max(0, me.hp) / 100 : null, stars };
   }
 
-  /** Coloured dots for the rivals and cameras on the minimap. */
+  /** Colored dots for the rivals and cameras on the minimap. */
   mapMarkers(): { x: number; z: number; color: string; size: number }[] {
     const markers = this.racers
       .filter((r) => r.rival && r.rival.active)

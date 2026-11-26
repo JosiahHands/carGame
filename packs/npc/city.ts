@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { ROAD_LINES, type World } from '../../game/world';
 import type { PlaceKind } from './cast';
 
-/** The pavement loop round each block: this far from the block's centre (as the game's pedestrians walk). */
+/** The pavement loop round each block: this far from the block's center (as the game's pedestrians walk). */
 const LOOP = 32;
 
 export interface Place {

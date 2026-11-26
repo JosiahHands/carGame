@@ -5,8 +5,8 @@ import * as THREE from 'three';
 import type { CarRig } from '../../game/carModel';
 
 const BEAMS = 'photoRealBeams';
-const LENGTH = 13; // metres
-const SPREAD = 2.4; // radius at the far end, metres
+const LENGTH = 13; // meters
+const SPREAD = 2.4; // radius at the far end, meters
 
 /** How strong the beams are: the "Light beams" setting times the weather. Shared by every car. */
 export const beamStrength = { value: 0.5 };

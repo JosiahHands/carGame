@@ -1,7 +1,7 @@
 // The camera: everything that happens between the 3D scene and the screen.
 // Ambient occlusion (soft shadows in corners and under things), bloom (bright
 // lights glow), depth of field in photo mode, tone mapping, and a "lens" pass:
-// colour grading, vignette, film grain, chromatic aberration, speed blur and
+// color grading, vignette, film grain, chromatic aberration, speed blur and
 // raindrops on the lens.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -79,7 +79,7 @@ const LensShader = {
       return -d * inside * fade / cells;
     }
 
-    // A picture sample with the colours split a little towards the edges, like a real lens.
+    // A picture sample with the colors split a little towards the edges, like a real lens.
     vec3 sampleLens(vec2 uv) {
       vec2 c = uv - 0.5;
       vec2 split = c * dot(c, c) * aberration * 0.025;
@@ -111,7 +111,7 @@ const LensShader = {
 
       float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
       if (look == 0) {
-        // Natural: a gentle lift in contrast and colour (the filmic tone curve is a little flat).
+        // Natural: a gentle lift in contrast and color (the filmic tone curve is a little flat).
         color = mix(vec3(luma), color, 1.08);
         color = mix(color, color * color * (3.0 - 2.0 * color), 0.18);
       } else if (look == 1) {
@@ -121,7 +121,7 @@ const LensShader = {
         color = mix(color, color * color * (3.0 - 2.0 * color), 0.3);
         color = color * 0.96 + 0.025;
       } else if (look == 2) {
-        // Vivid: rich colour and contrast.
+        // Vivid: rich color and contrast.
         color = mix(vec3(luma), color, 1.3);
         color = mix(color, color * color * (3.0 - 2.0 * color), 0.35);
       } else {

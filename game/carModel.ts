@@ -16,7 +16,7 @@ export interface BodySpec {
   cabinWidth: number;
   axleRear: number;
   axleFront: number;
-  track: number; // distance from centre line to the wheel centre
+  track: number; // distance from center line to the wheel center
   wheelRadius: number;
   tireWidth: number;
   spoiler: P; // where the spoiler sits
@@ -155,7 +155,7 @@ export interface WheelRig {
 /** A car body's shape after its length, width and height settings (see CarRig.shape). */
 export interface CarShape {
   spec: BodySpec;
-  /** Wheel centre height, wheel arch radius, wheel centre distance from the middle, tyre width. */
+  /** Wheel center height, wheel arch radius, wheel center distance from the middle, tire width. */
   wheelY: number;
   archR: number;
   wheelX: number;
@@ -169,7 +169,7 @@ export interface CarRig {
   root: THREE.Group;
   body: THREE.Group;
   wheels: WheelRig[];
-  // Sizes in metres, including the overall size setting.
+  // Sizes in meters, including the overall size setting.
   length: number;
   width: number;
   height: number;
@@ -185,7 +185,7 @@ export interface CarRig {
    * What the car was built from, for packs that redraw it: the settings, and
    * the body's shape in body coordinates (y up from the ground, +z forward).
    * The body's own parts are named: 'shell' (body, cabin glass and roof),
-   * 'shell-stripe', 'headlight', 'taillight', and each wheel's 'tyre'.
+   * 'shell-stripe', 'headlight', 'taillight', and each wheel's 'tire'.
    */
   config: CarConfig;
   shape: CarShape;
@@ -218,7 +218,7 @@ function paintMaterial(color: string, finish: PaintFinish, carbonMap: THREE.Text
       Object.assign(m, { metalness: 1, roughness: 0.06, clearcoat: 0.6 });
       break;
     case 'carbon':
-      // Carbon fibre weave, tinted a little by the paint colour.
+      // Carbon fiber weave, tinted a little by the paint color.
       Object.assign(m, { map: carbonMap, metalness: 0.2, roughness: 0.35, clearcoat: 1 });
       m.color.set('#ffffff').lerp(new THREE.Color(color), 0.35);
       break;
@@ -227,7 +227,7 @@ function paintMaterial(color: string, finish: PaintFinish, carbonMap: THREE.Text
       Object.assign(m, { metalness: 0.1, roughness: 0.4, emissive: new THREE.Color(color), emissiveIntensity: 0.7 });
       break;
     case 'rainbow':
-      // Glossy; animate() changes the colour every frame.
+      // Glossy; animate() changes the color every frame.
       Object.assign(m, { metalness: 0.4, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.05 });
       break;
   }
@@ -236,7 +236,7 @@ function paintMaterial(color: string, finish: PaintFinish, carbonMap: THREE.Text
 
 /**
  * Texture coordinates for an extruded body side: the (z, y) position in
- * metres, as if looking at the car side on. The roof and bonnet get the top
+ * meters, as if looking at the car side on. The roof and bonnet get the top
  * row of the pattern. Used to lay paint patterns over the body.
  */
 const SIDE_ON_UVS = {
@@ -275,7 +275,7 @@ function lowerProfile(spec: BodySpec, archR: number, wheelY: number): THREE.Shap
 }
 
 /**
- * Extrudes a side profile across the car's width, centred on x = 0.
+ * Extrudes a side profile across the car's width, centered on x = 0.
  * `bevel` rounds the edges; the bevel also grows the outline outward by
  * `bevelSize` (defaults to `bevel`).
  */
@@ -390,7 +390,7 @@ function buildWheel(
       ring(rimR * 0.98, 0.03);
       bolts(6, rimR * 0.62, 0.05, dark);
       disc(rimR * 0.2, 0.05, rimMat, face + 0.01);
-      // Chunky tread blocks around the tyre.
+      // Chunky tread blocks around the tire.
       const treads = 16;
       for (let i = 0; i < treads; i++) {
         const pivot = new THREE.Group();
@@ -550,11 +550,11 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   const partMat: Record<PartColor, THREE.Material> = { body: paint, accent, black: blackPlastic, carbon };
 
   // A paint pattern goes on a copy of the paint, used only for the main body.
-  // The pattern has the paint and accent colours drawn in, so the copy is white.
+  // The pattern has the paint and accent colors drawn in, so the copy is white.
   let bodyPaint = paint;
   if (config.pattern !== 'none') {
     const livery = track(liveryTexture(config.pattern, config.paintColor, config.accentColor, length, topY - spec.bottomY));
-    // The body's texture coordinates are metres (see SIDE_ON_UVS); map them onto the texture.
+    // The body's texture coordinates are meters (see SIDE_ON_UVS); map them onto the texture.
     livery.repeat.set(1 / length, 1 / (topY - spec.bottomY));
     livery.offset.set(-rearZ / length, -spec.bottomY / (topY - spec.bottomY));
     bodyPaint = track(paint.clone());
@@ -577,12 +577,12 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
 
   // ---------- wheels and suspension height ----------
   // Body coordinates have y = 0 at the ground for the stock car. `wheelY` is
-  // the wheel centre in body coordinates; lifting the body moves it down.
+  // the wheel center in body coordinates; lifting the body moves it down.
   const R = spec.wheelRadius;
   const r = R * config.wheelSize;
   let wheelY = R - config.lift;
   // Wheel arches can only be so big before they run off the ends of the body.
-  // Wheels too big for them push the body up until it clears the tyres, like
+  // Wheels too big for them push the body up until it clears the tires, like
   // a monster truck.
   const archMax = Math.min((spec.axleFront - spec.axleRear) / 2, frontZ - spec.axleFront, spec.axleRear - rearZ) - 0.05;
   let archR = r + 0.07 + BEVEL;
@@ -798,7 +798,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     gunMuzzle.set(0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
   }
   if (roofPod && gunMetal) {
-    // Rocket pod: a box with four tubes, the tips painted in the accent colour.
+    // Rocket pod: a box with four tubes, the tips painted in the accent color.
     const pod = add(new THREE.BoxGeometry(0.34, 0.3, 0.7), gunMetal);
     pod.position.set(-0.32, roofTop + 0.22, roofMid + 0.05);
     for (const dx of [-0.075, 0.075]) {
@@ -886,7 +886,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
 
   // ---------- wheels ----------
   const tireW = spec.tireWidth * config.tireWidth;
-  // Wider tyres grow outwards; the track setting pushes the wheels further out.
+  // Wider tires grow outwards; the track setting pushes the wheels further out.
   const wheelX = spec.track * config.track + (tireW - spec.tireWidth) / 2;
   const camber = (config.camber * Math.PI) / 180;
   const wheels: WheelRig[] = [];
@@ -919,7 +919,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   }
 
   // ---------- underglow ----------
-  // A soft coloured light under the car plus a glow decal on the ground.
+  // A soft colored light under the car plus a glow decal on the ground.
   const glowLight = new THREE.PointLight(config.underglowColor, 0, 6 * config.size, 1.5);
   glowLight.position.y = 0.15;
   if (withLights) root.add(glowLight);
@@ -1004,7 +1004,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     },
     animate(time) {
       if (wrecked) return;
-      // Rainbow paint and underglow cycle through every colour, about every 12 seconds.
+      // Rainbow paint and underglow cycle through every color, about every 12 seconds.
       const hue = (time * 0.08) % 1;
       if (config.finish === 'rainbow') {
         paint.color.setHSL(hue, 0.85, 0.5);

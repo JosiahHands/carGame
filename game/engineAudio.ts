@@ -1,4 +1,4 @@
-// Synthesised engine, tyre squeal, horn and crash sounds (Web Audio, no sound files).
+// Synthesized engine, tire squeal, horn and crash sounds (Web Audio, no sound files).
 import type { EngineSound, Horn } from './carConfig';
 
 /**
@@ -116,7 +116,7 @@ export class EngineAudio {
 
   /**
    * Call every frame. revs: 0 (idle) to 1 (redline), from the gearbox;
-   * speedFraction 0..1 of top speed; throttle 0..1; slip 0..1 (tyre squeal);
+   * speedFraction 0..1 of top speed; throttle 0..1; slip 0..1 (tire squeal);
    * limiter: bouncing off the rev limiter, which makes the note stutter.
    */
   update(revs: number, speedFraction: number, throttle: number, slip: number, active: boolean, limiter = false): void {
@@ -180,7 +180,7 @@ export class EngineAudio {
     this.sweep('sawtooth', 300, 90, 0.06, 0.4);
   }
 
-  /** An explosion. `distance` in metres makes far-away booms quieter. */
+  /** An explosion. `distance` in meters makes far-away booms quieter. */
   explosion(size: number, distance: number): void {
     const near = 1 / (1 + distance / 40);
     this.noiseBurst('lowpass', 500, Math.min(1, 0.8 * size * near), 1.4);

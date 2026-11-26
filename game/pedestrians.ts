@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { ROAD_LINES, type World } from './world';
 
 const PER_BLOCK = 3;
-/** The pavement loop round each block: this far from the block's centre (the road edge is 34 m out). */
+/** The pavement loop round each block: this far from the block's center (the road edge is 34 m out). */
 const LOOP = 32;
 const SIDE = LOOP * 2;
 const PERIMETER = SIDE * 4;
@@ -19,7 +19,7 @@ const SHIRTS = [0xd7263d, 0x1b98e0, 0x3bb273, 0xf46036, 0xffd23f, 0x7b2cbf, 0xff
 const TROUSERS = [0x2b3a55, 0x3a3a3a, 0x6b4f3a, 0x1d3557, 0x8a8f99, 0x4a5d23];
 
 interface Person {
-  /** The centre of the block they walk round, and where they are on its loop (metres). */
+  /** The center of the block they walk round, and where they are on its loop (meters). */
   bx: number;
   bz: number;
   along: number;
@@ -89,7 +89,7 @@ export class Pedestrians {
         }
       }
     }
-    // Colours for each person: skin on the head, shirt on the body and arms, trousers on the legs.
+    // Colors for each person: skin on the head, shirt on the body and arms, trousers on the legs.
     const color = new THREE.Color();
     this.people.forEach((_, i) => {
       const pick = (list: number[]) => color.setHex(list[Math.floor(Math.random() * list.length)]);
@@ -140,7 +140,7 @@ export class Pedestrians {
 
   /**
    * Moves everyone on, and gets them out of the way of the car at (x, z)
-   * going (vx, vz), which reaches `reach` metres from its centre.
+   * going (vx, vz), which reaches `reach` meters from its center.
    */
   update(dt: number, car: { x: number; y: number; z: number; vx: number; vz: number; reach: number }): void {
     if (!this.people.length || !this.group.visible) return;

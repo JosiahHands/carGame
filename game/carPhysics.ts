@@ -27,9 +27,9 @@ export interface StepEvents {
 
 const EARTH_GRAVITY = 16; // a bit more than real gravity, so jumps feel snappy
 export const MAX_REVERSE = 12;
-const MPH = 0.44704; // metres per second
+const MPH = 0.44704; // meters per second
 /**
- * Most sideways acceleration the tyres can give, in m/s², at normal grip on
+ * Most sideways acceleration the tires can give, in m/s², at normal grip on
  * dry tarmac: about 2.2 g, like a race car. Take a corner faster than that
  * and the car runs wide (understeer), so you brake for the tight ones. More
  * grip and downforce raise it; rain, snow and grass lower it.
@@ -37,7 +37,7 @@ const MPH = 0.44704; // metres per second
 export const TYRE_GRIP = 22;
 /** With the handbrake on, the car can swing round this many times faster than its grip allows, and slides. */
 const DRIFT_TURN = 3;
-/** A car this tall (metres) or taller flattens anything up to twice its height. */
+/** A car this tall (meters) or taller flattens anything up to twice its height. */
 const GIANT_HEIGHT = 3;
 /**
  * The five forward gears: where each one runs out of revs, as a share of the
@@ -48,7 +48,7 @@ export const GEAR_TOPS = [0.18, 0.34, 0.52, 0.72, 1.0];
 
 /**
  * Another way to drive the cars, from a pack (the physics pack). It replaces
- * the arcade model's engine, brakes, steering and tyres; the game still does
+ * the arcade model's engine, brakes, steering and tires; the game still does
  * crashes, jumps, ramps and slopes. Set CarPhysics.dynamics to use it.
  */
 export interface CarDynamics {
@@ -58,9 +58,9 @@ export interface CarDynamics {
    * how fast it's turning (radians per second, positive is left).
    */
   drive(car: CarPhysics, dt: number, input: CarInput, world: World): number;
-  /** Most sideways acceleration the tyres can give at this speed, in m/s² (the AI plans its corner speeds with it). */
+  /** Most sideways acceleration the tires can give at this speed, in m/s² (the AI plans its corner speeds with it). */
   cornerGrip(car: CarPhysics, speed: number, surfaceGrip: number): number;
-  /** The car hit something: (nx, nz) points away from it, at a point `along` metres forward and `across` metres left of the centre. */
+  /** The car hit something: (nx, nz) points away from it, at a point `along` meters forward and `across` meters left of the center. */
   impact?(car: CarPhysics, nx: number, nz: number, along: number, across: number, lost: number): void;
   /** The car was put somewhere new, standing still. */
   reset?(car: CarPhysics, fresh?: boolean): void;
@@ -128,14 +128,14 @@ export class CarPhysics {
   bounce = 0.35;
   // Set from the car's size by configure().
   wheelBase = 2.6;
-  // The car's size in metres (from its model).
+  // The car's size in meters (from its model).
   length = 4.4;
   width = 1.9;
   height = 1.3;
   /** Grip of the surface under the car, from the world: 1 on dry tarmac. */
   surfaceGrip = 1;
   /**
-   * All-terrain tyres (the rally truck in the career): grass slows the car
+   * All-terrain tires (the rally truck in the career): grass slows the car
    * half as much, and rain and snow take away less grip.
    */
   allTerrain = false;
@@ -239,7 +239,7 @@ export class CarPhysics {
     return Math.hypot(this.vx, this.vz);
   }
 
-  /** Most sideways acceleration the tyres can give at this speed (m/s²), with downforce and the surface. */
+  /** Most sideways acceleration the tires can give at this speed (m/s²), with downforce and the surface. */
   cornerGrip(speed: number): number {
     if (CarPhysics.dynamics) return CarPhysics.dynamics.cornerGrip(this, speed, this.surfaceGrip);
     return TYRE_GRIP * this.gripMultiplier * this.surfaceGrip * (1 + (this.downforce / 10) * (speed / (100 * MPH)) ** 2);
@@ -292,7 +292,7 @@ export class CarPhysics {
     const yawRate = CarPhysics.dynamics ? CarPhysics.dynamics.drive(this, dt, input, world) : this.arcade(dt, input, world, vf, vl, fx, fz, control);
 
     // Move, checking for crashes along the way. At hundreds of mph the car
-    // moves several metres a step, so it moves in smaller pieces then, or it
+    // moves several meters a step, so it moves in smaller pieces then, or it
     // could pass straight through a lamp post.
     const pieces = Math.min(12, Math.max(1, Math.ceil((this.speed * dt) / (Math.min(this.width, this.length) * 0.4))));
     for (let i = 0; i < pieces; i++) {
@@ -458,7 +458,7 @@ export class CarPhysics {
       vl *= Math.exp(-g * dt);
     }
 
-    // Turning, limited to what the tyres can hold: too fast for a corner and
+    // Turning, limited to what the tires can hold: too fast for a corner and
     // the car runs wide. The handbrake lets it swing round further and slide.
     let yawRate = (vf / this.wheelBase) * Math.tan(this.steerAngle) * control;
     if (input.handbrake && Math.abs(vf) > 3) yawRate *= 1.5;
@@ -467,7 +467,7 @@ export class CarPhysics {
     const dYaw = yawRate * dt;
     this.heading += dYaw;
 
-    // Rebuild velocity. Grippy tyres carry most of the speed round the turn;
+    // Rebuild velocity. Grippy tires carry most of the speed round the turn;
     // a sliding car keeps going the old way, which makes it drift.
     const carry = input.handbrake ? 0.25 : 0.85;
     const oldFx = fx;
@@ -520,7 +520,7 @@ export class CarPhysics {
     // front to the back; a car wider than it is long gets a row from side to
     // side instead. Either way no circle sticks out past the body.
     const r = Math.min(this.length, this.width) / 2;
-    const alongRoom = this.length / 2 - r; // how far the circle centres spread forwards and back
+    const alongRoom = this.length / 2 - r; // how far the circle centers spread forwards and back
     const acrossRoom = this.width / 2 - r; // ...and to the sides
     const alongCount = alongRoom > 0.01 ? Math.max(3, Math.ceil(this.length / (2 * r)) + 1) : 1;
     const acrossCount = acrossRoom > 0.01 ? Math.max(3, Math.ceil(this.width / (2 * r)) + 1) : 1;
@@ -605,7 +605,7 @@ export class CarPhysics {
     if (distSq >= r * r) return 0;
     let d = Math.sqrt(distSq);
     if (d < 1e-4) {
-      // Centre is inside the obstacle: push straight back the way we came.
+      // Center is inside the obstacle: push straight back the way we came.
       const s = Math.hypot(this.vx, this.vz) || 1;
       dx = -this.vx / s;
       dz = -this.vz / s;

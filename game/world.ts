@@ -1,7 +1,7 @@
 // The drivable world: the city, or one of the race track venues (see
 // venues.ts for the list, and how each one looks). The city is a grid of streets
 // with buildings, parks, a car park and a stunt park. The race tracks
-// themselves (road, kerbs, banking, barriers) come from raceTrack.ts; this file
+// themselves (road, curbs, banking, barriers) come from raceTrack.ts; this file
 // puts them on the map and dresses them up with grandstands, a paddock, trees,
 // rocks, buildings, floodlights and weather.
 //
@@ -142,7 +142,7 @@ export interface RayHit {
 
 /**
  * Something weapons can hit besides the world's own targets: the rival cars
- * in a battle. A box standing on (x, y, z), `half` metres out to each side and
+ * in a battle. A box standing on (x, y, z), `half` meters out to each side and
  * `height` tall. The event moves it with the car every frame.
  */
 export interface HitBox {
@@ -191,12 +191,12 @@ const CONE_HEIGHT = 0.75;
 const CONE_LYING_Y = 0.25; // height of a cone's axis when it lies on its side
 const FALL_TIME = 2.4; // seconds for a destroyed building to sink into the ground
 const RISE_TIME = 2; // seconds for a building to be rebuilt
-const RUBBLE_HEIGHT = 1.6; // metres
+const RUBBLE_HEIGHT = 1.6; // meters
 const COMES_BACK_AFTER = 45; // seconds before destroyed things come back...
 const COMES_BACK_DISTANCE = 60; // ...as long as the player is at least this far away
-const CELL = 16; // size of the lookup grid's cells for posts and walls, metres
+const CELL = 16; // size of the lookup grid's cells for posts and walls, meters
 const WEATHER_DROPS = 2500; // raindrops or snowflakes, in a box that follows the car
-const WEATHER_BOX = 70; // metres across...
+const WEATHER_BOX = 70; // meters across...
 const WEATHER_HEIGHT = 30; // ...and high
 
 export class World {
@@ -331,7 +331,7 @@ export class World {
   }
 
   /**
-   * The posts and walls that might be within `reach` metres of (x, z). The
+   * The posts and walls that might be within `reach` meters of (x, z). The
    * same one can be listed more than once.
    */
   nearby(x: number, z: number, reach: number): { circles: Circle[]; walls: Wall[] } {
@@ -355,7 +355,7 @@ export class World {
     const keep = new Set<THREE.Material>([...this.buildingMats, this.lampHeadMat]);
     this.group.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
-      // Instanced meshes (lamps, trees, fans, fence posts) also hold a buffer of positions and colours.
+      // Instanced meshes (lamps, trees, fans, fence posts) also hold a buffer of positions and colors.
       if (o instanceof THREE.InstancedMesh) o.dispose();
       o.geometry.dispose();
       for (const m of [o.material].flat() as THREE.Material[]) {
@@ -435,7 +435,7 @@ export class World {
     }
     // Street lamps along the roads.
     const poles: THREE.Vector3[] = [];
-    // Lamps sit 20 m either side of each block centre, well clear of the crossings.
+    // Lamps sit 20 m either side of each block center, well clear of the crossings.
     const along = ROAD_LINES.slice(0, -1).flatMap((c) => [c + 20, c + 60]);
     for (const c of ROAD_LINES) {
       for (const p of along) {
@@ -593,7 +593,7 @@ export class World {
     let trunkGeo: THREE.BufferGeometry = new THREE.CylinderGeometry(0.22, 0.3, 2.4, 7).translate(0, 1.2, 0);
     let leafGeo: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1.8, 0).translate(0, 3.6, 0);
     let trunkColor = 0x6b4a2f;
-    // The top's colour: hue, saturation and lightness, each with a random spread.
+    // The top's color: hue, saturation and lightness, each with a random spread.
     let leafHsl = (r: () => number) => [0.25 + r() * 0.08, 0.5, 0.28 + r() * 0.12];
     if (kind === 'pine' || kind === 'snowPine') {
       // Two stacked cones on a short trunk.
@@ -740,10 +740,10 @@ export class World {
 
   // ---------- the race tracks ----------
 
-  /** Puts a race track on the map, centred, and sets the start, the lap and the map's size. */
+  /** Puts a race track on the map, centered, and sets the start, the lap and the map's size. */
   private addTrack(steps: TrackStep[], style: TrackStyle): RaceTrack {
     const path = drawTrack(steps);
-    // Centre the track on the middle of the map.
+    // Center the track on the middle of the map.
     const xs = path.map((p) => p.x);
     const zs = path.map((p) => p.z);
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -951,7 +951,7 @@ export class World {
     this.pavedAreas.push({ minX, maxX, minZ, maxZ });
   }
 
-  /** Whether a spot is clear of the track, its barriers, buildings and grandstands, by `margin` metres. */
+  /** Whether a spot is clear of the track, its barriers, buildings and grandstands, by `margin` meters. */
   private isClear(x: number, z: number, margin: number): boolean {
     if (Math.abs(x) > this.half - margin || Math.abs(z) > this.half - margin) return false;
     if (this.track) {
@@ -969,7 +969,7 @@ export class World {
     });
   }
 
-  /** Whether a whole rectangle is clear (checked every 8 m), by `margin` metres. */
+  /** Whether a whole rectangle is clear (checked every 8 m), by `margin` meters. */
   private isAreaClear(minX: number, maxX: number, minZ: number, maxZ: number, margin: number): boolean {
     for (let x = minX; x <= maxX + 0.1; x += Math.max(1, (maxX - minX) / Math.ceil((maxX - minX) / 8))) {
       for (let z = minZ; z <= maxZ + 0.1; z += Math.max(1, (maxZ - minZ) / Math.ceil((maxZ - minZ) / 8))) {
@@ -979,7 +979,7 @@ export class World {
     return true;
   }
 
-  /** Trees dotted around the map wherever there's room, at least `margin` metres from anything. */
+  /** Trees dotted around the map wherever there's room, at least `margin` meters from anything. */
   private scatterTrees(count: number, margin = 4): void {
     const trees: THREE.Vector3[] = [];
     for (let tries = 0; trees.length < count && tries < count * 20; tries++) {
@@ -990,7 +990,7 @@ export class World {
     this.addTrees(trees);
   }
 
-  /** A grandstand beside a straight bit of track, `along` metres from the start line, on the outside of the track, facing it. */
+  /** A grandstand beside a straight bit of track, `along` meters from the start line, on the outside of the track, facing it. */
   private addTrackGrandstand(track: RaceTrack, along: number, length: number, rows: number, roofColor: string): void {
     const out = -track.inside; // which side is the outside: +1 left, -1 right
     const wall = (out > 0 ? track.leftWall : track.rightWall) ?? track.style.width / 2;
@@ -1272,7 +1272,7 @@ export class World {
   }
 
   /**
-   * How much grip the tyres have at (x, z), compared to dry tarmac: less in
+   * How much grip the tires have at (x, z), compared to dry tarmac: less in
    * the rain and snow, and less again on grass.
    */
   gripAt(x: number, z: number): number {
@@ -1428,14 +1428,14 @@ export class World {
   }
 
   /**
-   * Damages everything within `radius` of a point. Things at the centre take
+   * Damages everything within `radius` of a point. Things at the center take
    * full damage and things at the edge take 30%. Cones nearby go flying.
    */
   explode(at: THREE.Vector3, radius: number, damage: number): void {
     const box = new THREE.Box3();
     for (const t of this.targets) {
       if (!t.alive) continue;
-      // Distance to the nearest point of the thing, not its centre, so a
+      // Distance to the nearest point of the thing, not its center, so a
       // rocket hitting the side of a big building still counts as close.
       if (t.kind === 'building' || t.kind === 'car') {
         box.min.set(t.box.minX, 0, t.box.minZ);
@@ -1478,7 +1478,7 @@ export class World {
    * Puts everything that was destroyed back at once ("Rebuild the city").
    * Anything the player's car is on or next to (like a rubble pile) is left
    * to come back later as usual, so the car never ends up inside a solid building.
-   * `carRadius` is half the car's diagonal: how far its footprint reaches from its centre.
+   * `carRadius` is half the car's diagonal: how far its footprint reaches from its center.
    */
   rebuildAll(carX: number, carZ: number, carRadius: number): void {
     for (const t of this.targets) {
@@ -1489,7 +1489,7 @@ export class World {
     this.effects.clear();
   }
 
-  /** Whether `t`, once rebuilt, would overlap a car at (x, z) that reaches `carRadius` from its centre. */
+  /** Whether `t`, once rebuilt, would overlap a car at (x, z) that reaches `carRadius` from its center. */
   private isUnderCar(t: Target, x: number, z: number, carRadius: number): boolean {
     const margin = carRadius + 0.5; // the car's reach, plus a little room
     if (t.kind === 'building') {
@@ -1632,7 +1632,7 @@ export class World {
 
   // ---------- every frame ----------
 
-  /** `carRadius` is half the car's diagonal: how far its footprint reaches from its centre. */
+  /** `carRadius` is half the car's diagonal: how far its footprint reaches from its center. */
   update(dt: number, carX: number, carZ: number, carRadius: number): void {
     this.clock += dt;
     this.updateBuildings(dt);
@@ -1649,7 +1649,7 @@ export class World {
     }
 
     this.updateWeather(dt, carX, carZ);
-    // Keep the sun's shadow box centred on the car.
+    // Keep the sun's shadow box centered on the car.
     this.sun.position.set(carX + 40, 80, carZ + 25);
     this.sun.target.position.set(carX, 0, carZ);
   }
@@ -1761,7 +1761,7 @@ export class World {
 
   // ---------- graphics settings, day and night ----------
 
-  /** Shadow quality: the shadow map's size, and how many metres around the car get shadows. */
+  /** Shadow quality: the shadow map's size, and how many meters around the car get shadows. */
   setShadows(on: boolean, mapSize: number, area: number): void {
     this.sun.castShadow = on;
     if (this.sun.shadow.mapSize.x !== mapSize) {

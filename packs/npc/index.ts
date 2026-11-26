@@ -110,7 +110,7 @@ interface PoliceRecord {
   calledOff: number;
 }
 
-/** A car journey: the driver (and anyone riding along) walks to a car at the kerb, drives, parks and gets out. */
+/** A car journey: the driver (and anyone riding along) walks to a car at the curb, drives, parks and gets out. */
 interface Trip {
   driver: Npc;
   riders: Npc[];
@@ -258,7 +258,7 @@ const NEAR_RANGE = 220;
 const DECIDE_RANGE = 140;
 /** At most this many people's cars on the roads (and parked from trips) at once. */
 const MAX_CARS = 3;
-/** Further than this (metres) and people may take a car. */
+/** Further than this (meters) and people may take a car. */
 const DRIVE_FROM = 150;
 /** How often (city seconds) BUDDY asks himself whether a chase is still worth it. */
 const RETHINK = 20;
@@ -266,7 +266,7 @@ const RETHINK = 20;
 const MISCHIEF = [
   'drew a silly face on a shop window',
   'knocked over the bins',
-  "let down a parked car's tyres",
+  "let down a parked car's tires",
   'climbed the park statue',
   'set off a car alarm for fun',
   'stuck posters all over a lamp post',
@@ -292,7 +292,7 @@ const pack: Pack = {
     };
     let clock = 0;
     let tickets = 0;
-    /** How wanted you are, 0..5 stars: offences add to it, and it cools off with time. */
+    /** How wanted you are, 0..5 stars: offenses add to it, and it cools off with time. */
     let heat = 0;
     const crimes: string[] = []; // what you've done lately, newest first
     const record: PoliceRecord = { chases: 0, escapes: 0, busts: 0, fines: 0, calledOff: 0 };
@@ -2022,13 +2022,13 @@ const pack: Pack = {
     // ---------- people's cars ----------
 
     const trips: Trip[] = [];
-    const parked: NpcCar[] = []; // cars left at the kerb after a trip, taken away once nobody's looking
+    const parked: NpcCar[] = []; // cars left at the curb after a trip, taken away once nobody's looking
     const carsOut = () => trips.filter((t) => t.car).length + parked.length;
     /** Whether two people are together (BUDDY at GUY's side). */
     const together = (a: Npc, b: Npc) => !a.asleep && !b.asleep && !a.inCar && !b.inCar && !a.trip && !b.trip && Math.hypot(a.x - b.x, a.z - b.z) < 15;
 
     /**
-     * Sets off on a car trip: walk to a car at the nearest kerb, drive there,
+     * Sets off on a car trip: walk to a car at the nearest curb, drive there,
      * park, get out. GUY and BUDDY go in BUDDY's police car, BUDDY driving.
      * Returns false if no car can be had (too many on the road).
      */
@@ -2122,7 +2122,7 @@ const pack: Pack = {
       else ruleNext(npc);
     };
 
-    /** Out of the car at the kerb, and on to where each of them is going. */
+    /** Out of the car at the curb, and on to where each of them is going. */
     const alight = (trip: Trip, scared = false) => {
       const at = carOf(trip);
       trips.splice(trips.indexOf(trip), 1);
@@ -2399,7 +2399,7 @@ const pack: Pack = {
             ? `New wheels${name ? `, ${name}` : ''}? ${pick(['Love it!', 'Very you.', 'Bold choice!'])}`
             : fun
               ? pick(['Ooh, nice car!', "Now that's a car!", 'Look at that thing!'])
-              : pick(['Hmm. Interesting colour.', 'Is that thing even legal?', 'Another new car. Of course.']);
+              : pick(['Hmm. Interesting color.', 'Is that thing even legal?', 'Another new car. Of course.']);
           npc.label.say(line, 3, clock);
           npc.lookX = p.x;
           npc.lookZ = p.z;
@@ -2883,14 +2883,14 @@ export function describeCar(config: CarConfig): string {
   return `${/^[aeiou]/.test(words) ? 'an' : 'a'} ${words}`;
 }
 
-/** A colour in plain words. */
+/** A color in plain words. */
 function colourName(hex: string): string {
   const c = new THREE.Color(hex);
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl);
   if (hsl.l > 0.85) return 'white';
   if (hsl.l < 0.12) return 'black';
-  if (hsl.s < 0.15) return hsl.l > 0.55 ? 'silver' : 'grey';
+  if (hsl.s < 0.15) return hsl.l > 0.55 ? 'silver' : 'gray';
   const h = hsl.h * 360;
   const names: [number, string][] = [
     [15, 'red'],

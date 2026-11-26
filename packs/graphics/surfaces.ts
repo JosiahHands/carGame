@@ -1,6 +1,6 @@
 // Surfaces: what the ground and the cars are made of.
 //  - Ground (roads, grass, sand, snow) gets detail in world space: patches,
-//    fine grain and tiny bumps, so it never looks like a flat colour. In the
+//    fine grain and tiny bumps, so it never looks like a flat color. In the
 //    rain it's wet: darker, shiny, with puddles that reflect the sky.
 //  - Cars get a soft contact shadow underneath and metal flakes in the paint.
 import * as THREE from 'three';
@@ -62,7 +62,7 @@ function patchGround(material: THREE.MeshStandardMaterial): void {
       .replace('#include <project_vertex>', '#include <project_vertex>\nvGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + NOISE)
-      // Colour: big patches (wear, dirt, oil) and fine grain; darker when wet.
+      // Color: big patches (wear, dirt, oil) and fine grain; darker when wet.
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>

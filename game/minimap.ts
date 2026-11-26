@@ -32,14 +32,14 @@ export class Minimap {
     this.canvas.classList.toggle('hidden', !visible);
   }
 
-  /** Redraws the map around the car, about 30 times a second. `markers` are coloured dots (time trial arches). */
+  /** Redraws the map around the car, about 30 times a second. `markers` are colored dots (time trial arches). */
   update(dt: number, world: World, x: number, z: number, heading: number, markers: MapMarker[]): void {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = 1 / 30;
 
     const ctx = this.ctx;
-    // Metres from the centre to the edge: bigger, faster tracks show more.
+    // Meters from the center to the edge: bigger, faster tracks show more.
     const range = world.track ? Math.min(300, Math.max(120, world.track.length / 10)) : 130;
     const pixelsPerMetre = SIZE / 2 / range;
     ctx.save();

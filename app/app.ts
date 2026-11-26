@@ -152,7 +152,7 @@ function applyShadows(): void {
   else world.setShadows(true, SHADOW_SIZES[settings.shadows].mapSize, SHADOW_SIZES[settings.shadows].area * spread);
 }
 
-/** Metres as feet or metres, and m/s as mph or km/h, depending on the Units setting. */
+/** Meters as feet or meters, and m/s as mph or km/h, depending on the Units setting. */
 function showLength(m: number): string {
   if (settings.units === 'mph') return `${Math.round(m * 3.281).toLocaleString()} ft`;
   return `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString()} m`;
@@ -350,7 +350,7 @@ const garage = new GarageUI(config, settings, {
 });
 document.body.append(garage.root);
 
-/** How far the car's footprint reaches from its centre: half its diagonal. */
+/** How far the car's footprint reaches from its center: half its diagonal. */
 function carRadius(): number {
   return Math.hypot(car.length, car.width) / 2;
 }
@@ -590,7 +590,7 @@ function handleAction(action: Action): void {
     case 'trial':
       if (trial.active) {
         trial.stop();
-        toast('Time trial cancelled');
+        toast('Time trial canceled');
         updateHud();
       } else {
         startTimeTrial();
@@ -632,7 +632,7 @@ function syncCar(dt: number): void {
 }
 
 /**
- * Tyre smoke while drifting or spinning the wheels, and the boost trail while
+ * Tire smoke while drifting or spinning the wheels, and the boost trail while
  * on nitro. Particles are spawned at a steady rate, whatever the frame rate.
  */
 let smokeDue = 0;
@@ -640,7 +640,7 @@ let sparksDue = 0;
 let grassDue = 0;
 let trailDue = 0;
 let lastTips: THREE.Vector3[] = []; // where the exhausts were last frame
-let odometer = 0; // metres driven, for the rainbow trail's colour bands
+let odometer = 0; // meters driven, for the rainbow trail's color bands
 const spot = new THREE.Vector3();
 function carEffects(dt: number, throttle: number): void {
   const size = cameraRig.size;
@@ -694,10 +694,10 @@ function carEffects(dt: number, throttle: number): void {
     for (let i = 0; i < tips.length; i++) {
       const at = lastTips[i].clone().lerp(tips[i], k / count);
       switch (config.boostTrail) {
-        case 'flames': // embers in the flame colour
+        case 'flames': // embers in the flame color
           effects.addGlow({ at, velocity: new THREE.Vector3((Math.random() - 0.5) * 2, Math.random(), (Math.random() - 0.5) * 2).multiplyScalar(size), life: 0.3, size: [0.25 * size, 0.05 * size], color: config.nitroColor });
           break;
-        case 'rainbow': // a ribbon of coloured puffs that hangs in the air, changing colour along its length
+        case 'rainbow': // a ribbon of colored puffs that hangs in the air, changing color along its length
           at.y += 0.15 * size;
           effects.addSmoke({ at, life: 0.8, size: [0.4 * size, 0.25 * size], color: new THREE.Color().setHSL(((startDistance + (odometer - startDistance) * (k / count)) / 4) % 1, 1, 0.5), opacity: 0.9 }); // a full rainbow every 4 m
           break;

@@ -62,11 +62,11 @@ export type UpgradeId = 'engine' | 'gearbox' | 'tyres' | 'brakes' | 'nitro' | 'a
 export const UPGRADES: { id: UpgradeId; name: string; about: string; icon: string }[] = [
   { id: 'engine', name: 'Engine', about: '+8% power: faster acceleration', icon: '🔧' },
   { id: 'gearbox', name: 'Gearbox', about: '+3.5% top speed', icon: '⚙️' },
-  { id: 'tyres', name: 'Tyres', about: '+3% grip: faster through corners', icon: '🛞' },
+  { id: 'tyres', name: 'Tires', about: '+3% grip: faster through corners', icon: '🛞' },
   { id: 'brakes', name: 'Brakes', about: '+6% braking: brake later', icon: '🛑' },
   { id: 'nitro', name: 'Nitro', about: '+5% boost and a longer-lasting bottle', icon: '🔥' },
   { id: 'aero', name: 'Aero', about: 'More downforce: more grip at speed', icon: '🪽' },
-  { id: 'armour', name: 'Armour', about: '+12% toughness in takedowns', icon: '🛡️' },
+  { id: 'armour', name: 'Armor', about: '+12% toughness in takedowns', icon: '🛡️' },
 ];
 
 /** Most upgrade levels in the career; the sandbox goes up to SANDBOX_MAX_UPGRADE. */
@@ -171,7 +171,7 @@ export function careerTuning(chassis: number, up: Upgrades): Tuning {
   return t;
 }
 
-/** How much damage a car with this armour level can take, for EventSpec.armour. */
+/** How much damage a car with this armor level can take, for EventSpec.armour. */
 export function armourFor(level: number): number {
   return 100 * (1 + 0.12 * steps(level));
 }

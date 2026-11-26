@@ -1,6 +1,6 @@
 // People's cars. Someone who wants to go a long way finds a car parked at
-// the kerb, gets in, and drives it along the city's roads: on the right,
-// slowing for corners and for anything in the way, to the kerb nearest where
+// the curb, gets in, and drives it along the city's roads: on the right,
+// slowing for corners and for anything in the way, to the curb nearest where
 // they're going. There they park and get out.
 //
 // The cars are real cars in the world (World.addTrafficCar), so you can ram
@@ -10,8 +10,8 @@
 import * as THREE from 'three';
 import { ROAD_LINES, type CarTarget, type World } from '../../game/world';
 
-const LANE = 3; // metres from a road's centre line to the middle of its right-hand lane
-const KERB = 4.6; // where cars park: by the right-hand kerb
+const LANE = 3; // meters from a road's center line to the middle of its right-hand lane
+const KERB = 4.6; // where cars park: by the right-hand curb
 const PAVEMENT = 7.5; // where people stand to get in: on the pavement beside the car
 const LOW = ROAD_LINES[0];
 const HIGH = ROAD_LINES[ROAD_LINES.length - 1];
@@ -36,7 +36,7 @@ interface Kerb {
   side: number;
 }
 
-/** The kerb nearest a spot, away from the crossings. */
+/** The curb nearest a spot, away from the crossings. */
 function kerbNear(x: number, z: number): Kerb {
   let best: Kerb = { road: 'x', line: ROAD_LINES[0], along: z, side: 1 };
   let bestD = Infinity;
@@ -81,7 +81,7 @@ export function parkingNear(x: number, z: number): { x: number; z: number; headi
 }
 
 /**
- * A route along the roads from a car at (x, z) heading `heading` to the kerb
+ * A route along the roads from a car at (x, z) heading `heading` to the curb
  * nearest (tx, tz). The car keeps to the right, turns at the crossings
  * (Manhattan style: along one road, then the other) and pulls in at the end.
  */
@@ -90,7 +90,7 @@ export function routeTo(x: number, z: number, heading: number, tx: number, tz: n
   const fz = Math.round(Math.cos(heading));
   const end = kerbNear(tx, tz);
   const endDir = kerbDirection(end);
-  // Centre-line points: where the car is now, the crossings it goes through, and the end.
+  // Center-line points: where the car is now, the crossings it goes through, and the end.
   const snap = (v: number) => ROAD_LINES.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
   const onX = Math.abs(fx) < 0.5; // driving along z, on a road at x = line
   const line = onX ? snap(x) : snap(z);
@@ -99,7 +99,7 @@ export function routeTo(x: number, z: number, heading: number, tx: number, tz: n
   // The first crossing ahead.
   const ahead = ROAD_LINES.filter((c) => (c - along) * sign > 4).sort((a, b) => (a - b) * sign)[0] ?? along + sign * 20;
   const first = onX ? { x: line, z: ahead } : { x: ahead, z: line };
-  // The crossing just before the end kerb, driving the way the end kerb faces.
+  // The crossing just before the end curb, driving the way the end curb faces.
   const endSign = end.road === 'x' ? endDir.fz : endDir.fx;
   const behind = ROAD_LINES.filter((c) => (end.along - c) * endSign > 4).sort((a, b) => (b - a) * endSign)[0] ?? end.along - endSign * 20;
   const last = end.road === 'x' ? { x: end.line, z: behind } : { x: behind, z: end.line };
@@ -121,7 +121,7 @@ export function routeTo(x: number, z: number, heading: number, tx: number, tz: n
     const r = right(leg.d);
     const next = legs[i + 1];
     if (!next) {
-      // The last leg: pull in to the kerb at the end.
+      // The last leg: pull in to the curb at the end.
       const stop = kerbPoint(end, KERB);
       out.push({ x: leg.b.x + r.x * LANE - leg.d.x * 10, z: leg.b.z + r.z * LANE - leg.d.z * 10, speed: 6 }, { ...stop, speed: 0 });
       return;
@@ -186,7 +186,7 @@ export class NpcCar {
     return !this.target.alive || this.target.flying;
   }
 
-  /** Sets off for the kerb nearest (x, z). */
+  /** Sets off for the curb nearest (x, z). */
   driveTo(x: number, z: number): void {
     this.route = routeTo(this.x, this.z, this.heading, x, z);
     this.parked = this.route.length === 0;

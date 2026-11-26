@@ -19,6 +19,8 @@ export interface Traits {
 }
 export const TRAIT_NAMES = ['kindness', 'courage', 'curiosity', 'humour', 'energy'] as const;
 export type TraitName = (typeof TRAIT_NAMES)[number];
+/** What each trait is called on screen. The names above are kept as they are: saves and the AI's answers use them. */
+export const TRAIT_LABELS: Record<TraitName, string> = { kindness: 'kindness', courage: 'courage', curiosity: 'curiosity', humour: 'humor', energy: 'energy' };
 
 /** Kinds of place in the city (see city.ts for where they are). */
 export const PLACE_KINDS = ['coffee', 'bank', 'diner', 'gym', 'music', 'news', 'garage', 'park', 'stunts', 'bakery', 'library', 'office', 'market'] as const;
@@ -35,7 +37,7 @@ export interface Look {
   glasses: boolean;
   /** 1 is average; a little broader or slimmer. */
   build: number;
-  /** Height in metres. */
+  /** Height in meters. */
   height: number;
   /** Something they carry or wear that says who they are. */
   extra: 'none' | 'badge' | 'apron' | 'guitar' | 'camera' | 'skateboard' | 'tie' | 'paint' | 'wrench' | 'headband' | 'newspaper' | 'spatula';
@@ -99,7 +101,7 @@ const STARS: CastMember[] = [
     id: 'tobias',
     name: 'TOBIAS',
     role: 'coffee cart owner',
-    bio: 'Runs the coffee cart and remembers everyone\'s order. Hears every rumour in the city first, and passes it on with extra sugar.',
+    bio: 'Runs the coffee cart and remembers everyone\'s order. Hears every rumor in the city first, and passes it on with extra sugar.',
     voice: 'chatty, gossipy, theatrical',
     traits: { kindness: 0.7, courage: 0.35, curiosity: 0.9, humour: 0.8, energy: 0.7 },
     look: { skin: 0xe0ac69, hair: 0x2b1b10, hairStyle: 'curly', shirt: 0xf5f0e6, trousers: 0x3a3a3a, shoes: 0x222222, hat: 'none', glasses: true, build: 0.95, height: 1.74, extra: 'apron' },
@@ -111,7 +113,7 @@ const STARS: CastMember[] = [
     id: 'maya',
     name: 'MAYA',
     role: 'street artist',
-    bio: 'Paints murals on the sides of buildings at night and dreams of a city with more colour in it. Thinks the fast cars are moving art.',
+    bio: 'Paints murals on the sides of buildings at night and dreams of a city with more color in it. Thinks the fast cars are moving art.',
     voice: 'dreamy, poetic, rebellious',
     traits: { kindness: 0.7, courage: 0.7, curiosity: 0.85, humour: 0.5, energy: 0.6 },
     look: { skin: 0xc68642, hair: 0x7b2cbf, hairStyle: 'long', shirt: 0x2ec4b6, trousers: 0x1d3557, shoes: 0xf2f2f2, hat: 'beanie', glasses: false, build: 0.9, height: 1.66, extra: 'paint' },

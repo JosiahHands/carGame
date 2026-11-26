@@ -19,17 +19,17 @@ import { fastRays } from './fastRays';
 
 /** The models file. Vite copies it next to the game and gives its address (works from the packaged app too). */
 const MODELS_URL = new URL('./models/cars.glb', import.meta.url).href;
-/** Cars further than this from the camera (in metres) switch to the simpler body. */
+/** Cars further than this from the camera (in meters) switch to the simpler body. */
 const FAR = 45;
 const REAL = 'photoRealModel';
 
-/** A model's measurements in its own metres: +z forward, y up, wheels on the ground at y = 0. */
+/** A model's measurements in its own meters: +z forward, y up, wheels on the ground at y = 0. */
 interface Measure {
   axleFront: number;
   axleRear: number;
   wheelRadius: number;
   bodyWidth: number; // below the windows, without the door mirrors
-  archRadius: number; // from a wheel centre to the edge of its arch (the tightest of the four)
+  archRadius: number; // from a wheel center to the edge of its arch (the tightest of the four)
   min: number[];
   max: number[];
 }
@@ -210,10 +210,10 @@ export function fitFor(rig: CarRig, m: Measure): { scale: THREE.Vector3; positio
   const even = ((sx + sz) / 2) * config.height;
   const fitY = (roof - spec.wheelRadius) / (m.max[1] - m.wheelRadius);
   const sy = THREE.MathUtils.clamp(fitY, even * 0.94, even * 1.06);
-  // The model's wheel centres go where the stock wheels' centres are; lifting
+  // The model's wheel centers go where the stock wheels' centers are; lifting
   // the car moves the wheels, not the body, as in the game...
   let y = spec.wheelRadius - m.wheelRadius * sy;
-  // ...but the body rides up if the tyres would poke through the tops of its arches
+  // ...but the body rides up if the tires would poke through the tops of its arches
   // (bigger wheels than the model's, or a squashed body).
   const tyreTop = rig.shape.wheelY + spec.wheelRadius * config.wheelSize + 0.015;
   const archTop = spec.wheelRadius + m.archRadius * sy;
@@ -291,8 +291,8 @@ function fitModel(rig: CarRig, lib: Library): void {
   // Not on the car yet, so its parts' world matrices are in the car body's coordinates (for the rays below).
   group.updateMatrixWorld(true);
 
-  // Paint patterns and carbon fibre: the model's paint is laid out side-on in its
-  // own metres, so a copy of the pattern is moved and stretched to match.
+  // Paint patterns and carbon fiber: the model's paint is laid out side-on in its
+  // own meters, so a copy of the pattern is moved and stretched to match.
   if (paint.map) {
     const map = paint.map.clone();
     map.repeat.set(paint.map.repeat.x * scale.z, paint.map.repeat.y * scale.y);

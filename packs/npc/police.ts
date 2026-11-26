@@ -95,7 +95,7 @@ export class PoliceCar {
       bar.add(lamp);
       this.lights.push(lamp);
     }
-    // On the roof: rig.height is in world metres, the body's own units are before the car's size.
+    // On the roof: rig.height is in world meters, the body's own units are before the car's size.
     bar.position.set(0, this.rig.height / POLICE_CONFIG.size - this.rig.body.position.y + 0.06, -0.2);
     this.rig.body.add(bar);
     this.bar = bar;
@@ -193,7 +193,7 @@ export class PoliceCar {
         if (!this.direct) this.setRoute(routeTo(p.x, p.z, p.heading, player.x, player.z));
       }
       if (this.direct && yours < 3 && distance < 45) {
-        // You've stopped: pull up a few metres from you, and wait.
+        // You've stopped: pull up a few meters from you, and wait.
         tx = player.x;
         tz = player.z;
         wanted = Math.sqrt(2 * 4 * Math.max(0, distance - 8));
@@ -321,7 +321,7 @@ export class PoliceCar {
       this.route.shift();
     }
     if (!this.route.length) return { x: this.from.x, z: this.from.z, speed: 0, done: true };
-    // The point `look` metres on from the car's place on the route.
+    // The point `look` meters on from the car's place on the route.
     const look = 4 + Math.max(0, p.forwardSpeed) * 0.45;
     const first = this.route[0];
     let ax = this.from.x;
@@ -362,7 +362,7 @@ export class PoliceCar {
 
   /**
    * Whether nothing solid (a building, a wall) stands between two points,
-   * keeping `margin` metres clear of it. Buildings that can be destroyed
+   * keeping `margin` meters clear of it. Buildings that can be destroyed
    * still count while they stand. Parked cars don't: BUDDY sees and shoots
    * over them, and the cruiser shoves past them.
    */

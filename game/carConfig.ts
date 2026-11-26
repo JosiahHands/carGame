@@ -28,7 +28,7 @@ export interface Tuning {
   nitroPower: number; // × normal
   nitroSeconds: number; // how long a full bottle lasts
   infiniteNitro: boolean;
-  jump: number; // metres (0 = no jumping)
+  jump: number; // meters (0 = no jumping)
   airControl: number; // 0..1, how much you can steer in the air
   gravity: number; // × Earth
   bounce: number; // 0..1.5, how much the car bounces off walls
@@ -58,7 +58,7 @@ export interface CarConfig {
   tireWidth: number; // × normal
   track: number; // how far out the wheels sit, × normal
   camber: number; // degrees; negative tilts the tops in
-  lift: number; // metres the body is raised (negative lowers it)
+  lift: number; // meters the body is raised (negative lowers it)
   // Parts
   spoiler: SpoilerStyle;
   spoilerColor: PartColor;
@@ -302,7 +302,7 @@ export const RANGES: Record<string, [number, number]> = {
   bounce: [0, 1.5],
 };
 
-/** The allowed choices for every text setting that isn't a colour or the plate. */
+/** The allowed choices for every text setting that isn't a color or the plate. */
 const CHOICES: Record<string, Option<string>[]> = {
   body: BODY_OPTIONS,
   finish: FINISH_OPTIONS,
@@ -326,7 +326,7 @@ export function cleanPlate(text: string): string {
 
 /**
  * Copies each setting from `raw` onto a copy of `defaults` if it is valid:
- * numbers are kept in range, choices must be known ones and colours must be
+ * numbers are kept in range, choices must be known ones and colors must be
  * #rrggbb. Anything else keeps the default.
  */
 function cleanFields<T extends object>(raw: unknown, defaults: T): T {
@@ -610,7 +610,7 @@ export function randomConfig(current: CarConfig): CarConfig {
     ...current,
     body: pick(BODY_OPTIONS).value,
     paintColor: Math.random() < 0.5 ? pick(PAINT_SWATCHES) : randomColor(),
-    // Rainbow paint only changes colour while it is being driven, so parked cars don't get it.
+    // Rainbow paint only changes color while it is being driven, so parked cars don't get it.
     finish: pick(FINISH_OPTIONS.filter((o) => o.value !== 'rainbow')).value,
     accentColor: Math.random() < 0.5 ? pick(PAINT_SWATCHES) : randomColor(),
     pattern: sometimes(0.35, pick(PATTERN_OPTIONS).value, 'none'),

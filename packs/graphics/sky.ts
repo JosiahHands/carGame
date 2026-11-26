@@ -15,11 +15,11 @@ interface Weather {
   cloudDensity: number;
   /** How bright the sun is (overcast days are dull), and how much the sky's light makes up for it. */
   sun: number;
-  /** How bright the sky is drawn (grey skies are dimmer). */
+  /** How bright the sky is drawn (gray skies are dimmer). */
   exposure: number;
 }
 
-/** The sky at a venue, from its theme: clear, hazy desert, or grey with rain or snow. */
+/** The sky at a venue, from its theme: clear, hazy desert, or gray with rain or snow. */
 export function weatherFor(theme: Theme): Weather {
   if (theme.weather === 'rain') return { turbidity: 10, rayleigh: 0.6, clouds: 0.92, cloudDensity: 0.9, sun: 0.45, exposure: 0.2 };
   if (theme.weather === 'snow') return { turbidity: 8, rayleigh: 1.2, clouds: 0.8, cloudDensity: 0.7, sun: 0.6, exposure: 0.26 };
@@ -55,7 +55,7 @@ export class SkySystem {
     this.envGround = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshBasicMaterial({ color: 0x3a3a34 }));
     this.envGround.rotation.x = -Math.PI / 2;
     this.envGround.position.y = -2;
-    // Warm and coloured lights low on the horizon at night, so paint and wet roads catch them.
+    // Warm and colored lights low on the horizon at night, so paint and wet roads catch them.
     this.cityGlow = new THREE.Group();
     for (let i = 0; i < 28; i++) {
       const a = (i / 28) * Math.PI * 2 + Math.sin(i * 7.3) * 0.1;

@@ -4,7 +4,7 @@
 // curve in towards the roof and under the sills, wheel arches with dark
 // wheel wells, and a glass cabin with pillars, a painted roof and an
 // interior. It also adds the details that make a car read as real: rounded
-// light clusters, a grille, door mirrors and handles, tyres with sidewalls,
+// light clusters, a grille, door mirrors and handles, tires with sidewalls,
 // and brake discs and calipers behind the wheels.
 //
 // Every number comes from the car's own shape (CarRig.shape), so every
@@ -57,7 +57,7 @@ function loft(rings: { z: number; points: Pt[] }[], closed: boolean, pick: (k: n
   for (const ring of rings) {
     for (const p of ring.points) {
       positions.push(p.x, p.y, ring.z);
-      // Side-on texture coordinates in metres, as the game's body uses (for paint patterns).
+      // Side-on texture coordinates in meters, as the game's body uses (for paint patterns).
       uvs.push(ring.z, p.y);
     }
   }
@@ -115,7 +115,7 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
   const top = (z: number) => line(z) + BEVEL;
   const hw = spec.width / 2;
   const yb = spec.bottomY - 0.03;
-  // Where each wheel well's inner wall is (just inside the tyre).
+  // Where each wheel well's inner wall is (just inside the tire).
   const linerX = Math.min(hw - 0.08, Math.max(0.15, wheelX - tireWidth / 2 - 0.05));
   const cornerR = Math.min(0.26, hw * 0.3); // corners rounded off in plan view
   const noseR = 0.1; // the top edge of the bumpers rounded over
@@ -437,11 +437,11 @@ export function sculptCar(rig: CarRig): void {
   };
 }
 
-/** A tyre with rounded sidewalls and a flat tread, around the x axis like the game's own. */
+/** A tire with rounded sidewalls and a flat tread, around the x axis like the game's own. */
 function tyreGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
   const w = width / 2;
   const rim = radius * rimShare;
-  // The tyre's cross-section, from the inner bead round the tread to the outer bead.
+  // The tire's cross-section, from the inner bead round the tread to the outer bead.
   const profile = [
     [rim * 1.01, -w * 0.92],
     [radius * 0.86, -w],
@@ -455,13 +455,13 @@ function tyreGeometry(radius: number, width: number, rimShare: number): THREE.Bu
     [rim * 1.01, w * 0.92],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const geometry = new THREE.LatheGeometry(profile, 40);
-  // Lathe turns round y; the game's tyres turn round y too before being laid on their side.
+  // Lathe turns round y; the game's tires turn round y too before being laid on their side.
   geometry.computeVertexNormals();
   return geometry;
 }
 
 /**
- * A stripe laid over the top of the body, `width` wide and centred `x` from the middle.
+ * A stripe laid over the top of the body, `width` wide and centered `x` from the middle.
  * `placed` means the surfaces' world matrices already put them in the car body's
  * coordinates; `accept` can turn down a hit (the stripe has a gap there).
  */

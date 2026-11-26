@@ -21,7 +21,7 @@ const JOBS: { job: PlaceKind | null; roles: string[]; extra?: Look['extra'] }[] 
   { job: 'diner', roles: ['waiter', 'dishwasher', 'line cook'], extra: 'apron' },
   { job: 'gym', roles: ['yoga teacher', 'boxing coach'], extra: 'headband' },
   { job: 'news', roles: ['local reporter'], extra: 'newspaper' },
-  { job: 'garage', roles: ['tyre fitter', 'apprentice mechanic'], extra: 'wrench' },
+  { job: 'garage', roles: ['tire fitter', 'apprentice mechanic'], extra: 'wrench' },
   { job: 'bakery', roles: ['baker', 'pastry chef'], extra: 'apron' },
   { job: 'library', roles: ['librarian', 'archivist'] },
   { job: 'office', roles: ['accountant', 'architect', 'web designer', 'insurance agent', 'lawyer', 'office manager'], extra: 'tie' },
@@ -32,21 +32,21 @@ const JOBS: { job: PlaceKind | null; roles: string[]; extra?: Look['extra'] }[] 
 
 const HOBBIES = [
   'collects old postcards of the city', 'is training for a marathon', 'grows tomatoes on a tiny balcony', 'writes poems nobody has read',
-  'feeds the pigeons every day', 'is learning the trumpet badly', 'builds model cars', 'does crosswords in pen', 'bakes for the neighbours',
+  'feeds the pigeons every day', 'is learning the trumpet badly', 'builds model cars', 'does crosswords in pen', 'bakes for the neighbors',
   'is obsessed with weather forecasts', 'keeps a diary of every car that drives past', 'plays chess against strangers', 'dances when no one is looking',
   'restores old bicycles', 'knows every bird in the park', 'tells terrible jokes on purpose', 'reads three books a week', 'paints tiny portraits',
 ];
 
 const QUIRKS = [
   'Always early, never on time for anything fun.', 'Hums when nervous.', 'Remembers every birthday in the city.', 'Cannot keep a secret.',
-  'Talks to plants.', 'Gives everyone a nickname.', 'Apologises to furniture.', 'Has a different hat for every mood.', 'Hates loud engines.',
+  'Talks to plants.', 'Gives everyone a nickname.', 'Apologizes to furniture.', 'Has a different hat for every mood.', 'Hates loud engines.',
   'Loves loud engines.', 'Believes in lucky numbers.', 'Overthinks every decision.', 'Laughs at their own jokes first.', 'Never forgets a favour.',
   'Quotes their grandmother constantly.', 'Is suspicious of anyone in a hurry.',
 ];
 
 const DREAMS = [
   'opening a little shop of their own', 'seeing the ocean', 'being famous for one day', 'finding true love', 'learning to drive',
-  'writing a book about the city', 'winning the city bake-off', 'travelling the world', 'getting a dog', 'becoming mayor',
+  'writing a book about the city', 'winning the city bake-off', 'traveling the world', 'getting a dog', 'becoming mayor',
   'fixing up an old convertible', 'playing on a real stage', 'making up with an old friend', 'a quiet life with no surprises',
 ];
 

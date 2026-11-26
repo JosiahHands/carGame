@@ -95,7 +95,7 @@ export interface Situation {
 export interface ChaseState {
   /** Seconds since it started. */
   seconds: number;
-  /** How far away the driver is, metres. */
+  /** How far away the driver is, meters. */
   distance: number;
   /** How battered the police car is, 0..1. */
   hurt: number;
@@ -464,7 +464,7 @@ export class RuleBrain implements Brain {
     const fondness = a.mind.feelings[B.id] ?? 0;
     const greet =
       A.bond === B.id || B.bond === A.id
-        ? pick([`There's my favourite person! Hey, ${B.name}.`, `${B.name}! Right where I left you.`, `Partner! Ready for whatever today brings?`])
+        ? pick([`There's my favorite person! Hey, ${B.name}.`, `${B.name}! Right where I left you.`, `Partner! Ready for whatever today brings?`])
         : fondness > 0.4
           ? pick([`Hey ${B.name}! Good to see you.`, `${B.name}! How's your day going?`, `Look who it is! ${B.name}!`])
           : fondness < -0.2
@@ -498,7 +498,7 @@ export class RuleBrain implements Brain {
       lines.push({ speaker: B.id, text: pick(['No way! Tell me everything.', 'I always wondered about that.', 'Ha! That sounds about right.']), emotion: 'amused' });
       memories.push({ who: B.id, text: `${A.name} told me: ${gossip.text}`, importance: Math.max(2, Math.round(gossip.importance * 0.7)) });
     } else if (a.mind.insights.length && Math.random() < 0.5) {
-      lines.push({ speaker: A.id, text: short(`You know what I've realised? ${a.mind.insights[a.mind.insights.length - 1]}`), emotion: 'proud' });
+      lines.push({ speaker: A.id, text: short(`You know what I've realized? ${a.mind.insights[a.mind.insights.length - 1]}`), emotion: 'proud' });
       lines.push({ speaker: B.id, text: pick(['Huh. I never thought of it like that.', 'That is very deep.', 'You might be onto something.']), emotion: 'curious' });
     } else {
       const needs = a.mind.needs;

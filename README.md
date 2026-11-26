@@ -101,14 +101,14 @@ curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh
 
 **🧪 Real Physics** (`physics`): realistic driving. The body rides on real
 springs, dampers and anti-roll bars, so it dives under braking, leans in
-corners and bounces over kerbs, and the weight on each tyre moves with it.
-Each of the four tyres has real grip curves, warms up as you push and wears
+corners and bounces over curbs, and the weight on each tire moves with it.
+Each of the four tires has real grip curves, warms up as you push and wears
 as it slides. Each kind of engine has its own torque curve, and turbos lag.
 Gear changes take a moment, and limited-slip differentials put the power
 down. Hard-used brakes fade, and every surface has its own grip. Crashes spin
 the car, dent it, and can hurt the engine or bend a wheel and the steering.
 There are realism levels from Friendly to Simulation. A telemetry panel shows
-it all at work, and a controller rumbles as the tyres slide.
+it all at work, and a controller rumbles as the tires slide.
 
 *macOS, Linux, or Git Bash on Windows:*
 
@@ -224,7 +224,7 @@ updates. To make a pack of your own, see [packs/README.md](packs/README.md).
 venue and a boss to beat at the end (the last one is The Phantom). Every level
 pays coins: spend them on six cars (Hot Hatch, Muscle Car, Rally Truck, Sports GT,
 Supercar, Hypercar), each with its own perk, and on seven upgrades (engine,
-gearbox, tyres, brakes, nitro, aero, armour). A career starts with no weapons:
+gearbox, tires, brakes, nitro, aero, armor). A career starts with no weapons:
 buy a machine gun from level 6 (800 coins), a rocket pod from level 11 (3,500)
 and a shockwave from level 31 (10,000), then upgrade each one four times for
 more damage and a cooler gun or faster reloads. Your career car carries only
@@ -285,7 +285,7 @@ generated track, so there are endless tracks for the career and quick races:
 
 - **City:** streets, parks, a car park and a stunt park full of ramps and cones.
 - **Grand Prix circuit:** a twisty 2 km race track with fast sweepers, a
-  hairpin, esses and a chicane. It has red and white kerbs, barriers,
+  hairpin, esses and a chicane. It has red and white curbs, barriers,
   grandstands full of fans, floodlights, and a paddock with pit garages and
   team cars. Grass off the track slows you down.
 - **Speedway:** a 3 km oval with turns banked at 26°. Cars lean into the
@@ -295,7 +295,7 @@ generated track, so there are endless tracks for the career and quick races:
 - **Alpine Pass:** snowy mountain roads in falling snow, where the road is slippery.
 - **Neon Night:** a tight street circuit through a city at night.
 - **Forest Rally:** narrow stages through the woods in the rain, with no barriers.
-- **Kart Park:** a short, tight, twisty track with tyre walls.
+- **Kart Park:** a short, tight, twisty track with tire walls.
 
 ## Free roam
 
@@ -339,14 +339,14 @@ on whichever car you are racing:
 - **Paint:** eight finishes (including carbon, glow-in-the-dark and animated rainbow),
   patterns (two-tone, flames, checker, camo, tiger, dots), stripes, race numbers
   and window tint.
-- **Wheels:** rims, rim and tyre colours, wheel size up to 4× (big wheels turn it
-  into a monster truck), tyre width, wheel spacing, camber and a suspension lift of
+- **Wheels:** rims, rim and tire colors, wheel size up to 4× (big wheels turn it
+  into a monster truck), tire width, wheel spacing, camber and a suspension lift of
   up to 3 m.
 - **Parts:** spoilers up to a dragster wing, exhausts including truck stacks, roof
   toppers (crown, top hat, cone, Viking horns, shark fin, halo, rubber duck),
   antennas, a bull bar, a light bar and the roof weapons.
 - **Lights, sound and effects:** headlights, solid or rainbow underglow, nitro flame
-  colour, boost trails (flames, rainbow, sparkles, smoke), coloured tyre smoke, five
+  color, boost trails (flames, rainbow, sparkles, smoke), colored tire smoke, five
   horns (V) and six engine sounds.
 - **Engine and physics:** 50 to 10,000 hp, a top speed of up to 1,000 mph, nitro
   power, bottle size or infinite nitro, downforce, grip, brakes, steering lock,

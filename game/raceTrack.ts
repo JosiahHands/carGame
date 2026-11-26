@@ -1,13 +1,13 @@
 // A closed race track, used by every map except the city.
 //
-// The track is a centre line sampled every few metres. Each sample knows which
+// The track is a center line sampled every few meters. Each sample knows which
 // way the road runs, how sharply it turns and how much it is banked. From
 // that, the track can answer "how high is the road here?" and "is this on the
 // tarmac?", give the barrier walls for the car to bump into, and build its own
-// meshes: road, kerbs, start line, barriers and catch fence.
+// meshes: road, curbs, start line, barriers and catch fence.
 //
-// Positions across the road are given as an offset from the centre line, in
-// metres, with positive offsets to the left (as seen driving round the track).
+// Positions across the road are given as an offset from the center line, in
+// meters, with positive offsets to the left (as seen driving round the track).
 //
 // Tracks are drawn like a turtle drawing: straights and corners in turn (see
 // drawTrack). generateLayout makes new ones from a seed number, so there can be
@@ -16,43 +16,43 @@ import * as THREE from 'three';
 import { canvasTexture } from '../libs/canvasTexture';
 import { seededRandom } from '../libs/random';
 
-const SPACING = 4; // metres between samples
-const GRID_CELL = 20; // size of the lookup grid's cells, metres
+const SPACING = 4; // meters between samples
+const GRID_CELL = 20; // size of the lookup grid's cells, meters
 
-/** One sample of the centre line. */
+/** One sample of the center line. */
 export interface TrackPoint {
   x: number;
   z: number;
   /** Direction of travel, length 1. */
   dx: number;
   dz: number;
-  /** How sharply it turns: 1 / radius in metres, positive turning left. */
+  /** How sharply it turns: 1 / radius in meters, positive turning left. */
   curve: number;
   /** Bank angle in radians; positive raises the left side of the road. */
   bank: number;
-  /** Metres from the start line. */
+  /** Meters from the start line. */
   along: number;
 }
 
 /** How a track looks and where its barriers are. */
 export interface TrackStyle {
-  width: number; // of the road, metres
+  width: number; // of the road, meters
   /** Bank angle in degrees on the straights and in the tightest turns (0 and 0 for a flat track). */
   bank: [number, number];
-  /** Red and white kerbs on the corners. */
+  /** Red and white curbs on the corners. */
   kerbs: boolean;
-  /** Grass between the road and the barrier on the outside of the track (metres). */
+  /** Grass between the road and the barrier on the outside of the track (meters). */
   outsideRunoff: number;
   /** Grass on the inside; null means no barrier on the inside at all. */
   insideRunoff: number | null;
   /** No barriers at all, just grass and trees (a rally stage). */
   noWalls?: boolean;
-  /** A flat paved strip along the inside edge, like a speedway's apron (metres). */
+  /** A flat paved strip along the inside edge, like a speedway's apron (meters). */
   apron: number;
   wallHeight: number;
   /** A wire catch fence on top of the outside wall, this tall (0 for none). */
   fence: number;
-  /** The barrier's paint: two colours in blocks along its length. */
+  /** The barrier's paint: two colors in blocks along its length. */
   wallColors: [string, string];
 }
 
@@ -86,7 +86,7 @@ export interface TrackPose {
   bank: number;
 }
 
-/** The closest point of the centre line to somewhere. */
+/** The closest point of the center line to somewhere. */
 interface Nearest {
   /** Index of the sample at the start of the closest stretch, and how far along it (0..1). */
   index: number;
@@ -111,7 +111,7 @@ export class RaceTrack {
     path: { x: number; z: number }[],
     readonly style: TrackStyle,
   ) {
-    // Resample the path every SPACING metres.
+    // Resample the path every SPACING meters.
     const lengths = [0];
     for (let i = 1; i <= path.length; i++) {
       const a = path[i - 1];
@@ -131,7 +131,7 @@ export class RaceTrack {
       this.points.push({ x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f, dx: 0, dz: 1, curve: 0, bank: 0, along });
     }
 
-    // Direction and curvature at each sample, from its neighbours.
+    // Direction and curvature at each sample, from its neighbors.
     const n = this.points.length;
     const at = (i: number) => this.points[(i + n) % n];
     for (let i = 0; i < n; i++) {
@@ -186,7 +186,7 @@ export class RaceTrack {
     });
   }
 
-  /** The closest point of the centre line, or null if (x, z) is far from the track. */
+  /** The closest point of the center line, or null if (x, z) is far from the track. */
   private nearest(x: number, z: number): Nearest | null {
     const candidates = this.grid.get(`${Math.floor(x / GRID_CELL)},${Math.floor(z / GRID_CELL)}`);
     if (!candidates) return null;
@@ -247,7 +247,7 @@ export class RaceTrack {
     return this.surfaceHeight(near.bank, near.offset);
   }
 
-  /** Whether (x, z) is on the road, its kerbs or other tarmac, rather than on grass. */
+  /** Whether (x, z) is on the road, its curbs or other tarmac, rather than on grass. */
   isPaved(x: number, z: number): boolean {
     const near = this.nearest(x, z);
     if (!near) return false;
@@ -262,15 +262,15 @@ export class RaceTrack {
   }
 
   /**
-   * Where (x, z) is along the track (metres from the start line) and how far
-   * to the left of the centre line, or null if it's nowhere near the track.
+   * Where (x, z) is along the track (meters from the start line) and how far
+   * to the left of the center line, or null if it's nowhere near the track.
    */
   locate(x: number, z: number): { along: number; offset: number } | null {
     const near = this.nearest(x, z);
     return near ? { along: near.along, offset: near.offset } : null;
   }
 
-  /** The sample at `along` metres from the start line (wrapping round the lap). */
+  /** The sample at `along` meters from the start line (wrapping round the lap). */
   pointAt(along: number): TrackPoint {
     const n = this.points.length;
     const i = Math.floor((((along % this.length) + this.length) % this.length) / this.length * n) % n;
@@ -283,7 +283,7 @@ export class RaceTrack {
     return near ? Math.abs(near.offset) : Infinity;
   }
 
-  /** A spot on the track `along` metres from the start line and `offset` metres to the left of the centre. */
+  /** A spot on the track `along` meters from the start line and `offset` meters to the left of the center. */
   pose(along: number, offset = 0): TrackPose {
     const n = this.points.length;
     const f = ((((along % this.length) + this.length) % this.length) / this.length) * n;
@@ -320,7 +320,7 @@ export class RaceTrack {
     return walls;
   }
 
-  /** Sample i moved `offset` metres to the left, with the road height there. */
+  /** Sample i moved `offset` meters to the left, with the road height there. */
   private offsetPoint(i: number, offset: number): { x: number; y: number; z: number } {
     const p = this.points[i];
     return { x: p.x + p.dz * offset, y: this.surfaceHeight(p.bank, offset), z: p.z - p.dx * offset };
@@ -328,7 +328,7 @@ export class RaceTrack {
 
   // ---------- meshes ----------
 
-  /** Builds the road, kerbs, start line, barriers and fence. */
+  /** Builds the road, curbs, start line, barriers and fence. */
   buildMeshes(): THREE.Group {
     const group = new THREE.Group();
     const s = this.style;
@@ -346,11 +346,11 @@ export class RaceTrack {
     if (s.apron > 0) group.add(this.ribbon(all, this.inside * edge, this.inside * (edge + s.apron), 0.025, paved));
     if (s.fence > 0) group.add(this.ribbon(all, -this.inside * edge, -this.inside * (edge + s.outsideRunoff), 0.025, paved));
 
-    // Kerbs: red and white strips on both edges wherever the road turns tightly.
+    // Curbs: red and white strips on both edges wherever the road turns tightly.
     if (s.kerbs) {
       const kerb = new THREE.MeshStandardMaterial({ map: kerbTexture(), roughness: 0.7 });
       const tight = this.points.map((p) => Math.abs(p.curve) > 1 / 160);
-      // Run each kerb a little (16 m) before and after the corner.
+      // Run each curb a little (16 m) before and after the corner.
       const wanted = tight.map((_, i) => [-4, -3, -2, -1, 0, 1, 2, 3, 4].some((k) => tight[(i + k + n) % n]));
       for (const run of runsOf(wanted)) {
         for (const side of [1, -1]) group.add(this.ribbon(run, side * edge, side * (edge + 1.4), 0.04, kerb, 3));
@@ -506,7 +506,7 @@ export class RaceTrack {
 }
 
 /**
- * Turns a list of straights ([metres]) and corners ([degrees, radius], with
+ * Turns a list of straights ([meters]) and corners ([degrees, radius], with
  * positive degrees turning left) into a closed loop of points about 2 m apart,
  * starting at (0, 0) heading along +x. The corners should add up to 360°; any
  * small gap left where the loop should join up is spread along the whole lap.
@@ -527,7 +527,7 @@ export function drawTrack(steps: TrackStep[]): { x: number; z: number }[] {
       const [degrees, radius] = step;
       const turn = (degrees * Math.PI) / 180;
       const side = Math.sign(turn); // +1 left, -1 right
-      // The corner's centre is `radius` to that side; the left of `heading` is (cos h, -sin h).
+      // The corner's center is `radius` to that side; the left of `heading` is (cos h, -sin h).
       const cx = x + side * radius * Math.cos(heading);
       const cz = z - side * radius * Math.sin(heading);
       const n = Math.max(1, Math.ceil((Math.abs(turn) * radius) / 2));
@@ -547,20 +547,20 @@ export function drawTrack(steps: TrackStep[]): { x: number; z: number }[] {
   return points.map((p, i) => ({ x: p.x - (gapX * i) / points.length, z: p.z - (gapZ * i) / points.length }));
 }
 
-/** A straight ([metres]) or a corner ([degrees, radius], positive degrees turning left). */
+/** A straight ([meters]) or a corner ([degrees, radius], positive degrees turning left). */
 export type TrackStep = [number] | [number, number];
 
 /** What kind of track generateLayout should make. */
 export interface LayoutOptions {
-  /** Roughly how long a lap should be, in metres. */
+  /** Roughly how long a lap should be, in meters. */
   length: number;
-  /** The tightest and the widest corner radius, in metres. */
+  /** The tightest and the widest corner radius, in meters. */
   radius: [number, number];
   /** How many corners: fewest and most. */
   corners: [number, number];
   /** Only left turns, like a speedway. */
   leftOnly?: boolean;
-  /** How close two different parts of the track may come, centre to centre, in metres. */
+  /** How close two different parts of the track may come, center to center, in meters. */
   clearance: number;
 }
 
@@ -665,7 +665,7 @@ function endOf(steps: TrackStep[]): { x: number; z: number } {
       const [degrees, radius] = step;
       const turn = (degrees * Math.PI) / 180;
       const side = Math.sign(turn);
-      // Round the corner's centre, from the old heading to the new one.
+      // Round the corner's center, from the old heading to the new one.
       const cx = x + side * radius * Math.cos(heading);
       const cz = z - side * radius * Math.sin(heading);
       heading += turn;
@@ -678,7 +678,7 @@ function endOf(steps: TrackStep[]): { x: number; z: number } {
 
 /**
  * Whether a closed loop of points (about 2 m apart) keeps different parts of
- * itself at least `clearance` metres apart. Points close together along the
+ * itself at least `clearance` meters apart. Points close together along the
  * loop are allowed to be close, of course; only parts more than a long way
  * round the loop from each other are checked.
  */
@@ -703,7 +703,7 @@ function wrapAngle(a: number): number {
 }
 
 /**
- * Splits a loop of flags into runs of neighbouring samples that are set,
+ * Splits a loop of flags into runs of neighboring samples that are set,
  * each one including the sample after it so the strips join up. A run can
  * wrap past the end of the loop.
  */
@@ -747,7 +747,7 @@ function trackTexture(): THREE.CanvasTexture {
   }, true);
 }
 
-/** Red and white kerb stripes across V. */
+/** Red and white curb stripes across V. */
 function kerbTexture(): THREE.CanvasTexture {
   return canvasTexture(32, 64, (ctx) => {
     ctx.fillStyle = '#d7263d';
@@ -769,7 +769,7 @@ function checkerTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Barrier paint: blocks of two colours along U, with a dark base. */
+/** Barrier paint: blocks of two colors along U, with a dark base. */
 function wallTexture([a, b]: [string, string]): THREE.CanvasTexture {
   return canvasTexture(128, 64, (ctx) => {
     ctx.fillStyle = a;

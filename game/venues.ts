@@ -12,10 +12,10 @@ export type MapName = 'city' | 'circuit' | 'oval' | 'canyon' | 'alpine' | 'neon'
 export interface Theme {
   /** Sky gradient, top to bottom, in the daytime. */
   sky: [string, string];
-  /** Fog colour in the daytime (it should match the bottom of the sky). */
+  /** Fog color in the daytime (it should match the bottom of the sky). */
   fog: number;
   ground: 'grass' | 'sand' | 'snow' | 'dirt';
-  /** Colour of the hills on the horizon. */
+  /** Color of the hills on the horizon. */
   hills: number;
   trees: 'round' | 'pine' | 'cactus' | 'snowPine';
   /** Always night here (the neon city). */
@@ -50,7 +50,7 @@ const DAY: Theme = {
 };
 
 /**
- * The Grand Prix circuit, drawn as straights (metres) and corners (degrees to
+ * The Grand Prix circuit, drawn as straights (meters) and corners (degrees to
  * turn, positive left, and the corner's radius). It starts on the start line
  * heading along the main straight.
  */
@@ -94,7 +94,7 @@ export const VENUES: Venue[] = [
   {
     value: 'circuit',
     label: 'Grand Prix circuit',
-    about: 'A twisty 2 km track: fast sweepers, a hairpin, esses and a chicane, with kerbs and grandstands.',
+    about: 'A twisty 2 km track: fast sweepers, a hairpin, esses and a chicane, with curbs and grandstands.',
     theme: DAY,
     style: { width: 16, bank: [0, 0], kerbs: true, outsideRunoff: 9, insideRunoff: 9, apron: 0, wallHeight: 1.1, fence: 0, wallColors: ['#d7263d', '#f2f2f2'] },
     layout: CIRCUIT,
@@ -160,7 +160,7 @@ export const VENUES: Venue[] = [
   {
     value: 'kart',
     label: 'Kart Park',
-    about: 'A short, tight, twisty track with tyre walls. Corners come thick and fast.',
+    about: 'A short, tight, twisty track with tire walls. Corners come thick and fast.',
     theme: { ...DAY, banner: 'KART PARK' },
     style: { width: 9, bank: [0, 0], kerbs: true, outsideRunoff: 3, insideRunoff: 3, apron: 0, wallHeight: 0.8, fence: 0, wallColors: ['#1a1a1a', '#f2f2f2'] },
     generate: { length: 950, radius: [12, 35], corners: [10, 16], clearance: 34 },

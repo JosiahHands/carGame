@@ -102,7 +102,7 @@ export class MenuUI {
       this.bigButton('🔧 Garage & settings', 'Customize your car and the game', () => this.events.garage()),
     );
     if (s.spins > 0) {
-      const spin = this.bigButton(`🎰 Prize wheel × ${s.spins}`, 'You levelled up! Spin for coins, upgrades and coin rushes', () => this.showWheel());
+      const spin = this.bigButton(`🎰 Prize wheel × ${s.spins}`, 'You leveled up! Spin for coins, upgrades and coin rushes', () => this.showWheel());
       spin.classList.add('prize');
       list.prepend(spin);
     }
@@ -152,7 +152,7 @@ export class MenuUI {
       if (this.save.spins <= 0) return;
       spin.disabled = true;
       const { index, text: won } = spinWheel(this.save);
-      // Turn at least five times, then stop with the prize under the pointer (a bit off centre, for realism).
+      // Turn at least five times, then stop with the prize under the pointer (a bit off center, for realism).
       const centre = index * slice + slice / 2;
       const jitter = (Math.random() - 0.5) * slice * 0.6;
       turned += 360 * 5 + ((360 - centre - (turned % 360) + 360) % 360) + jitter;

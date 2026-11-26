@@ -231,7 +231,7 @@ export function traitWords(traits: Traits): string {
     kindness: ['prickly', 'decent', 'very kind'],
     courage: ['timid', 'steady', 'fearless'],
     curiosity: ['set in their ways', 'interested', 'endlessly curious'],
-    humour: ['serious', 'good-humoured', 'a joker'],
+    humour: ['serious', 'good-humored', 'a joker'],
     energy: ['sleepy', 'lively', 'bursting with energy'],
   };
   return TRAIT_NAMES.map((t) => words[t][traits[t] < 0.35 ? 0 : traits[t] < 0.7 ? 1 : 2]).join(', ');

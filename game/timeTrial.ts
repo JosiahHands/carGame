@@ -227,7 +227,7 @@ export class TimeTrial {
 
   /** Records the car's pose a share `t` of the way from `from` to `to` (more than 1 carries on past `to`). */
   private record(from: CarPose, to: CarPose, t: number): void {
-    const at = (a: number, b: number) => Math.round((a + (b - a) * t) * 100) / 100; // centimetres are plenty, and keep the save small
+    const at = (a: number, b: number) => Math.round((a + (b - a) * t) * 100) / 100; // centimeters are plenty, and keep the save small
     // Turn the short way round between the two headings.
     const turn = Math.atan2(Math.sin(to.heading - from.heading), Math.cos(to.heading - from.heading));
     this.recording.push(at(from.x, to.x), at(from.y, to.y), at(from.z, to.z), at(from.heading, from.heading + turn), at(from.pitch, to.pitch), at(from.groundRoll, to.groundRoll));

@@ -1,6 +1,6 @@
 // The telemetry panel:
 // - a g-force dot inside the grip circle;
-// - each tyre seen from above: its colour is the grip at work (green, then
+// - each tire seen from above: its color is the grip at work (green, then
 //   amber at the limit, red when sliding), with bars for the weight on it and
 //   how far its spring is squashed, and its temperature (blue cold, green in
 //   its window, red overheated) and wear;
@@ -49,9 +49,9 @@ export class Telemetry {
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '600 9px system-ui, sans-serif';
-    ctx.fillText(`${grip.toUpperCase()} TYRES · ${REALISM[realism]}`, 10, 14);
+    ctx.fillText(`${grip.toUpperCase()} TIRES · ${REALISM[realism]}`, 10, 14);
 
-    // ---------- the g-force circle: the outer ring is the most the tyres can give ----------
+    // ---------- the g-force circle: the outer ring is the most the tires can give ----------
     const cx = 60;
     const cy = 72;
     const R = 44;
@@ -88,7 +88,7 @@ export class Telemetry {
     ctx.textAlign = 'center';
     ctx.fillText(`${(Math.hypot(s.ax, s.ay) / 9.81).toFixed(2)} g`, cx, cy + R + 13);
 
-    // ---------- the four tyres, seen from above ----------
+    // ---------- the four tires, seen from above ----------
     const best = bestTemperature(GRIP[grip] ?? 1.2);
     const tyreW = 16;
     const tyreH = 28;
@@ -101,12 +101,12 @@ export class Telemetry {
       ctx.fillStyle = use < 0.8 ? '#3bb273' : use < 1.15 ? '#ffb627' : '#e63946';
       roundRect(ctx, x, y, tyreW, tyreH, 4);
       ctx.fill();
-      // Worn rubber: the tyre goes darker from the top down.
+      // Worn rubber: the tire goes darker from the top down.
       if (s.wear[i] > 0.01) {
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
         ctx.fillRect(x, y, tyreW, tyreH * Math.min(1, s.wear[i]));
       }
-      // Bars beside it: the weight on the tyre, and how far its spring is squashed.
+      // Bars beside it: the weight on the tire, and how far its spring is squashed.
       bar(ctx, x + tyreW + 4, y, tyreH, Math.min(2, s.load[i]) / 2, 'rgba(255,255,255,0.8)');
       bar(ctx, x + tyreW + 10, y, tyreH, Math.max(0, travel[i]) / full, '#9b8cff');
       // Temperature.
@@ -178,7 +178,7 @@ function bar(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, fil
   ctx.fillRect(x, y + h * (1 - f), w, h * f);
 }
 
-/** Blue when cold, green in the tyre's window, red when overheated. */
+/** Blue when cold, green in the tire's window, red when overheated. */
 function temperatureColour(off: number): string {
   if (off < -25) return '#6fb8ff';
   if (off < -10) return '#a8e0ff';
