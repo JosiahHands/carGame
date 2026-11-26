@@ -1,0 +1,33 @@
+[dependencies.proc-macro2]
+version = "1"
+
+[dependencies.quote]
+version = "1"
+
+[dependencies.syn]
+version = "2.0.5"
+
+[dev-dependencies.num]
+version = "0.4"
+
+[dev-dependencies.num-traits]
+version = "0.2"
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["The Rust Project Developers"]
+categories = ["science"]
+description = "Numeric syntax extensions"
+documentation = "https://docs.rs/num-derive"
+edition = "2021"
+exclude = ["/ci/*", "/.github/*"]
+homepage = "https://github.com/rust-num/num-derive"
+keywords = ["mathematics", "numerics"]
+license = "MIT OR Apache-2.0"
+name = "num-derive"
+readme = "README.md"
+repository = "https://github.com/rust-num/num-derive"
+rust-version = "1.56.0"
+version = "0.4.2"

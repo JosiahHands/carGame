@@ -1,0 +1,21 @@
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["The android_log_sys Developers"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["external-ffi-bindings"]
+description = """
+FFI bindings to Android log Library.
+"""
+documentation = "https://docs.rs/android_log-sys"
+keywords = ["ffi", "android", "log"]
+license = "MIT OR Apache-2.0"
+name = "android_log-sys"
+readme = "README.md"
+repository = "https://github.com/rust-mobile/android_log-sys-rs"
+version = "0.3.2"

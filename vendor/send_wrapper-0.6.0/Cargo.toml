@@ -1,0 +1,36 @@
+[dependencies.futures-core]
+optional = true
+version = "0.3"
+
+[dev-dependencies.futures-executor]
+version = "0.3"
+
+[dev-dependencies.futures-util]
+version = "0.3"
+
+[features]
+futures = ["futures-core"]
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["Thomas Keh"]
+categories = ["rust-patterns"]
+description = """
+This Rust library implements a wrapper type called SendWrapper which allows you to move around non-Send types
+between threads, as long as you access the contained value only from within the original thread. You also have to
+make sure that the wrapper is dropped from within the original thread. If any of these constraints is violated,
+a panic occurs."""
+documentation = "https://docs.rs/send_wrapper"
+edition = "2018"
+keywords = ["send", "wrapper", "thread_local"]
+license = "MIT/Apache-2.0"
+name = "send_wrapper"
+readme = "README.md"
+repository = "https://github.com/thk1/send_wrapper"
+version = "0.6.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,64 @@
+[features]
+default = []
+
+[lib]
+path = "src/lib.rs"
+
+[lints.clippy]
+alloc_instead_of_core = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+doc_markdown = "warn"
+manual_let_else = "warn"
+match_same_arms = "warn"
+needless_lifetimes = "allow"
+nonstandard_macro_braces = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+ptr_as_ptr = "warn"
+ptr_cast_constness = "warn"
+redundant_closure_for_method_calls = "warn"
+redundant_else = "warn"
+ref_as_ptr = "warn"
+semicolon_if_nothing_returned = "warn"
+std_instead_of_alloc = "warn"
+std_instead_of_core = "allow"
+too_long_first_doc_paragraph = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+undocumented_unsafe_blocks = "warn"
+unwrap_or_default = "warn"
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+[lints.rust.unexpected_cfgs]
+check-cfg = ["cfg(docsrs_dep)"]
+level = "warn"
+priority = 0
+
+[package]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+description = "Provides android functionality for Bevy Engine."
+edition = "2024"
+homepage = "https://bevy.org"
+keywords = ["bevy"]
+license = "MIT OR Apache-2.0"
+name = "bevy_android"
+readme = false
+repository = "https://github.com/bevyengine/bevy"
+version = "0.20.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["-Zunstable-options", "--generate-link-to-definition", "--generate-macro-expansion"]
+
+[target.'cfg(target_os = "android")'.dependencies.android-activity]
+version = "0.6"
