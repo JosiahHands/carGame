@@ -20,6 +20,11 @@ impl Plugin for DevPlugin {
             app.insert_resource(ScreenshotThenQuit {
                 path: path.into(),
                 frame: 0,
+                capture_at: std::env::var("CAR_GAME_SCREENSHOT_FRAMES")
+                    .ok()
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(SETTLE_FRAMES)
+                    .clamp(1, 3600),
             })
             .add_systems(Update, screenshot_then_quit);
         }
@@ -30,15 +35,16 @@ impl Plugin for DevPlugin {
 struct ScreenshotThenQuit {
     path: std::path::PathBuf,
     frame: u32,
+    capture_at: u32,
 }
 
 fn screenshot_then_quit(mut commands: Commands, mut shot: ResMut<ScreenshotThenQuit>, mut exit: MessageWriter<AppExit>) {
     shot.frame += 1;
-    if shot.frame == SETTLE_FRAMES {
+    if shot.frame == shot.capture_at {
         commands
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk(shot.path.clone()));
-    } else if shot.frame == SETTLE_FRAMES + SAVE_FRAMES {
+    } else if shot.frame == shot.capture_at + SAVE_FRAMES {
         exit.write(AppExit::Success);
     }
 }

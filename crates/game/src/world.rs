@@ -752,7 +752,8 @@ impl World {
     pub fn rebuild_all(&mut self, car_x: f64, car_z: f64, car_radius: f64) {
         for i in 0..self.targets.len() {
             let t = &self.targets[i];
-            if !t.alive && self.is_under_car(i, car_x, car_z, car_radius) {
+            // Removed traffic keeps its slot, but has no model or valid collision bounds.
+            if !t.alive && (!t.destroyed_at.is_finite() || self.is_under_car(i, car_x, car_z, car_radius)) {
                 continue;
             }
             if !t.alive || (t.kind == TargetKind::Building && t.state != BuildingState::Standing) {
@@ -1221,4 +1222,32 @@ pub fn ray_box(origin: DVec3, dir: DVec3, min: DVec3, max: DVec3) -> Option<DVec
 pub fn rubble_shape(dx: f64, dz: f64, width: f64, depth: f64) -> f64 {
     let from_middle = (dx.abs() / (width / 2.0)).max(dz.abs() / (depth / 2.0));
     ((1.0 - from_middle) * 2.5).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_map_event_reset_never_restores_removed_traffic() {
+        let mut world = World::empty();
+        world.boxes.push(BoxShape {
+            min_x: -2.0,
+            max_x: 2.0,
+            min_z: -1.0,
+            max_z: 1.0,
+            height: 1.7,
+            solid: true,
+            target: Some(0),
+        });
+        world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 100.0, 500.0, 0));
+        world.targets[0].traffic = true;
+
+        world.remove_car(0);
+        world.rebuild_all(1e6, 1e6, 0.0);
+
+        assert!(!world.targets[0].alive);
+        assert!(!world.boxes[0].solid);
+        assert!(world.raycast(DVec3::new(0.0, 1.0, -4.0), DVec3::Z, 10.0).is_none());
+    }
 }

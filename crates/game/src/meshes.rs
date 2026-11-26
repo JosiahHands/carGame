@@ -34,7 +34,11 @@ impl MeshData {
         self.positions.extend_from_slice(&other.positions);
         self.uvs.extend_from_slice(&other.uvs);
         self.normals.extend_from_slice(&other.normals);
-        self.colors.extend_from_slice(&other.colors);
+        if !self.colors.is_empty() || !other.colors.is_empty() {
+            self.colors.resize(base as usize, [1.0; 4]);
+            self.colors.extend_from_slice(&other.colors);
+            self.colors.resize(self.positions.len(), [1.0; 4]);
+        }
         self.indices.extend(other.indices.iter().map(|i| i + base));
     }
 
@@ -302,6 +306,28 @@ pub fn triangulate(shape: &[(f32, f32)]) -> Vec<[u32; 3]> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn appending_colored_and_uncolored_meshes_preserves_vertex_alignment() {
+        use super::{MeshData, Transform};
+        use bevy::prelude::Cuboid;
+
+        let cube = bevy::prelude::Mesh::from(Cuboid::from_length(1.0));
+        let red = [1.0, 0.0, 0.0, 1.0];
+        let colored = MeshData::from_mesh(&cube, &Transform::default(), red);
+        let mut plain = colored.clone();
+        plain.colors.clear();
+
+        let mut combined = colored.clone();
+        combined.append(&plain);
+        combined.append(&colored);
+
+        let count = colored.positions.len();
+        assert_eq!(combined.colors.len(), count * 3);
+        assert!(combined.colors[..count].iter().all(|color| *color == red));
+        assert!(combined.colors[count..count * 2].iter().all(|color| *color == [1.0; 4]));
+        assert!(combined.colors[count * 2..].iter().all(|color| *color == red));
+    }
+
     #[test]
     fn triangulates_concave_shapes_with_straight_runs() {
         // An L shape with extra points along its edges.

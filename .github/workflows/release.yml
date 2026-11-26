@@ -68,7 +68,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libclang-dev cmake zip squashfs-tools
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libclang-dev cmake zip squashfs-tools xvfb xauth mesa-vulkan-drivers
       - name: Windows libclang
         if: runner.os == 'Windows'
         shell: pwsh
@@ -91,6 +91,40 @@ jobs:
           name: game-${{ matrix.platform }}
           path: upload/*
           if-no-files-found: error
+      - name: Smoke-test the Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          WGPU_BACKEND: vulkan
+          WGPU_FORCE_FALLBACK_ADAPTER: '1'
+        run: xvfb-run -a python3 packaging/smoke.py upload/Car-Game-Linux.AppImage qa --timeout 180
+      - name: Test the Windows installer and run the installed game
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WGPU_BACKEND: dx12
+          WGPU_FORCE_FALLBACK_ADAPTER: '1'
+        run: |
+          $install = Join-Path $env:RUNNER_TEMP 'car-game-test'
+          $installer = Start-Process -Wait -PassThru -FilePath 'upload/Car-Game-Windows-Setup.exe' -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`""
+          )
+          if ($installer.ExitCode -ne 0) { throw "Installer returned $($installer.ExitCode)" }
+          Expand-Archive 'upload/Car-Game-Windows.zip' -DestinationPath (Join-Path $env:RUNNER_TEMP 'car-game-portable')
+          $exe = Join-Path $install 'car-game.exe'
+          $portable = Join-Path $env:RUNNER_TEMP 'car-game-portable/Car Game/car-game.exe'
+          if ((Get-FileHash $exe).Hash -ne (Get-FileHash $portable).Hash) { throw 'Installed and portable executables differ' }
+          if (!(Test-Path "$install/assets/packs/photo_real/cars.glb")) { throw 'Installer omitted Photo Real assets' }
+          python packaging/smoke.py $exe qa --timeout 180
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always() && (runner.os == 'Windows' || runner.os == 'Linux')
+        with:
+          name: qa-${{ matrix.platform }}
+          path: |
+            qa/*/frame.png
+            qa/*/game.log
+          if-no-files-found: ignore
 
   release:
     name: Publish the release
