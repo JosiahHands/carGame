@@ -98,7 +98,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           WGPU_BACKEND: vulkan
           WGPU_FORCE_FALLBACK_ADAPTER: '1'
-        run: xvfb-run -a python3 tools/packaging/smoke.py upload/Car-Game-Linux.AppImage qa --timeout 180
+        run: xvfb-run -a python3 tools/packaging/smoke.py upload/Car-Game-Linux.AppImage qa --timeout 480
       - name: Test the Windows installer and run the installed game
         if: runner.os == 'Windows'
         shell: pwsh

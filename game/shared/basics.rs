@@ -537,6 +537,13 @@ pub mod dev {
             // A picture left over from an earlier run mustn't count as this one.
             let _ = std::fs::remove_file(&shot.path);
         }
+        // Progress in the log, so a slow machine can be told apart from a stuck one.
+        if shot.frame % 30 == 0 && shot.saved_at.is_none() {
+            info!(
+                "Screenshot: frame {} (the picture is taken at frame {})",
+                shot.frame, shot.capture_at
+            );
+        }
         if shot.frame == shot.capture_at {
             commands
                 .spawn(Screenshot::primary_window())
@@ -545,6 +552,7 @@ pub mod dev {
             // Quit once the picture is really on disk, however long the capture takes.
             if shot.saved_at.is_none() && std::fs::metadata(&shot.path).is_ok_and(|m| m.len() > 0) {
                 shot.saved_at = Some(shot.frame);
+                info!("Screenshot saved at frame {}", shot.frame);
             }
             match shot.saved_at {
                 Some(at) if shot.frame >= at + SAVE_FRAMES => {
