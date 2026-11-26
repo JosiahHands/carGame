@@ -538,7 +538,7 @@ pub mod dev {
             let _ = std::fs::remove_file(&shot.path);
         }
         // Progress in the log, so a slow machine can be told apart from a stuck one.
-        if shot.frame % 30 == 0 && shot.saved_at.is_none() {
+        if shot.frame.is_multiple_of(30) && shot.saved_at.is_none() {
             info!(
                 "Screenshot: frame {} (the picture is taken at frame {})",
                 shot.frame, shot.capture_at
