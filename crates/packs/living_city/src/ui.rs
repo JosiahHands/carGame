@@ -66,13 +66,16 @@ pub fn overlays(
         let extent = camera.logical_viewport_size().unwrap_or(Vec2::ONE).max(Vec2::ONE);
         let window_rect = ctx.content_rect();
         let camera_position = transform.translation();
+        // Nearest first, so the people closest to you always get their tags.
+        let mut shown: Vec<(f32, usize, egui::Pos2, bool, bool)> = Vec::new();
         for (i, n) in city.residents.iter().enumerate() {
             if n.asleep || n.in_car {
                 continue;
             }
             let ground = world.height_at(n.at.x, n.at.y);
             let point = Vec3::new(n.at.x as f32, (ground + n.member.look.height + 0.22) as f32, n.at.y as f32);
-            if camera_position.distance_squared(point) > 120.0_f32.powi(2) {
+            let distance = camera_position.distance_squared(point);
+            if distance > 120.0_f32.powi(2) {
                 continue;
             }
             let speech = city.clock < n.speech_until && at.distance_squared(n.at) < 120.0_f64.powi(2);
@@ -86,25 +89,57 @@ pub fn overlays(
                         screen.x / extent.x * window_rect.width(),
                         screen.y / extent.y * window_rect.height(),
                     );
-                if !window_rect.contains(screen) {
-                    continue;
+                if window_rect.contains(screen) {
+                    shown.push((distance, i, screen, speech, tag));
                 }
-                egui::Area::new(Id::new(("city tag", i)))
-                    .fixed_pos(screen)
-                    .pivot(Align2::CENTER_BOTTOM)
-                    .order(egui::Order::Background)
-                    .show(&ctx, |ui| {
-                        ui.set_max_width(165.0);
-                        if speech {
-                            game::hud::panel_frame().show(ui, |ui| {
-                                ui.label(&n.speech);
-                            });
-                        }
-                        if tag && ui.small_button(&n.member.name).clicked() {
-                            clicked = Some(i);
-                        }
-                    });
             }
+        }
+        shown.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // Where tags already are: one that would cover another is lifted
+        // above it if it's saying something, and left out if it's only a name.
+        let mut taken: Vec<egui::Rect> = Vec::new();
+        for (_, i, mut screen, speech, tag) in shown {
+            let n = &city.residents[i];
+            let width = if speech {
+                165.0
+            } else {
+                (n.member.name.chars().count() as f32 * 7.5 + 18.0).min(165.0)
+            };
+            let height = if speech {
+                22.0 + 18.0 * (n.speech.chars().count() as f32 / 24.0).ceil().max(1.0)
+            } else {
+                22.0
+            };
+            let rect_at = |p: egui::Pos2| egui::Rect::from_min_size(p - egui::vec2(width / 2.0, height), egui::vec2(width, height));
+            let mut rect = rect_at(screen);
+            let mut tries = 0;
+            while let Some(other) = taken.iter().find(|r| r.intersects(rect)) {
+                if !speech || tries >= 4 {
+                    break;
+                }
+                screen.y = other.min.y - 2.0;
+                rect = rect_at(screen);
+                tries += 1;
+            }
+            if taken.iter().any(|r| r.intersects(rect)) && !speech {
+                continue;
+            }
+            taken.push(rect);
+            egui::Area::new(Id::new(("city tag", i)))
+                .fixed_pos(screen)
+                .pivot(Align2::CENTER_BOTTOM)
+                .order(egui::Order::Background)
+                .show(&ctx, |ui| {
+                    ui.set_max_width(165.0);
+                    if speech {
+                        game::hud::panel_frame().show(ui, |ui| {
+                            ui.label(&n.speech);
+                        });
+                    }
+                    if tag && ui.small_button(&n.member.name).clicked() {
+                        clicked = Some(i);
+                    }
+                });
         }
     }
     if let Some(who) = clicked {

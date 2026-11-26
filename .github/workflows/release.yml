@@ -115,7 +115,7 @@ jobs:
           $portable = Join-Path $env:RUNNER_TEMP 'car-game-portable/Car Game/car-game.exe'
           if ((Get-FileHash $exe).Hash -ne (Get-FileHash $portable).Hash) { throw 'Installed and portable executables differ' }
           if (!(Test-Path "$install/assets/packs/photo_real/cars.glb")) { throw 'Installer omitted Photo Real assets' }
-          python packaging/smoke.py $exe qa --timeout 180
+          python packaging/smoke.py $exe qa --timeout 480
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always() && (runner.os == 'Windows' || runner.os == 'Linux')

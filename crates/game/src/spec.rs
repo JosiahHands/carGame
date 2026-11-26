@@ -66,7 +66,7 @@ impl EventKind {
             EventKind::Takedown => "💥",
             EventKind::Drift => "🌀",
             EventKind::SpeedTrap => "📸",
-            EventKind::Destruction => "🏚",
+            EventKind::Destruction => "💥",
             EventKind::Stunt => "🚀",
         }
     }

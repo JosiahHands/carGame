@@ -190,7 +190,7 @@ fn tiers(
     needs: &[f64],
     rewards: &[f64],
 ) {
-    let medals = ["🥉", "🥈", "🥇"];
+    let medals = ["🎖", "🏅", "🏆"];
     for (i, need) in needs.iter().enumerate() {
         out.push(Trophy {
             id: format!("{id}{}", i + 1),
@@ -293,7 +293,7 @@ pub fn trophies() -> &'static [Trophy] {
             "air",
             "Frequent flyer",
             &|n| format!("{n} seconds in the air"),
-            "🪂",
+            "🎈",
             |s| stat(s, "air"),
             &[30.0, 300.0, 1500.0],
             &[500.0, 2000.0, 6000.0],

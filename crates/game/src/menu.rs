@@ -380,7 +380,7 @@ fn main_menu(ui: &mut egui::Ui, menu: &mut Menu, save: &mut CareerSave, out: &mu
     ui.add_space(8.0);
     ui.label(
         RichText::new(if save.daily == today() {
-            "Daily challenge done ✓"
+            "Daily challenge done ✔"
         } else {
             "🎁 A new daily challenge is waiting"
         })
@@ -541,7 +541,7 @@ fn career(ui: &mut egui::Ui, menu: &mut Menu, save: &mut CareerSave, mph: bool, 
             ui.label(RichText::new("A new challenge every day, pitched at how far you have got. It pays double, and a streak of days in a row pays up to twice as much again.").color(MUTED));
             let days = if save.streak == 1 { "day" } else { "days" };
             ui.label(if done {
-                format!("✓ Done today. Come back tomorrow! Streak: {} {days}.", save.streak)
+                format!("✔ Done today. Come back tomorrow! Streak: {} {days}.", save.streak)
             } else {
                 format!("Streak: {} {days}", save.streak)
             });
@@ -826,7 +826,7 @@ fn level_screen(ui: &mut egui::Ui, menu: &mut Menu, save: &CareerSave, level: &L
             twists.push("🔫 Combat race: weapons on".into());
         }
         match venue.theme.weather {
-            Weather::Rain => twists.push("🌧 Rain".into()),
+            Weather::Rain => twists.push("☔ Rain".into()),
             Weather::Snow => twists.push("❄ Snow".into()),
             Weather::Clear => {}
         }

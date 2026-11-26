@@ -36,7 +36,7 @@ impl Plugin for LivingCityPack {
     fn build(&self, app: &mut App) {
         app.register_pack(PackInfo {
             id: ID,
-            icon: "🧠",
+            icon: "💭",
             name: "Living City",
             about: "People who live their own lives, remember you and talk, with optional local AI.",
         })

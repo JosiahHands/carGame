@@ -1,4 +1,4 @@
-//! 🧪 Real Physics: realistic driving for every car (see model.rs): real
+//! 🔬 Real Physics: realistic driving for every car (see model.rs): real
 //! suspension, tires that warm up and wear, an engine with a torque curve and
 //! turbo, crashes that spin the car, dent its bodywork and bend its steering,
 //! a telemetry panel that shows it all at work, and controller rumble.
@@ -28,7 +28,7 @@ impl Plugin for RealPhysicsPack {
     fn build(&self, app: &mut App) {
         app.register_pack(PackInfo {
             id: ID,
-            icon: "🧪",
+            icon: "🔬",
             name: "Real Physics",
             about: "Realistic driving: a body that leans, dives and bounces on real springs and dampers, four tires with real grip curves that warm up and wear, an engine with a torque curve, turbo lag and gear changes, limited-slip differentials, brakes that fade, and different grip on every surface. Crashes spin the car, dent it and can bend its steering. A telemetry panel shows it all at work, and a controller rumbles as the tires slide.",
         });

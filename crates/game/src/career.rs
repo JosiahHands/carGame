@@ -92,10 +92,10 @@ pub const UPGRADE_IDS: [&str; 7] = ["engine", "gearbox", "tires", "brakes", "nit
 pub const UPGRADES: &[(&str, &str, &str, &str)] = &[
     ("engine", "Engine", "+8% power: faster acceleration", "🔧"),
     ("gearbox", "Gearbox", "+3.5% top speed", "⚙"),
-    ("tires", "Tires", "+3% grip: faster through corners", "🛞"),
-    ("brakes", "Brakes", "+6% braking: brake later", "🛑"),
+    ("tires", "Tires", "+3% grip: faster through corners", "⭕"),
+    ("brakes", "Brakes", "+6% braking: brake later", "⛔"),
     ("nitro", "Nitro", "+5% boost and a longer-lasting bottle", "🔥"),
-    ("aero", "Aero", "More downforce: more grip at speed", "🪽"),
+    ("aero", "Aero", "More downforce: more grip at speed", "🕊"),
     ("armor", "Armor", "+12% toughness in takedowns", "🛡"),
 ];
 
