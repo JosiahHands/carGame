@@ -29,6 +29,20 @@ publish = false
 [workspace.dependencies]
 # Only the 3D, UI and audio parts of Bevy (no 2D sprites).
 bevy = { version = "=0.20.1", default-features = false, features = ["3d", "ui", "audio"] }
+# Menus, the garage and the on-screen displays.
+bevy_egui = { version = "=0.43.1", default-features = false, features = ["default_fonts", "render"] }
+# Saves (the same JSON the 1.2.x game wrote), share codes and randomness.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+base64 = "0.23.1"
+rand = "0.10.4"
+# Lettering painted onto textures (number plates, race numbers, banners).
+ab_glyph = "0.2.32"
+epaint_default_fonts = "0.36.2"
+# Where saves go on each computer.
+directories = "6.0.0"
+# Reads the 1.2.x app's saves (Chromium's LevelDB) to bring progress over.
+rusty-leveldb = "4.0.2"
 game = { path = "crates/game" }
 import = { path = "crates/import" }
 real_physics = { path = "crates/packs/real_physics" }

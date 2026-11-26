@@ -42,3 +42,9 @@ fn screenshot_then_quit(mut commands: Commands, mut shot: ResMut<ScreenshotThenQ
         exit.write(AppExit::Success);
     }
 }
+
+/// `CAR_GAME_AUTOPILOT=steer` holds the throttle down and the steering at
+/// `steer` (-1..1), to see the car moving in screenshots.
+pub fn autopilot() -> Option<f64> {
+    std::env::var("CAR_GAME_AUTOPILOT").ok().and_then(|v| v.parse().ok())
+}
