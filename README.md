@@ -35,13 +35,13 @@ Press H in the game to see the controls.
 **Install**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.sh | bash
 ```
 
 **Update**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/update.sh | bash
 ```
 
 ## Packs
@@ -50,7 +50,7 @@ Open **Garage → Packs** to enable any of the three optional packs. Each can
 be switched off at any time.
 
 - **Photo Real** adds detailed car bodies, a physical sky and camera effects.
-  The car models are by Daniel Zhabotinsky (CC BY 4.0). See the [model credits](assets/packs/photo_real/CREDITS.md).
+  The car models are by Daniel Zhabotinsky (CC BY 4.0). See the [model credits](packs/photo_real/libs/car-models/CREDITS.md).
 - **Real Physics** adds suspension, individual tire grip and temperatures, a
   powertrain model, crash damage and driving aids, with a telemetry panel while you drive.
 - **Living City** adds residents who work, meet, drive and remember what happens
@@ -67,10 +67,26 @@ to LLVM’s `bin` folder if it is outside the default search paths. On Debian or
 Ubuntu install `libasound2-dev`, `libudev-dev`, `libwayland-dev`,
 `libxkbcommon-dev` and `libclang-dev`.
 
-Run `cargo run --release --locked --offline` from the checkout. Cargo uses the
-locked libraries in `vendor/`. New installs select graphics settings based on
-the computer. Garage → Settings lets you change the preset, resolution,
+Run `cargo run --release --locked --offline` from the checkout. The program
+is built into `builds/release/`. New installs select graphics settings based
+on the computer. Garage → Settings lets you change the preset, resolution,
 shadows, effects, draw distance and frame-rate cap.
+
+How the code is laid out:
+
+| Folder | What's in it |
+| --- | --- |
+| `game/` | The game. `backEnd/` has its rules and data (the main loop, physics, worlds, events, career and saves). `frontEnd/` has what you see, hear and touch (graphics, car models, menus, HUD, sound, controls). `shared/` has small things both use. `main.rs` starts it. |
+| `packs/` | The three optional packs. Each pack's folder is self-contained, with its `code/` and its own `libs/`. |
+| `libs/` | Every library the game uses, stored so that building never downloads anything. |
+| `tools/` | Packaging, the smoke tests, and the install and update scripts. |
+| `builds/` | Everything built: the program and the downloads (`tools/packaging/package.sh` puts them in `builds/downloads/`). Not kept in git. |
+
+To add or update a library, move `.cargo/config.toml` aside, change
+`Cargo.toml`, and store the libraries again with
+`cargo vendor --versioned-dirs libs` (or `cargo-vendor-filterer`). A library
+only one pack uses then moves from `libs/` into that pack's `libs/`, with a
+`[patch.crates-io]` entry for it in the top-level `Cargo.toml`.
 
 On first launch the game imports 1.2.x career progress, garage builds, settings,
 best times, ghosts and city memories from the old app’s data folder.

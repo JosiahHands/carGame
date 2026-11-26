@@ -1,6 +1,6 @@
 # Checks the Rust game (1.3.0) builds and passes its tests on macOS, Windows
 # and Linux, for every pull request and every push to main or a features/
-# or fix/ branch. Everything builds offline from vendor/.
+# or fix/ branch. Everything builds offline from the stored libraries (libs/ and packs/*/libs/).
 name: Rust
 
 on:
@@ -43,6 +43,8 @@ jobs:
       # rustup reads rust-toolchain.toml and installs that exact Rust.
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> builds"
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --all --check

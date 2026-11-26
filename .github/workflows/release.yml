@@ -77,6 +77,7 @@ jobs:
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
+          workspaces: ". -> builds"
           key: release-${{ matrix.platform }}
       - name: Build the game
         run: cargo build --release --package car_game --locked --offline
@@ -85,7 +86,7 @@ jobs:
           GAME_VERSION: ${{ needs.version.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
           BINARY: ${{ matrix.binary }}
-        run: bash packaging/package.sh "$PLATFORM" "$GAME_VERSION" "target/release/$BINARY" upload
+        run: bash tools/packaging/package.sh "$PLATFORM" "$GAME_VERSION" "builds/release/$BINARY" upload
       - uses: actions/upload-artifact@v4
         with:
           name: game-${{ matrix.platform }}
@@ -97,7 +98,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           WGPU_BACKEND: vulkan
           WGPU_FORCE_FALLBACK_ADAPTER: '1'
-        run: xvfb-run -a python3 packaging/smoke.py upload/Car-Game-Linux.AppImage qa --timeout 180
+        run: xvfb-run -a python3 tools/packaging/smoke.py upload/Car-Game-Linux.AppImage qa --timeout 180
       - name: Test the Windows installer and run the installed game
         if: runner.os == 'Windows'
         shell: pwsh
@@ -114,8 +115,8 @@ jobs:
           $exe = Join-Path $install 'car-game.exe'
           $portable = Join-Path $env:RUNNER_TEMP 'car-game-portable/Car Game/car-game.exe'
           if ((Get-FileHash $exe).Hash -ne (Get-FileHash $portable).Hash) { throw 'Installed and portable executables differ' }
-          if (!(Test-Path "$install/assets/packs/photo_real/cars.glb")) { throw 'Installer omitted Photo Real assets' }
-          python packaging/smoke.py $exe qa --timeout 480
+          if (!(Test-Path "$install/assets/packs/photo_real/libs/car-models/cars.glb")) { throw 'Installer omitted Photo Real assets' }
+          python tools/packaging/smoke.py $exe qa --timeout 480
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always() && (runner.os == 'Windows' || runner.os == 'Linux')
