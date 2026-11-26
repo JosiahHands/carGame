@@ -1,0 +1,11 @@
+# Every library the game uses is stored in vendor/, so building never
+# downloads anything. To add or update a library, see "Building the Rust
+# version" in the README.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+
+[net]
+offline = true

@@ -1,0 +1,18 @@
+[package]
+name = "car_game"
+description = "Car Game: a 3D driving game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "car-game"
+path = "src/main.rs"
+
+[dependencies]
+bevy.workspace = true
+game.workspace = true
+real_physics.workspace = true
+photo_real.workspace = true
+living_city.workspace = true

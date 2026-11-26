@@ -5,13 +5,26 @@ with any car, or build your car in the garage and drive anywhere in free roam.
 
 ## Download
 
-Ready-to-run builds for macOS (Apple Silicon), Windows and Linux are on the
-[latest release](https://github.com/JosiahHands/carGame/releases/latest). Unzip and
-run it. These builds aren't signed by Apple or Microsoft, so the first time:
+Pick your computer, download, and play. No setup or terminal needed.
 
-- **macOS:** right-click Car Game and pick Open. If it says the app is damaged, run
-  `xattr -cr "/Applications/Car Game.app"` in Terminal, then open it again.
+| Computer | Download |
+| --- | --- |
+| **Mac** with Apple Silicon (M1 or newer) | [Car-Game-macOS-Apple-Silicon.zip](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-macOS-Apple-Silicon.zip) |
+| **Mac** with Intel | [Car-Game-macOS-Intel.zip](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-macOS-Intel.zip) |
+| **Windows** (installer) | [Car-Game-Windows-Setup.exe](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows-Setup.exe) |
+| **Windows** (no install) | [Car-Game-Windows.zip](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows.zip) |
+| **Linux** | [Car-Game-Linux.AppImage](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Linux.AppImage) or [Car-Game-Linux.zip](https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Linux.zip) |
+
+These links always get the newest version. Every version is on the
+[releases page](https://github.com/JosiahHands/carGame/releases). The downloads
+aren't signed by Apple or Microsoft, so the first time:
+
+- **Mac:** unzip, drag Car Game to Applications, then right-click it and pick Open.
+  If it says the app is damaged, run `xattr -cr "/Applications/Car Game.app"` in
+  Terminal, then open it again.
 - **Windows:** if SmartScreen warns you, click More info, then Run anyway.
+- **Linux:** make the AppImage runnable (right-click, Properties, Allow executing,
+  or `chmod +x Car-Game-Linux.AppImage`), then open it.
 
 ## Install and update from source
 
@@ -63,6 +76,37 @@ curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh 
 ```bat
 "%ProgramFiles%\Git\bin\bash.exe" -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/update.sh | bash"
 ```
+
+## Building the Rust version
+
+Car Game 1.3.0 is being rebuilt in [Rust](https://www.rust-lang.org) on the
+[Bevy](https://bevyengine.org) game engine, on the `features/v1.3.0` branch. Until
+it's finished, the commands above install the current version.
+
+To build it, install Rust with [rustup](https://rustup.rs). The `rust-toolchain.toml`
+file picks the exact Rust version, and rustup installs it the first time. Then:
+
+```bash
+cargo run --release
+```
+
+Every library the game uses is stored in `vendor/`, so building never downloads
+anything. Only the platforms the game ships for are kept (macOS on Apple Silicon and
+Intel, Windows x64, Linux x64). To add or update a library, change `Cargo.toml`, then
+refresh `vendor/` with
+[cargo-vendor-filterer](https://github.com/coreos/cargo-vendor-filterer):
+
+```bash
+cargo-vendor-filterer --versioned-dirs \
+  --platform aarch64-apple-darwin --platform x86_64-apple-darwin \
+  --platform x86_64-pc-windows-msvc --platform x86_64-unknown-linux-gnu \
+  --exclude-crate-path '*#tests' --exclude-crate-path '*#benches' vendor
+```
+
+(Move `.cargo/config.toml` aside while it runs, since it switches downloads off.)
+
+To check the game draws without watching it, set `CAR_GAME_SCREENSHOT` to a file
+name: it saves a picture once the game has settled, then quits.
 
 ## Packs
 
