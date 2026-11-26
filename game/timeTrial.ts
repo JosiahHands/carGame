@@ -1,6 +1,6 @@
 // Time trial (T): a lap through glowing arches, against the clock. Each map has
 // its own lap (see Course in world.ts) and its own best lap. The best lap is
-// also recorded, so next time a see-through "ghost" car races you round it.
+// also recorded, so next time a see-through "ghost" car races you around it.
 import * as THREE from 'three';
 import type { MapName } from './venues';
 import type { Course } from './world';
@@ -161,7 +161,7 @@ export class TimeTrial {
     if ((i + 1) * GHOST_VALUES >= g.length) return null;
     const t = f - i;
     const value = (k: number) => g[i * GHOST_VALUES + k] + (g[(i + 1) * GHOST_VALUES + k] - g[i * GHOST_VALUES + k]) * t;
-    // Turn the short way round between the two headings.
+    // Turn the short way around between the two headings.
     const h0 = g[i * GHOST_VALUES + 3];
     const turn = Math.atan2(Math.sin(g[(i + 1) * GHOST_VALUES + 3] - h0), Math.cos(g[(i + 1) * GHOST_VALUES + 3] - h0));
     return { x: value(0), y: value(1), z: value(2), heading: h0 + turn * t, pitch: value(4), groundRoll: value(5) };
@@ -227,8 +227,8 @@ export class TimeTrial {
 
   /** Records the car's pose a share `t` of the way from `from` to `to` (more than 1 carries on past `to`). */
   private record(from: CarPose, to: CarPose, t: number): void {
-    const at = (a: number, b: number) => Math.round((a + (b - a) * t) * 100) / 100; // centimetres are plenty, and keep the save small
-    // Turn the short way round between the two headings.
+    const at = (a: number, b: number) => Math.round((a + (b - a) * t) * 100) / 100; // centimeters are plenty, and keep the save small
+    // Turn the short way around between the two headings.
     const turn = Math.atan2(Math.sin(to.heading - from.heading), Math.cos(to.heading - from.heading));
     this.recording.push(at(from.x, to.x), at(from.y, to.y), at(from.z, to.z), at(from.heading, from.heading + turn), at(from.pitch, to.pitch), at(from.groundRoll, to.groundRoll));
   }

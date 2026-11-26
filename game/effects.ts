@@ -12,10 +12,10 @@ export interface ParticleOptions {
   velocity?: THREE.Vector3;
   /** Seconds before it disappears. */
   life: number;
-  /** Size in metres when it appears and when it disappears. */
+  /** Size in meters when it appears and when it disappears. */
   size: [number, number];
   color: THREE.ColorRepresentation;
-  /** Colour it fades to (fire turns from yellow to red). Defaults to `color`. */
+  /** Color it fades to (fire turns from yellow to red). Defaults to `color`. */
   endColor?: THREE.ColorRepresentation;
   /** Starting opacity; it always fades to 0. */
   opacity?: number;
@@ -94,7 +94,7 @@ export class Effects {
     for (let i = 0; i < GLOW_COUNT; i++) this.glow.push(makeParticle(true));
     for (let i = 0; i < SMOKE_COUNT; i++) this.smoke.push(makeParticle(false));
 
-    // Debris: plain boxes, each with its own material so it can have its own colour.
+    // Debris: plain boxes, each with its own material so it can have its own color.
     const box = new THREE.BoxGeometry(1, 1, 1);
     for (let i = 0; i < DEBRIS_COUNT; i++) {
       const mesh = new THREE.Mesh(box, new THREE.MeshStandardMaterial({ roughness: 0.9 }));
@@ -180,7 +180,7 @@ export class Effects {
     d.resting = false;
   }
 
-  /** A firework: a ball of coloured sparks that fall and fade. */
+  /** A firework: a ball of colored sparks that fall and fade. */
   firework(at: THREE.Vector3, color: THREE.ColorRepresentation, size = 1): void {
     for (let i = 0; i < this.count(60); i++) {
       // Even directions over a sphere.
@@ -208,7 +208,7 @@ export class Effects {
     }
   }
 
-  /** A burst of debris flying out from a point, in the given colours. */
+  /** A burst of debris flying out from a point, in the given colors. */
   shatter(center: THREE.Vector3, count: number, colors: THREE.ColorRepresentation[], size: number, speed: number): void {
     for (let i = 0; i < this.count(count); i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -223,7 +223,7 @@ export class Effects {
     }
   }
 
-  /** A fiery explosion. `size` is roughly its radius in metres. */
+  /** A fiery explosion. `size` is roughly its radius in meters. */
   explosion(at: THREE.Vector3, size: number): void {
     this.play(this.fireballs, at, size * 0.8, 0.55);
     this.light.color.set(0xffa040);

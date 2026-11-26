@@ -14,7 +14,7 @@ on:
 permissions:
   contents: write # to tag the commit and publish the release
 
-# One release at a time; a second push waits instead of cancelling the first.
+# One release at a time; a second push waits instead of canceling the first.
 concurrency:
   group: release
   cancel-in-progress: false

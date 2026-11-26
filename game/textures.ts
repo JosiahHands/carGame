@@ -20,7 +20,7 @@ export function grassTexture(): THREE.CanvasTexture {
 /** The ground at a venue: grass, desert sand, snow, or dark city dirt. */
 export function groundTexture(kind: 'grass' | 'sand' | 'snow' | 'dirt'): THREE.CanvasTexture {
   if (kind === 'grass') return grassTexture();
-  // Base colour, then lots of small specks of two other shades.
+  // Base color, then lots of small specks of two other shades.
   const looks = {
     sand: ['#d8b47a', 'rgba(170,120,70,0.35)', 'rgba(250,225,180,0.4)'],
     snow: ['#eef3f7', 'rgba(170,190,210,0.35)', 'rgba(255,255,255,0.6)'],
@@ -37,7 +37,7 @@ export function groundTexture(kind: 'grass' | 'sand' | 'snow' | 'dirt'): THREE.C
   }, true);
 }
 
-/** Road running along the texture's V axis, with edge lines and a dashed centre line. */
+/** Road running along the texture's V axis, with edge lines and a dashed center line. */
 export function roadTexture(): THREE.CanvasTexture {
   const rand = seededRandom(11);
   return canvasTexture(128, 256, (ctx) => {
@@ -125,12 +125,12 @@ export function carbonTexture(): THREE.CanvasTexture {
 /**
  * A paint pattern for the side of the car, as if looking at it side on: the
  * left edge is the back of the car, the right edge the front, the top edge the
- * top of the body. `length` and `height` are the body's size in metres, so
+ * top of the body. `length` and `height` are the body's size in meters, so
  * checks and dots come out square and round.
  */
 export function liveryTexture(pattern: Pattern, base: string, accent: string, length: number, height: number): THREE.CanvasTexture {
   const width = 1024;
-  const ppm = width / length; // pixels per metre
+  const ppm = width / length; // pixels per meter
   const canvasHeight = Math.max(32, Math.min(1024, Math.round(height * ppm)));
   const rand = seededRandom(9);
   const texture = canvasTexture(width, canvasHeight, (ctx) => {
@@ -140,7 +140,7 @@ export function liveryTexture(pattern: Pattern, base: string, accent: string, le
     ctx.fillStyle = accent;
     switch (pattern) {
       case 'twoTone':
-        // The lower part of the body in the accent colour.
+        // The lower part of the body in the accent color.
         ctx.fillRect(0, h * 0.55, width, h);
         break;
       case 'checker': {
@@ -162,7 +162,7 @@ export function liveryTexture(pattern: Pattern, base: string, accent: string, le
         break;
       }
       case 'camo': {
-        // Overlapping blobs in the accent colour and a darker shade of the paint.
+        // Overlapping blobs in the accent color and a darker shade of the paint.
         const dark = '#' + new THREE.Color(base).multiplyScalar(0.55).getHexString();
         for (let i = 0; i < length * 40; i++) {
           ctx.fillStyle = i % 2 === 0 ? accent : dark;
@@ -187,7 +187,7 @@ export function liveryTexture(pattern: Pattern, base: string, accent: string, le
         break;
       case 'flames': {
         // Tongues of flame licking back from the front of the car: the accent
-        // colour with a yellow core.
+        // color with a yellow core.
         const tongue = (y: number, reach: number, thick: number, color: string) => {
           ctx.fillStyle = color;
           ctx.beginPath();

@@ -110,14 +110,14 @@ interface PoliceRecord {
   calledOff: number;
 }
 
-/** A car journey: the driver (and anyone riding along) walks to a car at the kerb, drives, parks and gets out. */
+/** A car journey: the driver (and anyone riding along) walks to a car at the curb, drives, parks and gets out. */
 interface Trip {
   driver: Npc;
   riders: Npc[];
   /** The car: someone's own, or null for BUDDY's police car. */
   car: NpcCar | null;
   phase: 'walk' | 'drive';
-  /** Where they get in, on the pavement by the car. */
+  /** Where they get in, on the sidewalk by the car. */
   door: { x: number; z: number };
   /** Where each of them is going once they're out (null: BUDDY, back to GUY's side). */
   dests: Map<Npc, Place | 'home' | null>;
@@ -258,7 +258,7 @@ const NEAR_RANGE = 220;
 const DECIDE_RANGE = 140;
 /** At most this many people's cars on the roads (and parked from trips) at once. */
 const MAX_CARS = 3;
-/** Further than this (metres) and people may take a car. */
+/** Further than this (meters) and people may take a car. */
 const DRIVE_FROM = 150;
 /** How often (city seconds) BUDDY asks himself whether a chase is still worth it. */
 const RETHINK = 20;
@@ -266,7 +266,7 @@ const RETHINK = 20;
 const MISCHIEF = [
   'drew a silly face on a shop window',
   'knocked over the bins',
-  "let down a parked car's tyres",
+  "let down a parked car's tires",
   'climbed the park statue',
   'set off a car alarm for fun',
   'stuck posters all over a lamp post',
@@ -292,7 +292,7 @@ const pack: Pack = {
     };
     let clock = 0;
     let tickets = 0;
-    /** How wanted you are, 0..5 stars: offences add to it, and it cools off with time. */
+    /** How wanted you are, 0..5 stars: offenses add to it, and it cools off with time. */
     let heat = 0;
     const crimes: string[] = []; // what you've done lately, newest first
     const record: PoliceRecord = { chases: 0, escapes: 0, busts: 0, fines: 0, calledOff: 0 };
@@ -571,7 +571,7 @@ const pack: Pack = {
       const h = hourOf(clock);
       let score = (mind.likes[place.kind] ?? 0) * 0.8;
       const kind = place.kind;
-      // Hungry: somewhere to eat (breakfast, lunch and dinner come round at their times).
+      // Hungry: somewhere to eat (breakfast, lunch and dinner come around at their times).
       const eat: Partial<Record<PlaceKind, number>> = { diner: 1.6, coffee: 1.1, bakery: 1.3, market: 0.8 };
       score += (1 - n.food) * (eat[kind] ?? 0);
       if (h >= 6.5 && h < 9.5 && (kind === 'coffee' || kind === 'bakery')) score += 0.6;
@@ -580,7 +580,7 @@ const pack: Pack = {
       // Tired, bored, curious.
       if (kind === 'park') score += (1 - n.rest) * 1.2 + (1 - n.fun) * 0.3;
       if (kind === 'stunts') score += (1 - n.fun) * (0.4 + t.courage);
-      if (kind === 'music') score += (1 - n.fun) * (0.3 + t.humour * 0.8) + (h >= 19 ? 0.4 * t.energy : 0);
+      if (kind === 'music') score += (1 - n.fun) * (0.3 + t.humor * 0.8) + (h >= 19 ? 0.4 * t.energy : 0);
       if (kind === 'gym') score += (1 - n.fun) * t.energy * 0.8 - (1 - n.rest) * 0.8;
       if (kind === 'news' || kind === 'library') score += t.curiosity * 0.4;
       if (kind === 'market') score += t.curiosity * 0.2;
@@ -1036,7 +1036,7 @@ const pack: Pack = {
     /** How someone takes a wild bit of driving: the bold and fun-loving enjoy it, the timid and kind don't. */
     const thrill = (npc: Npc) => {
       const t = npc.mind.traits;
-      return (t.courage + t.energy + t.humour) / 3 - 0.5 + (npc.mind.feelings.driver ?? 0) * 0.4;
+      return (t.courage + t.energy + t.humor) / 3 - 0.5 + (npc.mind.feelings.driver ?? 0) * 0.4;
     };
 
     // ---------- the police ----------
@@ -1049,9 +1049,9 @@ const pack: Pack = {
      * calls him) he decides what to do about it: let it go, write a ticket,
      * or come after you.
      */
-    const offence = (what: string, x: number, z: number, reach = 30, severity = 1) => {
+    const offense = (what: string, x: number, z: number, reach = 30, severity = 1) => {
       if (!active) return;
-      lastOffence = clock;
+      lastOffense = clock;
       heat = Math.min(5, heat + severity * (chase ? 0.3 : 1));
       if (crimes[0] !== what) crimes.unshift(what);
       if (crimes.length > 6) crimes.pop();
@@ -1224,7 +1224,7 @@ const pack: Pack = {
 
     let chase: Chase | null = null;
     /** When you last did something BUDDY could hold against you (city clock). */
-    let lastOffence = -Infinity;
+    let lastOffense = -Infinity;
     let police: PoliceCar | null = null;
 
     /** BUDDY's police car (made the first time it's needed). */
@@ -1240,7 +1240,7 @@ const pack: Pack = {
         if (from.distanceTo(game.camera.position) < 70) game.audio.gunshot();
       };
       car.onHit = () => {
-        if (!chase) offence('shooting at a police car', car.x, car.z, 500, 3);
+        if (!chase) offense('shooting at a police car', car.x, car.z, 500, 3);
       };
       police = car;
       return car;
@@ -1252,7 +1252,7 @@ const pack: Pack = {
       return options.chases && active && !chase && !!officer && !officer.asleep && !(police && police.wrecked > 0);
     };
 
-    /** Where to stand by a car to get in or out (on the pavement side). */
+    /** Where to stand by a car to get in or out (on the sidewalk side). */
     const doorOf = (x: number, z: number, heading: number, i = 0) => ({
       x: x - Math.cos(heading) * 2.6 - Math.sin(heading) * i * 1.2,
       z: z + Math.sin(heading) * 2.6 - Math.cos(heading) * i * 1.2,
@@ -1376,7 +1376,7 @@ const pack: Pack = {
         why: 'Thinking the chase over: keep going, or give it up?',
         nearby: c.crew.slice(1).map((n) => n.member.name),
         crimes: { list: crimes.slice(0, 5), heat: Math.round(heat) },
-        chase: { seconds: clock - c.started, distance, hurt: Math.max(0, 1 - car.hp / 100), quiet: clock - lastOffence, partner: plea },
+        chase: { seconds: clock - c.started, distance, hurt: Math.max(0, 1 - car.hp / 100), quiet: clock - lastOffense, partner: plea },
       };
       const brain = aiReady() && aiDecides < 2 ? local : rules;
       if (brain === local) aiDecides++;
@@ -1578,7 +1578,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion);
         shout(npc, npc.mind.emotion);
       });
-      offence('reckless driving', e.x, e.z, 30, 0.7);
+      offense('reckless driving', e.x, e.z, 30, 0.7);
       // Your passenger felt that.
       if (rider && e.impact > 8) {
         remember(rider.npc.mind, clock, `The driver crashed with me in the car! ${thrill(rider.npc) > 0.2 ? 'What a ride.' : 'Never again.'}`, 6, ['driver'], 'saw');
@@ -1599,7 +1599,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion);
         shout(npc, npc.mind.emotion);
       });
-      offence(`smashing ${thing}`, e.x, e.z, 40, e.kind === 'building' ? 2 : e.kind === 'car' ? 1.2 : 0.8);
+      offense(`smashing ${thing}`, e.x, e.z, 40, e.kind === 'building' ? 2 : e.kind === 'car' ? 1.2 : 0.8);
     });
 
     game.on('jump', (e) => {
@@ -1629,7 +1629,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion, 8);
         shout(npc, npc.mind.emotion);
       });
-      offence('dangerous driving', e.x, e.z, 25, 0.5);
+      offense('dangerous driving', e.x, e.z, 25, 0.5);
     });
 
     game.on('explosion', (e) => {
@@ -1643,7 +1643,7 @@ const pack: Pack = {
         if (d < 25 && !npc.chatting) dive(npc, npc.x - e.x, npc.z - e.z);
         shout(npc, 'scared');
       });
-      offence('causing an explosion', e.x, e.z, 60, 2.5);
+      offense('causing an explosion', e.x, e.z, 60, 2.5);
     });
 
     game.on('horn', (e) => {
@@ -1662,7 +1662,7 @@ const pack: Pack = {
       if (e.points < 300) return;
       witness(e.x, e.z, 40, (npc) => {
         const fun = thrill(npc) > 0;
-        if (Math.random() < 0.4) remember(npc.mind, clock, fun ? `The driver drifted round the corner by ${placeName(e.x, e.z)}. Smooth!` : 'The driver was sliding all over the road again.', 2, ['driver'], 'saw');
+        if (Math.random() < 0.4) remember(npc.mind, clock, fun ? `The driver drifted around the corner by ${placeName(e.x, e.z)}. Smooth!` : 'The driver was sliding all over the road again.', 2, ['driver'], 'saw');
         feel(npc.mind, 'driver', fun ? 0.015 : -0.01);
         emote(npc, fun ? 'amused' : 'annoyed', 8);
         shout(npc, npc.mind.emotion);
@@ -2022,13 +2022,13 @@ const pack: Pack = {
     // ---------- people's cars ----------
 
     const trips: Trip[] = [];
-    const parked: NpcCar[] = []; // cars left at the kerb after a trip, taken away once nobody's looking
+    const parked: NpcCar[] = []; // cars left at the curb after a trip, taken away once nobody's looking
     const carsOut = () => trips.filter((t) => t.car).length + parked.length;
     /** Whether two people are together (BUDDY at GUY's side). */
     const together = (a: Npc, b: Npc) => !a.asleep && !b.asleep && !a.inCar && !b.inCar && !a.trip && !b.trip && Math.hypot(a.x - b.x, a.z - b.z) < 15;
 
     /**
-     * Sets off on a car trip: walk to a car at the nearest kerb, drive there,
+     * Sets off on a car trip: walk to a car at the nearest curb, drive there,
      * park, get out. GUY and BUDDY go in BUDDY's police car, BUDDY driving.
      * Returns false if no car can be had (too many on the road).
      */
@@ -2122,7 +2122,7 @@ const pack: Pack = {
       else ruleNext(npc);
     };
 
-    /** Out of the car at the kerb, and on to where each of them is going. */
+    /** Out of the car at the curb, and on to where each of them is going. */
     const alight = (trip: Trip, scared = false) => {
       const at = carOf(trip);
       trips.splice(trips.indexOf(trip), 1);
@@ -2399,7 +2399,7 @@ const pack: Pack = {
             ? `New wheels${name ? `, ${name}` : ''}? ${pick(['Love it!', 'Very you.', 'Bold choice!'])}`
             : fun
               ? pick(['Ooh, nice car!', "Now that's a car!", 'Look at that thing!'])
-              : pick(['Hmm. Interesting colour.', 'Is that thing even legal?', 'Another new car. Of course.']);
+              : pick(['Hmm. Interesting color.', 'Is that thing even legal?', 'Another new car. Of course.']);
           npc.label.say(line, 3, clock);
           npc.lookX = p.x;
           npc.lookZ = p.z;
@@ -2553,7 +2553,7 @@ const pack: Pack = {
         for (const { npc: other } of near(npc.x, npc.z, 25)) {
           if (other !== npc) remember(other.mind, clock, `The driver nearly ran over ${npc.member.name}!`, 6, ['driver', npc.member.id], 'saw');
         }
-        offence(hit ? `hitting ${npc.member.name}` : 'nearly hitting someone', npc.x, npc.z, 30, hit ? 2.5 : 1.2);
+        offense(hit ? `hitting ${npc.member.name}` : 'nearly hitting someone', npc.x, npc.z, 30, hit ? 2.5 : 1.2);
         checkBond(npc);
       }
     };
@@ -2623,7 +2623,7 @@ const pack: Pack = {
         // Speeding past the police.
         if (npc.member.id === OFFICER && !npc.asleep && clock - lastSpeeding > 6 && Math.hypot(p.vx, p.vz) > 32 && Math.hypot(npc.x - p.x, npc.z - p.z) < (npc.inCar ? 45 : 22)) {
           lastSpeeding = clock;
-          offence('speeding', npc.x, npc.z, 45, 0.4);
+          offense('speeding', npc.x, npc.z, 45, 0.4);
         }
         npc.label.setFriend(isFriend(m));
       }
@@ -2877,20 +2877,20 @@ export function describeCar(config: CarConfig): string {
     van: 'van',
     wedge: 'wedge-shaped supercar',
   };
-  const colour = colourName(config.paintColor);
+  const color = colorName(config.paintColor);
   const giant = config.size > 2.5 ? 'giant ' : '';
-  const words = `${giant}${colour} ${kind[config.body] ?? 'car'}`;
+  const words = `${giant}${color} ${kind[config.body] ?? 'car'}`;
   return `${/^[aeiou]/.test(words) ? 'an' : 'a'} ${words}`;
 }
 
-/** A colour in plain words. */
-function colourName(hex: string): string {
+/** A color in plain words. */
+function colorName(hex: string): string {
   const c = new THREE.Color(hex);
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl);
   if (hsl.l > 0.85) return 'white';
   if (hsl.l < 0.12) return 'black';
-  if (hsl.s < 0.15) return hsl.l > 0.55 ? 'silver' : 'grey';
+  if (hsl.s < 0.15) return hsl.l > 0.55 ? 'silver' : 'gray';
   const h = hsl.h * 360;
   const names: [number, string][] = [
     [15, 'red'],

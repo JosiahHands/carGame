@@ -7,7 +7,7 @@ export interface Settings {
   resolution: number;
   /** Shadow detail. Shadows are one of the slowest things to draw. */
   shadows: 'off' | 'low' | 'high' | 'ultra';
-  /** How far you can see, in metres, before everything fades into the fog. */
+  /** How far you can see, in meters, before everything fades into the fog. */
   viewDistance: number;
   /** How much smoke, fire and debris explosions make. */
   effects: 'low' | 'medium' | 'high';
@@ -31,9 +31,9 @@ export interface Settings {
   announcer: boolean;
   /** Streaks at the edge of the screen at high speed. */
   speedLines: boolean;
-  /** How many cars drive round the city in free roam. */
+  /** How many cars drive around the city in free roam. */
   traffic: 'off' | 'light' | 'normal' | 'busy';
-  /** People walking on the city's pavements in free roam. */
+  /** People walking on the city's sidewalks in free roam. */
   pedestrians: boolean;
 }
 
@@ -69,7 +69,7 @@ export const PRESETS = {
   Ultra: { resolution: 1, shadows: 'ultra', viewDistance: 600, effects: 'high' },
 } as const;
 
-/** Shadow map size, and how many metres around the car get shadows. */
+/** Shadow map size, and how many meters around the car get shadows. */
 export const SHADOW_SIZES = {
   low: { mapSize: 1024, area: 35 },
   high: { mapSize: 2048, area: 45 },

@@ -8,13 +8,13 @@
 import * as THREE from 'three';
 import { ROAD_LINES, type CarTarget, type World } from './world';
 
-const LANE = 3; // metres from a road's centre line to the middle of a lane
-const STOP = 9; // metres before a crossing's centre where cars wait their turn
+const LANE = 3; // meters from a road's center line to the middle of a lane
+const STOP = 9; // meters before a crossing's center where cars wait their turn
 const BLOCK = ROAD_LINES[1] - ROAD_LINES[0]; // 80 m between crossings
 const LOW = ROAD_LINES[0];
 const HIGH = ROAD_LINES[ROAD_LINES.length - 1];
-const TURN_SPEED = 7; // m/s round a corner
-const LOOK_AHEAD = 28; // metres a car looks ahead for something to stop for
+const TURN_SPEED = 7; // m/s around a corner
+const LOOK_AHEAD = 28; // meters a car looks ahead for something to stop for
 
 /** Directions of travel: +z, +x, -z, -x. Heading = atan2(x, z) of the forward vector. */
 type Dir = 0 | 1 | 2 | 3;
@@ -22,7 +22,7 @@ const FORWARD: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 /** The right-hand side for each direction (cars drive on the right). */
 const RIGHT: [number, number][] = [[-1, 0], [0, 1], [1, 0], [0, -1]];
 
-/** A straight line (no control point) or a curve round a corner (a quadratic Bézier). */
+/** A straight line (no control point) or a curve around a corner (a quadratic Bézier). */
 interface Segment {
   ax: number;
   az: number;
@@ -35,7 +35,7 @@ interface Segment {
 
 interface TrafficCar {
   target: CarTarget;
-  /** The road it's on: its direction, and the x (or z) of the road's centre line. */
+  /** The road it's on: its direction, and the x (or z) of the road's center line. */
   dir: Dir;
   line: number;
   /** Where along the road the next crossing is (its z, or x). */
@@ -149,7 +149,7 @@ export class Traffic {
       // Wheels, and brake lights when slowing or stopped.
       for (const w of t.rig.wheels) {
         w.spin.rotation.x += (car.speed / w.radius) * dt;
-        // Turning from +z to +x (one step round the directions) is a left turn.
+        // Turning from +z to +x (one step around the directions) is a left turn.
         if (w.front) w.steer.rotation.y = car.onCrossing && car.seg.cx !== undefined ? (car.exitDir === (car.dir + 1) % 4 ? 0.35 : -0.35) : 0;
       }
       t.rig.setLights({ night, braking: car.speed < car.cruise * 0.6 });
@@ -359,7 +359,7 @@ function inCity(c: number): boolean {
   return c >= LOW - 1 && c <= HIGH + 1;
 }
 
-/** The middle of the right-hand lane, `along` metres along a road. */
+/** The middle of the right-hand lane, `along` meters along a road. */
 function lanePoint(dir: Dir, roadLine: number, along: number): { x: number; z: number } {
   const [fx] = FORWARD[dir];
   const [rx, rz] = RIGHT[dir];
@@ -396,7 +396,7 @@ function bezier(ax: number, az: number, cx: number, cz: number, bx: number, bz: 
   return { x: u * u * ax + 2 * u * t * cx + t * t * bx, z: u * u * az + 2 * u * t * cz + t * t * bz };
 }
 
-/** Where on a segment, and which way it faces, `at` metres along. */
+/** Where on a segment, and which way it faces, `at` meters along. */
 function pointOn(seg: Segment, at: number): { x: number; z: number; heading: number } {
   const t = seg.length > 0 ? Math.min(1, at / seg.length) : 1;
   if (seg.cx === undefined || seg.cz === undefined) {

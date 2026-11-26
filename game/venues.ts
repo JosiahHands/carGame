@@ -12,18 +12,18 @@ export type MapName = 'city' | 'circuit' | 'oval' | 'canyon' | 'alpine' | 'neon'
 export interface Theme {
   /** Sky gradient, top to bottom, in the daytime. */
   sky: [string, string];
-  /** Fog colour in the daytime (it should match the bottom of the sky). */
+  /** Fog color in the daytime (it should match the bottom of the sky). */
   fog: number;
   ground: 'grass' | 'sand' | 'snow' | 'dirt';
-  /** Colour of the hills on the horizon. */
+  /** Color of the hills on the horizon. */
   hills: number;
   trees: 'round' | 'pine' | 'cactus' | 'snowPine';
   /** Always night here (the neon city). */
   night: boolean;
   weather: 'clear' | 'rain' | 'snow';
-  /** How grippy the road is: 1 is dry tarmac; rain and snow are slippery. */
+  /** How grippy the road is: 1 is dry asphalt; rain and snow are slippery. */
   grip: number;
-  /** Extra things round the track. */
+  /** Extra things around the track. */
   scenery: 'paddock' | 'mesas' | 'mountains' | 'city' | 'woods';
   /** Lap names for the start gantry's banner. */
   banner: string;
@@ -50,7 +50,7 @@ const DAY: Theme = {
 };
 
 /**
- * The Grand Prix circuit, drawn as straights (metres) and corners (degrees to
+ * The Grand Prix circuit, drawn as straights (meters) and corners (degrees to
  * turn, positive left, and the corner's radius). It starts on the start line
  * heading along the main straight.
  */
@@ -88,15 +88,15 @@ export const VENUES: Venue[] = [
   {
     value: 'city',
     label: 'City',
-    about: 'Streets, parks, a car park and a stunt park, all destroyable.',
+    about: 'Streets, parks, a parking lot and a stunt park, all destroyable.',
     theme: { ...DAY, scenery: 'city' },
   },
   {
     value: 'circuit',
     label: 'Grand Prix circuit',
-    about: 'A twisty 2 km track: fast sweepers, a hairpin, esses and a chicane, with kerbs and grandstands.',
+    about: 'A twisty 2 km track: fast sweepers, a hairpin, esses and a chicane, with curbs and grandstands.',
     theme: DAY,
-    style: { width: 16, bank: [0, 0], kerbs: true, outsideRunoff: 9, insideRunoff: 9, apron: 0, wallHeight: 1.1, fence: 0, wallColors: ['#d7263d', '#f2f2f2'] },
+    style: { width: 16, bank: [0, 0], curbs: true, outsideRunoff: 9, insideRunoff: 9, apron: 0, wallHeight: 1.1, fence: 0, wallColors: ['#d7263d', '#f2f2f2'] },
     layout: CIRCUIT,
     generate: { length: 2100, radius: [30, 110], corners: [8, 12], clearance: 64 },
   },
@@ -105,7 +105,7 @@ export const VENUES: Venue[] = [
     label: 'Speedway',
     about: 'A 3 km oval with turns banked at 26°. Built for 500 mph.',
     theme: { ...DAY, banner: 'SPEEDWAY' },
-    style: { width: 24, bank: [5, 26], kerbs: false, outsideRunoff: 0.6, insideRunoff: null, apron: 10, wallHeight: 1.2, fence: 5, wallColors: ['#f4f4f4', '#2b6fd6'] },
+    style: { width: 24, bank: [5, 26], curbs: false, outsideRunoff: 0.6, insideRunoff: null, apron: 10, wallHeight: 1.2, fence: 5, wallColors: ['#f4f4f4', '#2b6fd6'] },
     layout: OVAL,
     generate: { length: 2700, radius: [150, 320], corners: [4, 6], leftOnly: true, clearance: 120 },
   },
@@ -117,7 +117,7 @@ export const VENUES: Venue[] = [
       sky: ['#3d8fd6', '#f6d7a8'], fog: 0xf0cf9e, ground: 'sand', hills: 0xb5552b, trees: 'cactus',
       night: false, weather: 'clear', grip: 1, scenery: 'mesas', banner: 'CANYON RUN',
     },
-    style: { width: 14, bank: [0, 4], kerbs: true, outsideRunoff: 7, insideRunoff: 7, apron: 0, wallHeight: 1.2, fence: 0, wallColors: ['#a0522d', '#e8c39e'] },
+    style: { width: 14, bank: [0, 4], curbs: true, outsideRunoff: 7, insideRunoff: 7, apron: 0, wallHeight: 1.2, fence: 0, wallColors: ['#a0522d', '#e8c39e'] },
     generate: { length: 2600, radius: [28, 140], corners: [9, 13], clearance: 56 },
     seed: 3,
   },
@@ -129,7 +129,7 @@ export const VENUES: Venue[] = [
       sky: ['#8fb4d9', '#e9f1f8'], fog: 0xe4edf5, ground: 'snow', hills: 0xdfe7ef, trees: 'snowPine',
       night: false, weather: 'snow', grip: 0.8, scenery: 'mountains', banner: 'ALPINE PASS',
     },
-    style: { width: 13, bank: [0, 6], kerbs: true, outsideRunoff: 6, insideRunoff: 6, apron: 0, wallHeight: 1, fence: 0, wallColors: ['#2b6fd6', '#f2f2f2'] },
+    style: { width: 13, bank: [0, 6], curbs: true, outsideRunoff: 6, insideRunoff: 6, apron: 0, wallHeight: 1, fence: 0, wallColors: ['#2b6fd6', '#f2f2f2'] },
     generate: { length: 2200, radius: [25, 100], corners: [10, 14], clearance: 55 },
     seed: 6,
   },
@@ -141,7 +141,7 @@ export const VENUES: Venue[] = [
       sky: ['#0a0f24', '#2a1a48'], fog: 0x1a1430, ground: 'dirt', hills: 0x1b1d2b, trees: 'round',
       night: true, weather: 'clear', grip: 1, scenery: 'city', banner: 'NEON NIGHT',
     },
-    style: { width: 14, bank: [0, 0], kerbs: true, outsideRunoff: 2.5, insideRunoff: 2.5, apron: 0, wallHeight: 1.3, fence: 2.5, wallColors: ['#ff3bd0', '#2b2e33'] },
+    style: { width: 14, bank: [0, 0], curbs: true, outsideRunoff: 2.5, insideRunoff: 2.5, apron: 0, wallHeight: 1.3, fence: 2.5, wallColors: ['#ff3bd0', '#2b2e33'] },
     generate: { length: 1900, radius: [18, 60], corners: [10, 14], clearance: 52 },
     seed: 7,
   },
@@ -153,16 +153,16 @@ export const VENUES: Venue[] = [
       sky: ['#6f7f8c', '#b9c4cc'], fog: 0xaab6bf, ground: 'grass', hills: 0x3d5a35, trees: 'pine',
       night: false, weather: 'rain', grip: 0.85, scenery: 'woods', banner: 'FOREST RALLY',
     },
-    style: { width: 11, bank: [0, 3], kerbs: false, outsideRunoff: 0, insideRunoff: 0, apron: 0, wallHeight: 1, fence: 0, wallColors: ['#6b4a2f', '#d9c9a3'], noWalls: true },
+    style: { width: 11, bank: [0, 3], curbs: false, outsideRunoff: 0, insideRunoff: 0, apron: 0, wallHeight: 1, fence: 0, wallColors: ['#6b4a2f', '#d9c9a3'], noWalls: true },
     generate: { length: 2100, radius: [22, 90], corners: [10, 15], clearance: 50 },
     seed: 5,
   },
   {
     value: 'kart',
     label: 'Kart Park',
-    about: 'A short, tight, twisty track with tyre walls. Corners come thick and fast.',
+    about: 'A short, tight, twisty track with tire walls. Corners come thick and fast.',
     theme: { ...DAY, banner: 'KART PARK' },
-    style: { width: 9, bank: [0, 0], kerbs: true, outsideRunoff: 3, insideRunoff: 3, apron: 0, wallHeight: 0.8, fence: 0, wallColors: ['#1a1a1a', '#f2f2f2'] },
+    style: { width: 9, bank: [0, 0], curbs: true, outsideRunoff: 3, insideRunoff: 3, apron: 0, wallHeight: 0.8, fence: 0, wallColors: ['#1a1a1a', '#f2f2f2'] },
     generate: { length: 950, radius: [12, 35], corners: [10, 16], clearance: 34 },
     seed: 3,
   },

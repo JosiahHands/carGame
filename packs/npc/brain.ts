@@ -95,7 +95,7 @@ export interface Situation {
 export interface ChaseState {
   /** Seconds since it started. */
   seconds: number;
-  /** How far away the driver is, metres. */
+  /** How far away the driver is, meters. */
   distance: number;
   /** How battered the police car is, 0..1. */
   hurt: number;
@@ -261,6 +261,7 @@ export class LocalBrain implements Brain {
     ].join('\n\n');
     const data = (await this.ask('reflect', [member.id], prompt)) as { insights?: string[]; trait?: string; direction?: string; habit?: string; story?: string } | null;
     if (!data?.insights) return this.fallback.reflect(person, moment);
+    if (data.trait === 'humour') data.trait = 'humor';
     return {
       insights: data.insights.slice(0, 2).map((s) => unquote(String(s)).slice(0, 140)),
       trait: TRAIT_NAMES.includes(data.trait as TraitName) ? { name: data.trait as TraitName, up: data.direction === 'up' } : null,
@@ -400,7 +401,7 @@ function short(text: string): string {
   return words.length <= 20 ? words.join(' ') : words.slice(0, 20).join(' ').replace(/[,;:]$/, '') + '…';
 }
 
-/** Takes off quote marks wrapped round a whole sentence. */
+/** Takes off quote marks wrapped around a whole sentence. */
 function unquote(text: string): string {
   return text.trim().replace(/^["“'](.*)["”']$/s, '$1').trim();
 }
@@ -464,7 +465,7 @@ export class RuleBrain implements Brain {
     const fondness = a.mind.feelings[B.id] ?? 0;
     const greet =
       A.bond === B.id || B.bond === A.id
-        ? pick([`There's my favourite person! Hey, ${B.name}.`, `${B.name}! Right where I left you.`, `Partner! Ready for whatever today brings?`])
+        ? pick([`There's my favorite person! Hey, ${B.name}.`, `${B.name}! Right where I left you.`, `Partner! Ready for whatever today brings?`])
         : fondness > 0.4
           ? pick([`Hey ${B.name}! Good to see you.`, `${B.name}! How's your day going?`, `Look who it is! ${B.name}!`])
           : fondness < -0.2
@@ -498,7 +499,7 @@ export class RuleBrain implements Brain {
       lines.push({ speaker: B.id, text: pick(['No way! Tell me everything.', 'I always wondered about that.', 'Ha! That sounds about right.']), emotion: 'amused' });
       memories.push({ who: B.id, text: `${A.name} told me: ${gossip.text}`, importance: Math.max(2, Math.round(gossip.importance * 0.7)) });
     } else if (a.mind.insights.length && Math.random() < 0.5) {
-      lines.push({ speaker: A.id, text: short(`You know what I've realised? ${a.mind.insights[a.mind.insights.length - 1]}`), emotion: 'proud' });
+      lines.push({ speaker: A.id, text: short(`You know what I've realized? ${a.mind.insights[a.mind.insights.length - 1]}`), emotion: 'proud' });
       lines.push({ speaker: B.id, text: pick(['Huh. I never thought of it like that.', 'That is very deep.', 'You might be onto something.']), emotion: 'curious' });
     } else {
       const needs = a.mind.needs;
@@ -558,12 +559,12 @@ export class RuleBrain implements Brain {
     if (driverMemories >= 3) insights.push(driver > 0.2 ? `The driver in ${moment.car} makes this city exciting.` : driver < -0.2 ? `The driver in ${moment.car} is a menace.` : `I can't make my mind up about that driver.`);
     const best = Object.entries(mind.feelings).filter(([id]) => id !== 'driver').sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] > 0.5) insights.push(`${castMember(best[0])?.name ?? best[0]} is one of the good ones.`);
-    const favourite = Object.entries(mind.likes).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0];
+    const favorite = Object.entries(mind.likes).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0];
     const scared = mind.memories.slice(-12).filter((m) => m.importance >= 7 && m.kind === 'saw').length;
     return {
       insights: insights.slice(0, 2),
-      trait: scared >= 3 ? { name: 'courage', up: person.member.traits.courage > 0.6 } : mind.mood > 0.4 ? { name: 'humour', up: true } : null,
-      habit: favourite && (favourite[1] ?? 0) > 0.5 ? `heads to the ${favourite[0]} whenever there's a spare moment` : '',
+      trait: scared >= 3 ? { name: 'courage', up: person.member.traits.courage > 0.6 } : mind.mood > 0.4 ? { name: 'humor', up: true } : null,
+      habit: favorite && (favorite[1] ?? 0) > 0.5 ? `heads to the ${favorite[0]} whenever there's a spare moment` : '',
       story: '',
       ai: false,
     };

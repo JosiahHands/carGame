@@ -54,7 +54,7 @@ export function greeting(mind: Mind): string {
     case 'close friend':
       return `${name ?? 'There you are'}! I was hoping you'd stop by.`;
     case 'best friend':
-      return `${name ?? 'Hey'}! My favourite person in this whole city!`;
+      return `${name ?? 'Hey'}! My favorite person in this whole city!`;
   }
 }
 

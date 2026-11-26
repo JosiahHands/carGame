@@ -4,7 +4,7 @@
 // curve in towards the roof and under the sills, wheel arches with dark
 // wheel wells, and a glass cabin with pillars, a painted roof and an
 // interior. It also adds the details that make a car read as real: rounded
-// light clusters, a grille, door mirrors and handles, tyres with sidewalls,
+// light clusters, a grille, door mirrors and handles, tires with sidewalls,
 // and brake discs and calipers behind the wheels.
 //
 // Every number comes from the car's own shape (CarRig.shape), so every
@@ -16,7 +16,7 @@ import { BEVEL, type CarRig, type CarShape } from '../../game/carModel';
 import { seatExhausts, unseatExhausts, type Moved } from './exhausts';
 import { fastRays } from './fastRays';
 
-/** Smooth height of the body's top outline (bonnet, roof line of the lower body, boot) at any z. */
+/** Smooth height of the body's top outline (hood, roof line of the lower body, trunk) at any z. */
 function topLine(shape: CarShape): (z: number) => number {
   // The outline's first and last points are the bottoms of the bumpers; the rest is the top.
   const points = shape.spec.top.slice(1, -1).map(([z, y]) => new THREE.Vector2(z, y));
@@ -57,7 +57,7 @@ function loft(rings: { z: number; points: Pt[] }[], closed: boolean, pick: (k: n
   for (const ring of rings) {
     for (const p of ring.points) {
       positions.push(p.x, p.y, ring.z);
-      // Side-on texture coordinates in metres, as the game's body uses (for paint patterns).
+      // Side-on texture coordinates in meters, as the game's body uses (for paint patterns).
       uvs.push(ring.z, p.y);
     }
   }
@@ -115,7 +115,7 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
   const top = (z: number) => line(z) + BEVEL;
   const hw = spec.width / 2;
   const yb = spec.bottomY - 0.03;
-  // Where each wheel well's inner wall is (just inside the tyre).
+  // Where each wheel well's inner wall is (just inside the tire).
   const linerX = Math.min(hw - 0.08, Math.max(0.15, wheelX - tireWidth / 2 - 0.05));
   const cornerR = Math.min(0.26, hw * 0.3); // corners rounded off in plan view
   const noseR = 0.1; // the top edge of the bumpers rounded over
@@ -144,8 +144,8 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
   }
   const stations = [...zs].filter((z) => z >= rearZ && z <= frontZ).sort((a, b) => a - b);
 
-  const lower = quarter(7, 7); // bottom middle round to the side (quite square)
-  const upper = quarter(5, 9); // side round to the top middle
+  const lower = quarter(7, 7); // bottom middle around to the side (quite square)
+  const upper = quarter(5, 9); // side around to the top middle
   const rings: { z: number; points: Pt[] }[] = [];
   const archRow: number[] = []; // which segment is the ledge over the wheel, per station (-1 if none)
 
@@ -159,7 +159,7 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
     const inArch = arch > yb + 0.02;
     const edgeY = inArch ? Math.min(arch, yS - 0.01) : yb + (yS - yb) * 0.3;
 
-    // Right half, from the bottom middle up: under the car, round the sill, up the side...
+    // Right half, from the bottom middle up: under the car, around the sill, up the side...
     const half: Pt[] = [];
     for (let i = lower.length - 1; i >= 0; i--) {
       const { c, s } = lower[i];
@@ -257,11 +257,11 @@ function buildCabin(shape: CarShape, top: (z: number) => number, materials: Reco
   const segments = arc.length - 1; // per side
   const pick = (k: number, j: number): Paint => {
     const z = (stations[k] + stations[k + 1]) / 2;
-    // Distance round from the window's bottom edge: 0 at the bottom, `segments` at the top middle.
+    // Distance around from the window's bottom edge: 0 at the bottom, `segments` at the top middle.
     const from = j < segments ? j : 2 * segments - 1 - j;
     const zone = z < c1[0] ? 'rear' : z > c2[0] ? 'screen' : 'roof';
-    if (from >= 8) return zone === 'roof' ? 'paint' : 'glass'; // the top: roof, or windscreen and rear window
-    if (from >= (zone === 'rear' ? 7 : 6)) return 'paint'; // pillars and roof rails (slimmer round the rear window)
+    if (from >= 8) return zone === 'roof' ? 'paint' : 'glass'; // the top: roof, or windshield and rear window
+    if (from >= (zone === 'rear' ? 7 : 6)) return 'paint'; // pillars and roof rails (slimmer around the rear window)
     if (from === 0) return 'trim'; // the rubber seal along the bottom of the windows
     if (pillars.some((p) => Math.abs(z - p) < 0.05)) return 'paint';
     return 'glass';
@@ -337,7 +337,7 @@ export function sculptCar(rig: CarRig): void {
       stripe.visible = false;
       undo.hidden.push(stripe);
     }
-    // Over the bonnet, roof and boot (not the glass).
+    // Over the hood, roof and trunk (not the glass).
     const [, roofRear, roofFront] = spec.cabin;
     const surfaces = (z: number) => (z > roofRear[0] + 0.03 && z < roofFront[0] - 0.03 ? [shell.mesh, cabin.outside] : [shell.mesh]);
     for (const side of [-1, 1]) add(stripeStrip(shape, surfaces, side * 0.2, 0.22, accent));
@@ -385,13 +385,13 @@ export function sculptCar(rig: CarRig): void {
   const disc = keep(new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.9, roughness: 0.42 }));
   const caliperPaint = keep(new THREE.MeshStandardMaterial({ color: rig.config.accentColor, roughness: 0.35, metalness: 0.2 }));
   for (const wheel of rig.wheels) {
-    const tyre = wheel.spin.getObjectByName('tyre') as THREE.Mesh | undefined;
-    if (!tyre || tyre.geometry.type !== 'CylinderGeometry') continue;
-    const { radiusTop: radius, height: width } = (tyre.geometry as THREE.CylinderGeometry).parameters;
-    undo.swapped.push({ mesh: tyre, geometry: tyre.geometry });
-    tyre.geometry = keep(tyreGeometry(radius, width, rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66));
+    const tire = wheel.spin.getObjectByName('tire') as THREE.Mesh | undefined;
+    if (!tire || tire.geometry.type !== 'CylinderGeometry') continue;
+    const { radiusTop: radius, height: width } = (tire.geometry as THREE.CylinderGeometry).parameters;
+    undo.swapped.push({ mesh: tire, geometry: tire.geometry });
+    tire.geometry = keep(tireGeometry(radius, width, rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66));
     // Inside the rim: a barrel and a backing plate (so you can't see through the wheel), and a brake disc.
-    const wheelGroup = tyre.parent!;
+    const wheelGroup = tire.parent!;
     const rimR = radius * (rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66);
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.99, rimR * 0.99, width * 0.9, 28, 1, true), trim);
     barrel.rotation.z = Math.PI / 2;
@@ -437,11 +437,11 @@ export function sculptCar(rig: CarRig): void {
   };
 }
 
-/** A tyre with rounded sidewalls and a flat tread, around the x axis like the game's own. */
-function tyreGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
+/** A tire with rounded sidewalls and a flat tread, around the x axis like the game's own. */
+function tireGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
   const w = width / 2;
   const rim = radius * rimShare;
-  // The tyre's cross-section, from the inner bead round the tread to the outer bead.
+  // The tire's cross-section, from the inner bead around the tread to the outer bead.
   const profile = [
     [rim * 1.01, -w * 0.92],
     [radius * 0.86, -w],
@@ -455,13 +455,13 @@ function tyreGeometry(radius: number, width: number, rimShare: number): THREE.Bu
     [rim * 1.01, w * 0.92],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const geometry = new THREE.LatheGeometry(profile, 40);
-  // Lathe turns round y; the game's tyres turn round y too before being laid on their side.
+  // Lathe turns around y; the game's tires turn around y too before being laid on their side.
   geometry.computeVertexNormals();
   return geometry;
 }
 
 /**
- * A stripe laid over the top of the body, `width` wide and centred `x` from the middle.
+ * A stripe laid over the top of the body, `width` wide and centered `x` from the middle.
  * `placed` means the surfaces' world matrices already put them in the car body's
  * coordinates; `accept` can turn down a hit (the stripe has a gap there).
  */

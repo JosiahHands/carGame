@@ -3,16 +3,16 @@
 // springs that can rise and fall (heave), dip its nose (pitch) and lean
 // (roll).
 //
-// This is where the weight on each tyre comes from. Brake hard and the body
-// pitches forward, the front springs squash and the front tyres get more
+// This is where the weight on each tire comes from. Brake hard and the body
+// pitches forward, the front springs squash and the front tires get more
 // weight (and grip). Corner and the body leans, the outside springs squash.
 // Because the springs take a moment to squash, the weight shifts the way it
 // does in a real car: quickly, but not instantly, and with a little overshoot
-// on a sudden change. Bumps and kerbs push each wheel up, so the weight on it
+// on a sudden change. Bumps and curbs push each wheel up, so the weight on it
 // (and its grip) jumps about on rough ground, and a crest goes light.
 //
 // Numbers are per kilogram of car, like the rest of the model: a spring rate
-// is newtons per metre per kilogram, and a force is an acceleration.
+// is newtons per meter per kilogram, and a force is an acceleration.
 
 /** The four wheels, in order: front left, front right, rear left, rear right. */
 export const FRONT = [true, true, false, false];
@@ -52,11 +52,11 @@ export interface SuspensionState {
   rollRate: number;
   /** How far each spring is squashed, m (0 is fully stretched; below that the wheel is off the ground). */
   compression: number[];
-  /** The weight on each tyre, per kg of car, m/s². */
+  /** The weight on each tire, per kg of car, m/s². */
   load: number[];
   /** How hard the wheels are being shaken by the road, for the controller's rumble. */
   shake: number;
-  /** The road under each wheel as the spring feels it, m: the tyre's own give smooths sharp edges. */
+  /** The road under each wheel as the spring feels it, m: the tire's own give smooths sharp edges. */
   road: number[];
 }
 
@@ -103,9 +103,9 @@ export function suspensionSpecs(opts: {
 
 /**
  * One step of the body on its springs. `road[i]` is how far the ground under
- * each wheel sits above the plane the car is driving on (bumps, kerbs, a
+ * each wheel sits above the plane the car is driving on (bumps, curbs, a
  * crest), `x[i]` and `y[i]` where each wheel is (forwards and left of the
- * centre), `gravity` the weight pressing down (with downforce), `aeroPitch`
+ * center), `gravity` the weight pressing down (with downforce), `aeroPitch`
  * the nose-down turning from downforce, and `ax`, `ay` the car's
  * acceleration (forwards and left), which throws the body about.
  */
@@ -118,7 +118,7 @@ export function stepSuspension(
   const forces = [0, 0, 0, 0];
   const squash = [0, 0, 0, 0];
   let shake = 0;
-  // The tyre and wheel are a small spring and mass of their own: a sharp edge
+  // The tire and wheel are a small spring and mass of their own: a sharp edge
   // reaches the suspension over a few hundredths of a second, not instantly.
   const give = Math.min(1, dt / 0.012);
   for (let i = 0; i < 4; i++) {
@@ -195,7 +195,7 @@ function limit(angle: number, rate: number, most: number): [number, number] {
   return [angle, rate];
 }
 
-/** In the air: the body settles back to its resting position, and no tyre carries any weight. */
+/** In the air: the body settles back to its resting position, and no tire carries any weight. */
 export function relaxSuspension(s: SuspensionState, sp: SuspensionSpecs, dt: number): void {
   const k = Math.min(1, dt * 6);
   s.heave -= s.heave * k;
@@ -212,7 +212,7 @@ export function relaxSuspension(s: SuspensionState, sp: SuspensionSpecs, dt: num
 
 /**
  * Small bumps in the road surface under a point, m: a fixed pattern (the same
- * every time you drive over the same spot), rougher off the tarmac.
+ * every time you drive over the same spot), rougher off the asphalt.
  */
 export function roughness(x: number, z: number, amplitude: number): number {
   if (amplitude <= 0) return 0;

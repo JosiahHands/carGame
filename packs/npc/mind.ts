@@ -231,7 +231,7 @@ export function traitWords(traits: Traits): string {
     kindness: ['prickly', 'decent', 'very kind'],
     courage: ['timid', 'steady', 'fearless'],
     curiosity: ['set in their ways', 'interested', 'endlessly curious'],
-    humour: ['serious', 'good-humoured', 'a joker'],
+    humor: ['serious', 'good-humored', 'a joker'],
     energy: ['sleepy', 'lively', 'bursting with energy'],
   };
   return TRAIT_NAMES.map((t) => words[t][traits[t] < 0.35 ? 0 : traits[t] < 0.7 ? 1 : 2]).join(', ');
@@ -405,9 +405,12 @@ export function isFriend(mind: Mind): boolean {
 export function restoreMind(member: CastMember, saved: Partial<Mind> | undefined): Mind {
   const fresh = newMind(member);
   if (!saved || typeof saved !== 'object') return fresh;
+  // Saves from before 1.2.3 spelled the humor trait "humour".
+  const { humour, ...traits } = (saved.traits ?? {}) as Partial<Traits> & { humour?: number };
+  if (typeof humour === 'number' && typeof traits.humor !== 'number') traits.humor = humour;
   return {
     ...fresh,
-    traits: { ...fresh.traits, ...(saved.traits ?? {}) },
+    traits: { ...fresh.traits, ...traits },
     memories: Array.isArray(saved.memories) ? saved.memories.slice(-MAX_MEMORIES) : [],
     insights: Array.isArray(saved.insights) ? saved.insights.slice(-MAX_INSIGHTS) : [],
     habits: Array.isArray(saved.habits) ? saved.habits.slice(-MAX_HABITS) : [],

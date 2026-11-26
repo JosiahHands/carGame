@@ -1,6 +1,6 @@
 // One event: a race against rivals, or a challenge against the clock. It
 // places the cars, counts down, runs the rivals, keeps track of everyone's
-// progress round the lap, and works out the result and stars at the end.
+// progress around the lap, and works out the result and stars at the end.
 //
 // The kinds of event:
 //   race         Most laps first. Stars for 1st, 2nd and 3rd.
@@ -68,9 +68,9 @@ export interface EventSpec {
   /** How hard the rivals catch up when behind and ease off when ahead, 0..1. */
   catchUp: number;
   /** How much damage the player's car can take in a takedown (100 is normal). */
-  armour: number;
+  armor: number;
   /** How much damage each rival can take from weapons and rams. */
-  rivalArmour: number;
+  rivalArmor: number;
   /** How hard the rivals' bullets hit, per hit. */
   rivalDamage: number;
   /** The boss's name, for duels. */
@@ -108,10 +108,10 @@ export interface EventHud {
 }
 
 const COUNTDOWN = 3.5;
-/** Progress jumps by more than this (metres) in one step mean the car has left the track: cutting across doesn't count. */
+/** Progress jumps by more than this (meters) in one step mean the car has left the track: cutting across doesn't count. */
 const MAX_JUMP = 40;
 /**
- * How far off the edge of the road (metres) a car can go and still be on
+ * How far off the edge of the road (meters) a car can go and still be on
  * course. Tracks with wide run-off areas or an apron (the speedway) allow
  * up to 2 m past those instead.
  */
@@ -124,10 +124,10 @@ interface Racer {
   name: string;
   physics: CarPhysics;
   rival: Rival | null;
-  /** Metres round the lap (0..length) the last time it was on the track. */
+  /** Meters around the lap (0..length) the last time it was on the track. */
   along: number;
   offset: number;
-  /** Metres driven round the track since the start line; starts negative on the grid. */
+  /** Meters driven around the track since the start line; starts negative on the grid. */
   distance: number;
   /** Seconds since GO when it finished, or null. */
   finished: number | null;
@@ -170,7 +170,7 @@ export class EventRun {
   unbankedDrift = 0;
   /** Seconds of the jump going on now: they still count in a stunt show if the time runs out mid-air. */
   unbankedAir = 0;
-  /** The furthest the player has got (metres round the track): each speed camera counts once per lap. */
+  /** The furthest the player has got (meters around the track): each speed camera counts once per lap. */
   private trapMark = -Infinity;
   readonly track: RaceTrack | null;
   readonly racers: Racer[] = [];
@@ -178,7 +178,7 @@ export class EventRun {
   private outCount = 0;
   private nextOut: number;
   private bestLap = 0;
-  /** Speed cameras: metres along the lap, and the meshes. */
+  /** Speed cameras: meters along the lap, and the meshes. */
   readonly traps: number[] = [];
   private trapGroup = new THREE.Group();
   private takedowns = 0;
@@ -275,7 +275,7 @@ export class EventRun {
   }
 
   /**
-   * Drives a steady pace car round the track, unseen, to set the targets:
+   * Drives a steady pace car around the track, unseen, to set the targets:
    * its time for a time attack and its speeds through the cameras for a speed
    * trap. 3 stars needs the pace car's result; 2 and 1 stars a little less.
    */
@@ -360,7 +360,7 @@ export class EventRun {
     }
   }
 
-  /** How many speed cameras a car passed going from `from` to `to` metres. */
+  /** How many speed cameras a car passed going from `from` to `to` meters. */
   private trapsCrossed(from: number, to: number): number {
     if (!this.track || to <= from) return 0;
     const L = this.track.length;
@@ -475,9 +475,9 @@ export class EventRun {
   }
 
   /**
-   * Moves a car's place round the lap on. Progress only counts on the road
+   * Moves a car's place around the lap on. Progress only counts on the road
    * (or just off it): a car out on the grass, or on another part of the track
-   * (a big jump round the lap), is off course, and progress only carries on
+   * (a big jump around the lap), is off course, and progress only carries on
    * once it's back where it left.
    */
   private updateProgress(r: Racer, dt: number): void {
@@ -594,7 +594,7 @@ export class EventRun {
   private hurtRival(r: Racer, damage: number, direction: THREE.Vector3): void {
     const rival = r.rival;
     if (!rival || rival.wrecked > 0 || !rival.active || this.state !== 'running') return;
-    r.hp -= (damage * 100) / this.spec.rivalArmour;
+    r.hp -= (damage * 100) / this.spec.rivalArmor;
     if (r.hp > 0) return;
     // Wrecked! Blown up and thrown into the air; back after a few seconds.
     rival.wrecked = RESPAWN_TIME;
@@ -618,7 +618,7 @@ export class EventRun {
 
   private hurtPlayer(damage: number): void {
     if (this.playerWrecked > 0 || this.state !== 'running') return;
-    this.me.hp -= (damage * 100) / this.spec.armour;
+    this.me.hp -= (damage * 100) / this.spec.armor;
     if (this.me.hp > 0) return;
     this.me.hp = 0;
     this.playerWrecked = 3;
@@ -667,7 +667,7 @@ export class EventRun {
       r.burst--;
       r.gunWait = r.burst > 0 ? 0.11 : 2.5 + Math.random() * 2.5;
       const from = new THREE.Vector3(p.x + Math.sin(p.heading) * p.length * 0.5, p.y + p.height * 0.8, p.z + Math.cos(p.heading) * p.length * 0.5);
-      // Closer and more skilful shooters hit more often.
+      // Closer and more skillful shooters hit more often.
       const hits = Math.random() < rival.skill * (0.75 - distance / 300);
       const miss = hits ? 0 : 2 + Math.random() * 3;
       const to = new THREE.Vector3(me.x + (Math.random() - 0.5) * miss, me.y + 0.7, me.z + (Math.random() - 0.5) * miss);
@@ -943,7 +943,7 @@ export class EventRun {
     return { stats, standings, warning, health: s.weapons && track ? Math.max(0, me.hp) / 100 : null, stars };
   }
 
-  /** Coloured dots for the rivals and cameras on the minimap. */
+  /** Colored dots for the rivals and cameras on the minimap. */
   mapMarkers(): { x: number; z: number; color: string; size: number }[] {
     const markers = this.racers
       .filter((r) => r.rival && r.rival.active)

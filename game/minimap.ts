@@ -32,16 +32,16 @@ export class Minimap {
     this.canvas.classList.toggle('hidden', !visible);
   }
 
-  /** Redraws the map around the car, about 30 times a second. `markers` are coloured dots (time trial arches). */
+  /** Redraws the map around the car, about 30 times a second. `markers` are colored dots (time trial arches). */
   update(dt: number, world: World, x: number, z: number, heading: number, markers: MapMarker[]): void {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = 1 / 30;
 
     const ctx = this.ctx;
-    // Metres from the centre to the edge: bigger, faster tracks show more.
+    // Meters from the center to the edge: bigger, faster tracks show more.
     const range = world.track ? Math.min(300, Math.max(120, world.track.length / 10)) : 130;
-    const pixelsPerMetre = SIZE / 2 / range;
+    const pixelsPerMeter = SIZE / 2 / range;
     ctx.save();
     ctx.clearRect(0, 0, SIZE, SIZE);
     ctx.beginPath();
@@ -54,7 +54,7 @@ export class Minimap {
     // +x is to the left, matching the view from behind the car.
     ctx.translate(SIZE / 2, SIZE / 2);
     ctx.rotate(heading);
-    ctx.scale(-pixelsPerMetre, -pixelsPerMetre);
+    ctx.scale(-pixelsPerMeter, -pixelsPerMeter);
     ctx.translate(-x, -z);
     const rect = (cx: number, cz: number, w: number, d: number, color: string) => {
       ctx.fillStyle = color;
@@ -92,7 +92,7 @@ export class Minimap {
     }
     // Barriers and grandstands.
     ctx.strokeStyle = '#b8bcc2';
-    ctx.lineWidth = 1.5 / pixelsPerMetre;
+    ctx.lineWidth = 1.5 / pixelsPerMeter;
     ctx.beginPath();
     for (const w of world.walls) {
       ctx.moveTo(w.ax, w.az);
@@ -116,7 +116,7 @@ export class Minimap {
     }
     // Edge walls.
     ctx.strokeStyle = '#b8bcc2';
-    ctx.lineWidth = 2 / pixelsPerMetre;
+    ctx.lineWidth = 2 / pixelsPerMeter;
     ctx.strokeRect(-world.half, -world.half, world.half * 2, world.half * 2);
 
     // Markers, kept on the rim when they are off the map.
@@ -131,7 +131,7 @@ export class Minimap {
       }
       ctx.fillStyle = m.color;
       ctx.beginPath();
-      ctx.arc(x + dx, z + dz, m.size / pixelsPerMetre, 0, Math.PI * 2);
+      ctx.arc(x + dx, z + dz, m.size / pixelsPerMeter, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();

@@ -1,7 +1,7 @@
 // 🌅 Photo Real: makes the game look real. A physically based sky with
 // drifting clouds (and stars at night) that also lights and reflects in
 // everything, soft shadows in every corner (ambient occlusion), glowing
-// lights, filmic colour, detailed ground that gets wet in the rain, street
+// lights, filmic color, detailed ground that gets wet in the rain, street
 // lamps and headlights that really light the road (and throw shadows), real
 // car models (realCars.ts) over sculpted car bodies (carBody.ts) with
 // metal-flake paint, headlight beams in the night air (beams.ts), and a lens
@@ -78,8 +78,8 @@ const pack: Pack = {
   icon: '🌅',
   about:
     'Makes the game look real: a true sky with drifting clouds and stars that lights and reflects in everything, soft shadows in every corner, ' +
-    'glowing lights, filmic colour, detailed roads that shine in the rain, street lamps and headlights that light the road, and a real camera lens. ' +
-    'Every car gets a real, detailed car body with no badges or logos, shaped and painted by your garage settings, with real tyres, brake discs and metal-flake paint. ' +
+    'glowing lights, filmic color, detailed roads that shine in the rain, street lamps and headlights that light the road, and a real camera lens. ' +
+    'Every car gets a real, detailed car body with no badges or logos, shaped and painted by your garage settings, with real tires, brake discs and metal-flake paint. ' +
     'At night, headlights shine beams through the air and throw shadows; in the rain, drops land on the lens. ' +
     'Car models by Daniel Zhabotinsky (CC BY 4.0), see packs/graphics/models/CREDITS.md.',
   activate(game: GameApi): PackInstance {
@@ -246,7 +246,7 @@ const pack: Pack = {
           { value: 'noon', label: 'Noon' },
           { value: 'golden', label: 'Golden hour' },
         ], () => options.time, (v) => ((options.time = v), save()));
-        panel.choice('Colour', [
+        panel.choice('Color', [
           { value: 'natural', label: 'Natural' },
           { value: 'film', label: 'Film' },
           { value: 'vivid', label: 'Vivid' },

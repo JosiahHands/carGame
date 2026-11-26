@@ -7,7 +7,7 @@ is for anyone writing a pack.
 | Pack | Folder | What it does |
 | --- | --- | --- |
 | 🌅 Photo Real | `graphics/` | Sky and sunlight, image-based lighting, wet roads, real car models, headlight beams and shadows, post-processing |
-| 🧪 Real Physics | `physics/` | Suspension, tyre model with heat and wear, engines, turbos, gearbox and differentials, brake fade, crash damage, telemetry, rumble |
+| 🧪 Real Physics | `physics/` | Suspension, tire model with heat and wear, engines, turbos, gearbox and differentials, brake fade, crash damage, telemetry, rumble |
 | 🧠 Living City | `npc/` | A city of 48 people with routines, memories, friendships and conversations, written by a local open-source AI |
 
 ## How packs get into the game
@@ -121,10 +121,10 @@ files outside the archive.
   under cars, and metal flake in metallic paint.
 - `carBody.ts`: sculpted car bodies, lofted from each body type's profile. They
   follow the garage settings (length, width, height, wheel size and track,
-  paint, livery, stripes, tint, rims and accent colour).
+  paint, livery, stripes, tint, rims and accent color).
 - `realCars.ts`: real car models from `models/cars.glb`, one per body type, put
   over the sculpted body once loaded (it stays if they can't load). Each is
-  stretched round the game's own wheels and takes the garage's paint, pattern,
+  stretched around the game's own wheels and takes the garage's paint, pattern,
   stripes, tint and lights; far-away cars use a simpler copy. The models are
   by Daniel Zhabotinsky (CC BY 4.0) with every badge and plate removed; see
   `models/CREDITS.md`. The Packs tab's "Car models" setting switches between
@@ -143,17 +143,17 @@ files outside the archive.
 - `suspension.ts`: a sprung body that can heave, pitch and roll on four
   springs. It has two-stage dampers, bump stops and anti-roll bars. The road
   under each wheel comes from `world.heightAt`, plus a fixed pattern of small
-  bumps. The springs give the weight on each tyre.
-- `tyres.ts`: the grip curve, a simplified Pacejka "Magic Formula" with a
-  friction ellipse for combined slip. Also tyre temperature and wear, and how
+  bumps. The springs give the weight on each tire.
+- `tires.ts`: the grip curve, a simplified Pacejka "Magic Formula" with a
+  friction ellipse for combined slip. Also tire temperature and wear, and how
   they change grip.
 - `powertrain.ts`: torque curves for each engine, turbo lag, the automatic
   gearbox, and limited-slip differentials.
-- `telemetry.ts`: the panel. It shows the g circle, and each tyre's grip,
+- `telemetry.ts`: the panel. It shows the g circle, and each tire's grip,
   load, spring travel, temperature and wear. It also shows revs, boost, gear,
   brake temperature, the aid lights and damage.
 - `rumble.ts`: gamepad rumble (the browser Gamepad API's `dual-rumble`) from
-  tyre slip, bumps, landings and crashes.
+  tire slip, bumps, landings and crashes.
 
 ### npc
 
@@ -181,12 +181,12 @@ files outside the archive.
   animation. `labels.ts`: name tags (click one to talk), speech and thought
   bubbles.
 - `drive.ts`: people's cars. Routes along the roads (on the right, turning at
-  the crossings, pulling in at the kerb) and `NpcCar`, a world car driven
+  the crossings, pulling in at the curb) and `NpcCar`, a world car driven
   along one. At most three are out at once.
 - `police.ts`: BUDDY's police car. It uses the game's car physics and is
   driven the way the rival drivers drive, with a light bar, a siren, a roof
   gun and a hit box for your weapons. It patrols along routes and chases you
-  (straight at you, or round the blocks).
+  (straight at you, or around the blocks).
 - `index.ts`: the simulation. It runs the city's clock and daily routines and
   each person's decisions: the AI decides for people near you, one at a time,
   and everyone else follows their plan and the built-in brain. It also covers

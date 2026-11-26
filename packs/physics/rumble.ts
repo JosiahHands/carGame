@@ -1,5 +1,5 @@
-// Controller rumble: a gamepad that can vibrate buzzes softly as the tyres
-// reach their limit and slide, and thumps over kerbs, rough ground, heavy
+// Controller rumble: a gamepad that can vibrate buzzes softly as the tires
+// reach their limit and slide, and thumps over curbs, rough ground, heavy
 // landings and crashes. (The weak motor is the high buzz, the strong one the
 // heavy thump.)
 import type { CarState } from './model';
@@ -23,7 +23,7 @@ export class Rumble {
     this.wait -= dt;
     if (this.wait > 0) return;
     this.wait = EVERY;
-    // Tyres past about 90% of their grip buzz, more as they slide.
+    // Tires past about 90% of their grip buzz, more as they slide.
     const slip = Math.max(...s.usage);
     const weak = clamp((slip - 0.9) * 1.6);
     // Bumps (how fast the springs are working), plus any jolt from a crash or landing.

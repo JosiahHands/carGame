@@ -171,24 +171,24 @@ export class GarageUI {
         number('Height', 'height', 0.05, times);
         this.hint('Big enough (about 10 ft tall or more) and the car flattens buildings, cars, lamps and trees in its way.');
         this.heading('Plates and numbers');
-        this.text('Number plate', 8, () => c.plate, (v) => ((c.plate = cleanPlate(v)), look()), cleanPlate);
+        this.text('License plate', 8, () => c.plate, (v) => ((c.plate = cleanPlate(v)), look()), cleanPlate);
         number('Race number', 'raceNumber', 1, (v) => (v === 0 ? 'None' : `#${v}`));
         break;
       case 'Paint':
-        this.color('Paint colour', PAINT_SWATCHES, () => c.paintColor, (v) => ((c.paintColor = v), look()));
+        this.color('Paint color', PAINT_SWATCHES, () => c.paintColor, (v) => ((c.paintColor = v), look()));
         this.choice('Finish', FINISH_OPTIONS, () => c.finish, (v) => ((c.finish = v), look()));
         this.choice('Pattern', PATTERN_OPTIONS, () => c.pattern, (v) => ((c.pattern = v), look()));
         this.choice('Stripes', STRIPE_OPTIONS, () => c.stripes, (v) => ((c.stripes = v), look()));
-        this.color('Accent colour (patterns, stripes, parts)', PAINT_SWATCHES, () => c.accentColor, (v) => ((c.accentColor = v), look()));
+        this.color('Accent color (patterns, stripes, parts)', PAINT_SWATCHES, () => c.accentColor, (v) => ((c.accentColor = v), look()));
         number('Window tint', 'windowTint', 0.05, (v) => `${Math.round(v * 100)}%`);
         break;
       case 'Wheels':
         this.choice('Rims', WHEEL_OPTIONS, () => c.wheelStyle, (v) => ((c.wheelStyle = v), look()));
-        this.color('Rim colour', ['#c9ccd1', '#1a1a1a', '#ffffff', '#d4af37', '#b87333', '#d7263d', '#1b98e0', '#3bb273'], () => c.rimColor, (v) => ((c.rimColor = v), look()));
-        this.color('Tyre colour', ['#1a1a1a', '#f2f2f2', '#d7263d', '#1b98e0', '#ffd23f', '#ff70a6', '#3bb273', '#7b2cbf'], () => c.tireColor, (v) => ((c.tireColor = v), look()));
+        this.color('Rim color', ['#c9ccd1', '#1a1a1a', '#ffffff', '#d4af37', '#b87333', '#d7263d', '#1b98e0', '#3bb273'], () => c.rimColor, (v) => ((c.rimColor = v), look()));
+        this.color('Tire color', ['#1a1a1a', '#f2f2f2', '#d7263d', '#1b98e0', '#ffd23f', '#ff70a6', '#3bb273', '#7b2cbf'], () => c.tireColor, (v) => ((c.tireColor = v), look()));
         this.heading('Size and stance');
         number('Wheel size', 'wheelSize', 0.05, times);
-        number('Tyre width', 'tireWidth', 0.05, times);
+        number('Tire width', 'tireWidth', 0.05, times);
         number('Wheel spacing', 'track', 0.05, times);
         number('Camber', 'camber', 1, (v) => (v === 0 ? 'Straight' : `${v}°`));
         number('Suspension lift', 'lift', 0.01, (v) => (v === 0 ? 'Stock' : v < 0 ? 'Slammed' : `+${length(v)}`));
@@ -196,7 +196,7 @@ export class GarageUI {
         break;
       case 'Parts':
         this.choice('Spoiler', SPOILER_OPTIONS, () => c.spoiler, (v) => ((c.spoiler = v), look()));
-        this.choice('Spoiler colour', PART_COLOR_OPTIONS, () => c.spoilerColor, (v) => ((c.spoilerColor = v), look()));
+        this.choice('Spoiler color', PART_COLOR_OPTIONS, () => c.spoilerColor, (v) => ((c.spoilerColor = v), look()));
         this.choice('Exhaust', EXHAUST_OPTIONS, () => c.exhaust, (v) => ((c.exhaust = v), look()));
         this.choice('Roof topper', TOPPER_OPTIONS, () => c.topper, (v) => ((c.topper = v), look()));
         this.choice('Antenna', ANTENNA_OPTIONS, () => c.antenna, (v) => ((c.antenna = v), look()));
@@ -206,19 +206,19 @@ export class GarageUI {
         this.hint('Roof weapons show when weapons are on (Settings → Weapons). In the career, your car carries the weapons you have bought.');
         break;
       case 'Lights':
-        this.color('Headlight colour', LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look()));
+        this.color('Headlight color', LIGHT_SWATCHES, () => c.headlightColor, (v) => ((c.headlightColor = v), look()));
         this.choice('Underglow', UNDERGLOW_OPTIONS, () => c.underglow, (v) => ((c.underglow = v), look()));
-        this.color('Underglow colour', ['#7af0ff', '#c58bff', '#ff4fd8', '#39ff88', '#ff3b3b', '#ffd23f', '#2f6bff', '#ffffff'], () => c.underglowColor, (v) => ((c.underglowColor = v), look()));
-        this.color('Nitro flame colour', ['#4fb3ff', '#ff7a1a', '#c58bff', '#39ff88', '#ff3bd0', '#ffffff'], () => c.nitroColor, (v) => ((c.nitroColor = v), look()));
+        this.color('Underglow color', ['#7af0ff', '#c58bff', '#ff4fd8', '#39ff88', '#ff3b3b', '#ffd23f', '#2f6bff', '#ffffff'], () => c.underglowColor, (v) => ((c.underglowColor = v), look()));
+        this.color('Nitro flame color', ['#4fb3ff', '#ff7a1a', '#c58bff', '#39ff88', '#ff3bd0', '#ffffff'], () => c.nitroColor, (v) => ((c.nitroColor = v), look()));
         this.hint('Press N while driving to switch between day and night. Glow paint and underglow look best at night.');
         break;
       case 'Sound & FX':
         this.choice('Engine sound', ENGINE_OPTIONS, () => c.engineSound, (v) => ((c.engineSound = v), tuned()));
         this.choice('Horn', HORN_OPTIONS, () => c.horn, (v) => ((c.horn = v), tuned(), this.events.honk()));
         this.choice('Boost trail', TRAIL_OPTIONS, () => c.boostTrail, (v) => ((c.boostTrail = v), tuned()));
-        onOff('Tyre smoke', () => c.tireSmoke, (on) => ((c.tireSmoke = on), tuned()));
-        this.color('Tyre smoke colour', ['#e8e8e8', '#3a3a3a', '#ff4fd8', '#7af0ff', '#39ff88', '#ffd23f', '#ff3b3b', '#c58bff'], () => c.tireSmokeColor, (v) => ((c.tireSmokeColor = v), tuned()));
-        this.hint('Press V to sound the horn while driving. Tyre smoke shows when you drift.');
+        onOff('Tire smoke', () => c.tireSmoke, (on) => ((c.tireSmoke = on), tuned()));
+        this.color('Tire smoke color', ['#e8e8e8', '#3a3a3a', '#ff4fd8', '#7af0ff', '#39ff88', '#ffd23f', '#ff3b3b', '#c58bff'], () => c.tireSmokeColor, (v) => ((c.tireSmokeColor = v), tuned()));
+        this.hint('Press V to sound the horn while driving. Tire smoke shows when you drift.');
         break;
       case 'Engine':
         tuning('Horsepower', 'horsepower', 10, (v) => `${Math.round(v).toLocaleString()} hp`, true);
@@ -380,7 +380,7 @@ export class GarageUI {
       'Units',
       [
         { value: 'mph', label: 'mph and feet' },
-        { value: 'kmh', label: 'km/h and metres' },
+        { value: 'kmh', label: 'km/h and meters' },
       ],
       () => s.units,
       (v) => ((s.units = v), changed(), this.refreshStats()),
@@ -490,7 +490,7 @@ export class GarageUI {
     const picker = el('input');
     picker.type = 'color';
     picker.value = get();
-    picker.title = 'Pick any colour';
+    picker.title = 'Pick any color';
     const sync = () => {
       for (const b of wrap.querySelectorAll<HTMLButtonElement>('button')) b.classList.toggle('active', b.dataset.color === get());
       picker.value = get();

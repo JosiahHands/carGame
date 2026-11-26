@@ -54,7 +54,7 @@ export type ModelChoice = 'light' | 'balanced' | 'rich';
 
 export interface ModelInfo {
   label: string;
-  /** Where to download it from (a Hugging Face repository and quantisation, for node-llama-cpp). */
+  /** Where to download it from (a Hugging Face repository and quantization, for node-llama-cpp). */
   uri: string;
   /** The file it's saved as. */
   file: string;

@@ -5,7 +5,7 @@
 //  - Steering: aim at a point on the racing line a little way ahead. The
 //    racing line cuts to the inside of each corner.
 //  - Speed: look down the road for corners. Each corner has a top speed the
-//    tyres can hold; brake in time to be at or under it when getting there.
+//    tires can hold; brake in time to be at or under it when getting there.
 //  - Traffic: a car just ahead in the way? Pull out to pass it, or follow.
 //  - Skill (about 0.75 to 1.05) is how close to the limit a rival drives.
 //    Less skilled rivals brake earlier, and now and then make a mistake: they
@@ -33,19 +33,22 @@ export interface RivalSpec {
 /** Where a car is in the race, for the rivals to see each other (and the player). */
 export interface RacerPosition {
   physics: CarPhysics;
-  /** Metres from the start line round the lap, 0..track length. */
+  /** Meters from the start line around the lap, 0..track length. */
   along: number;
-  /** Metres to the left of the centre line. */
+  /** Meters to the left of the center line. */
   offset: number;
 }
+
+/** Rivals who were renamed, old name to new, so saved records follow them (Kiki Kerb became Kiki Curb in 1.2.3). */
+export const RENAMED_RIVALS: Record<string, string> = { 'Kiki Kerb': 'Kiki Curb' };
 
 export const RIVAL_NAMES = [
   'Max Power', 'Lola Lightning', 'Rico Revs', 'Dash Delgado', 'Penny Piston', 'Turbo Tim', 'Gina Gearbox', 'Axel Grease',
   'Skid Marx', 'Nitro Nina', 'Bruno Burnout', 'Holly Hairpin', 'Vince Vroom', 'Zoe Zoom', 'Duke Drift', 'Cleo Clutch',
-  'Rusty Bolts', 'Speedy Gonzo', 'Ivy Apex', 'Chuck Chicane', 'Mona Mph', 'Felix Flatout', 'Kiki Kerb', 'Otto Overtake',
+  'Rusty Bolts', 'Speedy Gonzo', 'Ivy Apex', 'Chuck Chicane', 'Mona Mph', 'Felix Flatout', 'Kiki Curb', 'Otto Overtake',
 ];
 
-/** The racing line on each track: an offset from the centre line for every sample. Worked out once per track. */
+/** The racing line on each track: an offset from the center line for every sample. Worked out once per track. */
 const racingLines = new WeakMap<RaceTrack, Float32Array>();
 
 /**
@@ -75,7 +78,7 @@ export class Rival {
   rig: CarRig;
   readonly name: string;
   readonly skill: number;
-  /** This driver's favourite spot across the road, compared to the racing line. */
+  /** This driver's favorite spot across the road, compared to the racing line. */
   private lane: number;
   /** Extra offset while pulling out to pass someone, easing back to 0. */
   private dodge = 0;
@@ -111,7 +114,7 @@ export class Rival {
     this.nextMistake = 6 + Math.random() * 10;
   }
 
-  /** Puts the car on the track, standing still, `along` metres from the start line and `offset` to the left. */
+  /** Puts the car on the track, standing still, `along` meters from the start line and `offset` to the left. */
   place(track: RaceTrack, world: World, along: number, offset: number): void {
     const p = track.pose(along, offset);
     this.physics.reset(p.x, p.z, p.heading);
@@ -189,7 +192,7 @@ export class Rival {
     let wanted = p.topSpeed * (this.pace < 1 ? this.pace : 1.2);
     const scan = Math.min(400, 30 + (speed * speed) / (2 * brake));
     for (let s = 0; s < scan; s += 4) {
-      // The racing line is gentler than the centre line, so corners can be taken a little faster.
+      // The racing line is gentler than the center line, so corners can be taken a little faster.
       const corner = p.cornerSpeed(track.pointAt(me.along + s).curve * 0.85) * limit;
       wanted = Math.min(wanted, Math.sqrt(corner * corner + 2 * brake * s));
     }

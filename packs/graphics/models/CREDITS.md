@@ -3,7 +3,7 @@
 `cars.glb` holds the six real car bodies that the Photo Real pack puts on the
 game's cars. All six are by **Daniel Zhabotinsky**
 ([sketchfab.com/DanielZhabotinsky](https://sketchfab.com/DanielZhabotinsky)) and
-are shared under the **Creative Commons Attribution 4.0** licence
+are shared under the **Creative Commons Attribution 4.0** license
 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Thank you, Daniel!
 
 | Game body | Model | Source |
@@ -17,25 +17,25 @@ are shared under the **Creative Commons Attribution 4.0** licence
 
 The files were downloaded from the public copies in the
 [Objaverse](https://huggingface.co/datasets/allenai/objaverse) dataset (each file
-carries its author, source and licence inside it), and the licence of each was
+carries its author, source and license inside it), and the license of each was
 checked against its Sketchfab page.
 
 ## Changes made
 
-- All badges, name plates and number plates were removed (the game draws its own
+- All badges, name plates and license plates were removed (the game draws its own
   plates), and a small emblem printed in the van's interior was painted over.
 - The wheels, brakes, spoiler, roll cage and bull bar were removed: the game
   draws these itself from the garage settings.
-- Parts hidden under the bonnet (engine) were removed.
-- Each body was turned to face forward, centred between its axles and scaled to metres.
+- Parts hidden under the hood (engine) were removed.
+- Each body was turned to face forward, centered between its axles and scaled to meters.
 - The paint, windows and lamps were given standard names so the game can
-  recolour the paint, tint the windows and light the lamps. The hatchback's
+  recolor the paint, tint the windows and light the lamps. The hatchback's
   painted panels were split out of its texture for the same reason.
 - A simpler copy of each body was added for cars far away.
 - Textures were resized to 1024 pixels and saved as WebP; the geometry is
   compressed with meshopt. All six share one file, so shared textures are stored once.
 
-These changes are shared under the same CC BY 4.0 licence.
+These changes are shared under the same CC BY 4.0 license.
 
 The designs are generic or loosely based on real cars from their eras; they
 are not official models of any car maker and carry no brand names or logos.

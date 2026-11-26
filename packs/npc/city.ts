@@ -1,11 +1,11 @@
 // Where the cast lives: named places on the city's blocks (the coffee cart,
 // the bank, the diner, the parks...), and the walking routes between them
-// along the pavements, crossing the roads at the corners.
+// along the sidewalks, crossing the roads at the corners.
 import * as THREE from 'three';
 import { ROAD_LINES, type World } from '../../game/world';
 import type { PlaceKind } from './cast';
 
-/** The pavement loop round each block: this far from the block's centre (as the game's pedestrians walk). */
+/** The sidewalk loop around each block: this far from the block's center (as the game's pedestrians walk). */
 const LOOP = 32;
 
 export interface Place {
@@ -16,7 +16,7 @@ export interface Place {
   /** Where people gather, and the corner of its block that routes go through. */
   x: number;
   z: number;
-  /** How far people stand from the middle when they gather round. */
+  /** How far people stand from the middle when they gather around. */
   spread: number;
   block: { x: number; z: number };
 }
@@ -37,7 +37,7 @@ const LABELS: Record<PlaceKind, string> = {
   market: 'the market',
 };
 
-/** A point on the routes: a pavement corner. */
+/** A point on the routes: a sidewalk corner. */
 interface Node {
   x: number;
   z: number;
@@ -58,12 +58,12 @@ export class CityMap {
   /** Lays out the places and routes for this city (the same every time, as the city is). */
   build(world: World): void {
     this.clear();
-    const centres = ROAD_LINES.slice(0, -1).map((c) => c + 40);
+    const centers = ROAD_LINES.slice(0, -1).map((c) => c + 40);
     // Routes: the four corners of every block; along the block's sides, and across each road to the next block.
     const index = new Map<string, number>();
     const key = (x: number, z: number) => `${Math.round(x)},${Math.round(z)}`;
-    for (const bx of centres) {
-      for (const bz of centres) {
+    for (const bx of centers) {
+      for (const bz of centers) {
         for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
           index.set(key(bx + dx * LOOP, bz + dz * LOOP), this.nodes.length);
           this.nodes.push({ x: bx + dx * LOOP, z: bz + dz * LOOP, next: [] });
@@ -75,8 +75,8 @@ export class CityMap {
       this.nodes[a].next.push(b);
       this.nodes[b].next.push(a);
     };
-    for (const bx of centres) {
-      for (const bz of centres) {
+    for (const bx of centers) {
+      for (const bz of centers) {
         const c = (dx: number, dz: number) => index.get(key(bx + dx * LOOP, bz + dz * LOOP));
         link(c(-1, -1), c(1, -1));
         link(c(1, -1), c(1, 1));
@@ -91,7 +91,7 @@ export class CityMap {
       }
     }
 
-    // Places: the shops along the pavements of the blocks nearest the middle of the city,
+    // Places: the shops along the sidewalks of the blocks nearest the middle of the city,
     // the two parks nearest the middle, and the stunt park.
     const near = (b: { x: number; z: number }) => Math.hypot(b.x, b.z);
     const cityBlocks = world.blocks.filter((b) => b.kind === 'city').sort((a, b) => near(a) - near(b));
@@ -161,7 +161,7 @@ export class CityMap {
 
   /**
    * A walking route from (x, z) to (tx, tz): to the nearest corner, along the
-   * pavements and across the roads at the corners, then straight to the end.
+   * sidewalks and across the roads at the corners, then straight to the end.
    */
   route(x: number, z: number, tx: number, tz: number): THREE.Vector2[] {
     if (this.nodes.length === 0 || Math.hypot(tx - x, tz - z) < 40) return [new THREE.Vector2(tx, tz)];
@@ -195,7 +195,7 @@ export class CityMap {
   }
 
   /**
-   * Someone's front door: a spot on the pavement of one of the city's blocks,
+   * Someone's front door: a spot on the sidewalk of one of the city's blocks,
    * the same for them every time (from their id).
    */
   home(id: string): { x: number; z: number; label: string } | null {
@@ -209,7 +209,7 @@ export class CityMap {
     return { x: block.x + x, z: block.z + z, label: 'home' };
   }
 
-  /** A random spot on a pavement near (x, z), for wandering. */
+  /** A random spot on a sidewalk near (x, z), for wandering. */
   wanderSpot(x: number, z: number, random: () => number): THREE.Vector2 {
     const n = this.nodes[this.nearestNode(x + (random() - 0.5) * 200, z + (random() - 0.5) * 200)];
     return new THREE.Vector2(n?.x ?? x, n?.z ?? z);
@@ -343,7 +343,7 @@ function propFor(place: Place): THREE.Group {
       break;
   }
   g.position.set(place.x + inward.x * (place.kind === 'park' || place.kind === 'stunts' ? 0 : 2.6), 0, place.z + inward.y * (place.kind === 'park' || place.kind === 'stunts' ? 0 : 2.6));
-  // Face the pavement.
+  // Face the sidewalk.
   g.rotation.y = Math.atan2(-inward.x, -inward.y);
   return g;
 }

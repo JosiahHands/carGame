@@ -15,14 +15,14 @@ export const WEAPON_NAMES = ['Machine gun', 'Rockets', 'Shockwave'];
 
 const GUN_SHOTS_PER_SECOND = 14;
 const GUN_DAMAGE = 9;
-const GUN_RANGE = 300; // metres
+const GUN_RANGE = 300; // meters
 const GUN_HEAT_PER_SHOT = 0.045; // overheats at 1, after about 2 seconds of firing
 const GUN_COOLING = 0.45; // heat lost per second
 
 const ROCKET_RELOAD = 0.45; // seconds between rockets
 const ROCKET_SPEED = 85; // m/s
 const ROCKET_LIFETIME = 3; // seconds before it blows up in mid-air
-const ROCKET_RADIUS = 8; // metres
+const ROCKET_RADIUS = 8; // meters
 const ROCKET_DAMAGE = 170;
 
 const SHOCKWAVE_RELOAD = 6;
@@ -197,7 +197,7 @@ export class Weapons {
       this.effects.shockwave(at, SHOCKWAVE_RADIUS);
       this.world.explode(at, SHOCKWAVE_RADIUS, this.damage(SHOCKWAVE_DAMAGE, 2));
       this.audio.shockwave();
-      blasts.push({ at, radius: 0 }); // the car is at the centre; it shouldn't be thrown
+      blasts.push({ at, radius: 0 }); // the car is at the center; it shouldn't be thrown
     }
 
     this.moveRockets(dt, blasts);

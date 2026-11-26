@@ -1,5 +1,5 @@
 // 🧪 Real Physics: realistic driving for every car (see model.ts): real
-// suspension, tyres that warm up and wear, an engine with a torque curve and
+// suspension, tires that warm up and wear, an engine with a torque curve and
 // turbo, crashes that spin the car, dent its bodywork and bend its steering,
 // a telemetry panel that shows it all at work, and controller rumble.
 import * as THREE from 'three';
@@ -36,9 +36,9 @@ const pack: Pack = {
   name: 'Real Physics',
   icon: '🧪',
   about:
-    'Realistic driving: a body that leans, dives and bounces on real springs and dampers, four tyres with real grip curves that warm up and wear, ' +
+    'Realistic driving: a body that leans, dives and bounces on real springs and dampers, four tires with real grip curves that warm up and wear, ' +
     'an engine with a torque curve, turbo lag and gear changes, limited-slip differentials, brakes that fade, and different grip on every surface. ' +
-    'Crashes spin the car, dent it and can bend its steering. A telemetry panel shows it all at work, and a controller rumbles as the tyres slide.',
+    'Crashes spin the car, dent it and can bend its steering. A telemetry panel shows it all at work, and a controller rumbles as the tires slide.',
   activate(game: GameApi): PackInstance {
     const options: Options = { ...DEFAULTS, ...game.load<Partial<Options>>('options', {}) };
     const model = new RealisticDynamics({ grip: GRIP[options.grip], assists: options.assists, realism: options.realism, player: game.player });
@@ -75,7 +75,7 @@ const pack: Pack = {
 
     /**
      * Presses a dent into the car's body: the panels near where it was hit are
-     * pushed in, most at the centre and fading out towards the edge.
+     * pushed in, most at the center and fading out towards the edge.
      */
     const pressDent = (rig: CarRig, dent: Dent) => {
       if (dentedRig !== rig) {
@@ -87,7 +87,7 @@ const pack: Pack = {
       const radius = (0.55 + Math.min(1, dent.lost / 25) * 0.6) * size;
       const depth = Math.min(0.22, 0.03 + dent.lost * 0.006) * size;
       rig.root.updateMatrixWorld(true);
-      const centre = rig.root.localToWorld(new THREE.Vector3(dent.across, rig.height * 0.45, dent.along));
+      const center = rig.root.localToWorld(new THREE.Vector3(dent.across, rig.height * 0.45, dent.along));
       // The push goes into the car (the crash normal points away from what it hit).
       const push = new THREE.Vector3(dent.nx, -0.15, dent.nz).normalize().multiplyScalar(depth);
       const point = new THREE.Vector3();
@@ -105,12 +105,12 @@ const pack: Pack = {
         const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
         inverse.copy(mesh.matrixWorld).invert();
         // The push in the part's own coordinates (parts can be scaled and turned).
-        const from = centre.clone().applyMatrix4(inverse);
-        const localPush = centre.clone().add(push).applyMatrix4(inverse).sub(from);
+        const from = center.clone().applyMatrix4(inverse);
+        const localPush = center.clone().add(push).applyMatrix4(inverse).sub(from);
         let changed = false;
         for (let i = 0; i < pos.count; i++) {
           point.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
-          const d = point.distanceTo(centre);
+          const d = point.distanceTo(center);
           if (d >= radius) continue;
           const falloff = (1 - d / radius) ** 2;
           pos.setXYZ(i, pos.getX(i) + localPush.x * falloff, pos.getY(i) + localPush.y * falloff, pos.getZ(i) + localPush.z * falloff);
@@ -132,7 +132,7 @@ const pack: Pack = {
         else dents.length = 0;
         // The garage always shows the car as new.
         if (!driving && dentedMeshes.size > 0) repair();
-        // ...and in the garage the mechanics fix any damage, fit fresh tyres and let the brakes cool.
+        // ...and in the garage the mechanics fix any damage, fit fresh tires and let the brakes cool.
         if (game.mode() === 'garage' || game.mode() === 'menu') model.repair(game.player);
         telemetry.setVisible(driving && options.telemetry && !game.paused());
         if (driving && options.telemetry) telemetry.draw(stateOf(game.player), game.player, options.grip, options.realism);
@@ -140,7 +140,7 @@ const pack: Pack = {
         else rumble.stop();
       },
       settings(panel) {
-        panel.choice('Tyre grip', [
+        panel.choice('Tire grip', [
           { value: 'road', label: 'Road' },
           { value: 'sport', label: 'Sport' },
           { value: 'race', label: 'Race' },
@@ -156,7 +156,7 @@ const pack: Pack = {
           { value: 'real', label: 'Real' },
           { value: 'sim', label: 'Simulation' },
         ], () => options.realism, (v) => ((options.realism = v), save()));
-        panel.hint('Friendly: tyres always warm, instant gear changes. Real: tyres warm up and wear, gear changes take a moment, turbo lag, brakes fade when hot, and crashes can damage the engine, wheels and steering. Simulation: cold tyres at the start and harsher damage.');
+        panel.hint('Friendly: tires always warm, instant gear changes. Real: tires warm up and wear, gear changes take a moment, turbo lag, brakes fade when hot, and crashes can damage the engine, wheels and steering. Simulation: cold tires at the start and harsher damage.');
         panel.choice('Telemetry panel', [
           { value: 'on', label: 'On' },
           { value: 'off', label: 'Off' },

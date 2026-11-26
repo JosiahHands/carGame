@@ -2,7 +2,7 @@
 // own plain body is; when this pack draws a new body (sculpted, or a real
 // car model) the pipes are moved onto it, so they never float:
 //  - pipes out the back go just inside the bottom edge of the rear bumper,
-//    a few centimetres sticking out;
+//    a few centimeters sticking out;
 //  - tall stacks stand on the body under them.
 // The nitro flames and boost trails at each pipe's tip move with it.
 import * as THREE from 'three';
@@ -14,7 +14,7 @@ export interface Moved {
   position: THREE.Vector3;
 }
 
-/** How much of a rear pipe sticks out behind the bumper (metres). */
+/** How much of a rear pipe sticks out behind the bumper (meters). */
 const STICK_OUT = 0.08;
 
 /** The game's exhaust pipes: open chrome tubes straight on the body (0.3 m out the back, or 1 m tall stacks). */
