@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import struct
 import subprocess
 import sys
@@ -62,21 +63,34 @@ def run(executable, directory, scenario, timeout):
     if "CAR_GAME_LEVEL" in game_environment:
         game_environment["CAR_GAME_SCREENSHOT_FRAMES"] = "240"
     game_environment.update(CAR_GAME_DATA=str(directory), CAR_GAME_SCREENSHOT=str(screenshot))
+    use_process_group = os.name == "posix"
     with (directory / "game.log").open("wb") as log:
-        result = subprocess.run(
+        with subprocess.Popen(
             [str(executable)],
             env=game_environment,
             cwd=directory,
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=timeout,
-            check=False,
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"game exited with code {result.returncode}")
-    log_text = (directory / "game.log").read_text(encoding="utf-8", errors="replace")
-    if "panicked at " in log_text or "Validation Error" in log_text:
-        raise RuntimeError("game logged a panic or graphics validation error")
+            start_new_session=use_process_group,
+        ) as process:
+            try:
+                exit_code = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                if use_process_group:
+                    # The AppImage runtime starts the game as a child process.
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    process.kill()
+                raise
+    if exit_code != 0:
+        raise RuntimeError(f"game exited with code {exit_code}")
+    with (directory / "game.log").open(encoding="utf-8", errors="replace") as log:
+        for line in log:
+            if any(message in line for message in ("panicked at ", "Validation Error", "Vertex_Color has a different vertex count")):
+                raise RuntimeError(f"game logged an error: {line.strip()}")
     return check_png(screenshot)
 
 
@@ -115,8 +129,11 @@ def main():
             dimensions = run(executable, directory, scenario, args.timeout)
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
             print(f"FAIL {name}: {error} ({directory})", file=sys.stderr, flush=True)
-            if (directory / "game.log").is_file():
-                print((directory / "game.log").read_text(encoding="utf-8", errors="replace")[-3500:], file=sys.stderr, flush=True)
+            log_path = directory / "game.log"
+            if log_path.is_file():
+                with log_path.open("rb") as log:
+                    log.seek(max(0, log_path.stat().st_size - 3500))
+                    print(log.read().decode("utf-8", errors="replace"), file=sys.stderr, flush=True)
             failures += 1
         else:
             print(f"PASS {name}: {dimensions} ({directory})", flush=True)
