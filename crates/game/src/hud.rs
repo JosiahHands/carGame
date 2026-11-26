@@ -36,6 +36,24 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
     if game.screen_shot {
         return Ok(());
     }
+    // The game's version, in the top left corner of every screen (left out of saved photos).
+    egui::Area::new(egui::Id::new("version"))
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 4.0))
+        .order(egui::Order::Foreground)
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(Color32::from_rgba_unmultiplied(12, 16, 24, 150))
+                .corner_radius(5.0)
+                .inner_margin(egui::Margin::symmetric(5, 1))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(format!("v{}", crate::VERSION))
+                            .size(11.0)
+                            .color(Color32::from_white_alpha(210)),
+                    );
+                });
+        });
     let driving = game.mode == Mode::Drive;
     let p = &game.physics;
     let event = game.event.as_ref();
@@ -224,7 +242,7 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
                 });
             });
             if e.is_race() && !h.standings.is_empty() {
-                area("standings", egui::Align2::LEFT_TOP, [14.0, 14.0]).show(ctx, |ui| {
+                area("standings", egui::Align2::LEFT_TOP, [14.0, 28.0]).show(ctx, |ui| {
                     panel_frame().show(ui, |ui| {
                         for (i, (name, gap, me, out)) in h.standings.iter().enumerate() {
                             let color = if *me {
@@ -259,7 +277,7 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
             if game.trial.best > 0.0 {
                 best.push(format!("Best lap {}", format_time(game.trial.best)));
             }
-            area("best", egui::Align2::LEFT_TOP, [16.0, 16.0]).show(ctx, |ui| {
+            area("best", egui::Align2::LEFT_TOP, [16.0, 28.0]).show(ctx, |ui| {
                 if !best.is_empty() {
                     ui.label(RichText::new(best.join(" · ")).size(14.0).color(Color32::WHITE));
                 }
