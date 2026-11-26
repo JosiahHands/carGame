@@ -92,6 +92,7 @@ impl Settings {
             self.shadows = p.2.into();
             self.view_distance = p.3;
             self.effects = p.4.into();
+            self.antialias = name != "Low";
             self.quality = name.into();
         }
     }

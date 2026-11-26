@@ -1,12 +1,12 @@
 //! What the city asks its local AI: the kinds of request, the open-source
 //! models on offer, the standing instructions, and the shape of every answer
 //! (a JSON schema: the model can only write JSON that fits it).
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 use serde_json::{Value, json};
 
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 use crate::cast::{EMOTIONS, PLACE_KINDS, TRAIT_NAMES, cast};
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 use crate::mind::MAX_RESOLUTIONS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,7 +71,7 @@ pub const POLICE_ACTIONS: [&str; 5] = [
 ];
 
 /// Hours a day plan can use.
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 pub const PLAN_HOURS: [&str; 18] = [
     "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
 ];
@@ -156,7 +156,7 @@ impl ModelChoice {
 }
 
 /// The standing instructions: short, as small models follow short rules best.
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 pub const SYSTEM_PROMPT: &str = "You bring to life the people of a small, sunny city in a driving game. They are ordinary people living ordinary days: working, eating, meeting friends, gossiping, worrying, dreaming. Fast cars race through their streets; the person driving the player's car is \"the driver\". To them this is simply their city and their life.
 
 They are completely free. They choose their own goals and change their minds, keep honest private thoughts about anything, like or dislike whoever they want, and do whatever they want: anything on offer, or anything else they can describe. They can bend the rules, make mischief, chase the driver or give up a chase if they are the police, and make lasting decisions about their own lives, which they keep until they choose to change them. Nobody decides for them.
@@ -171,11 +171,11 @@ Rules:
 - Memories are first person, written by the one remembering, at most 25 words.
 - Answer only with JSON in the shape asked for.";
 
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 const IMPORTANCE: [&str; 3] = ["low", "medium", "high"];
 
 /// Their standing decisions: kept (the usual), or one dropped because they've truly changed their mind.
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 pub fn release_choices() -> Vec<String> {
     let mut v = vec!["keep them all".to_string()];
     v.extend((1..=MAX_RESOLUTIONS).map(|i| format!("drop {i}")));
@@ -183,7 +183,7 @@ pub fn release_choices() -> Vec<String> {
 }
 
 /// The shape of the answer for each kind of request.
-#[cfg(any(feature = "local-ai", test))]
+#[cfg(feature = "local-ai")]
 pub fn schema_for(kind: ThinkKind, ids: &[String]) -> Value {
     let mut everyone: Vec<String> = cast().iter().map(|c| c.id.clone()).collect();
     everyone.push("driver".into());

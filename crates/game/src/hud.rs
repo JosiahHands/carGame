@@ -384,7 +384,7 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
     }
     if game.settings.show_fps {
         area("fps", egui::Align2::RIGHT_TOP, [-10.0, 8.0]).show(ctx, |ui| {
-            ui.label(RichText::new(format!("{} FPS", game.fps.2)).size(13.0).color(Color32::WHITE));
+            ui.add(egui::Label::new(RichText::new(format!("{} FPS", game.fps.2)).size(13.0).color(Color32::WHITE)).extend());
         });
     }
     Ok(())

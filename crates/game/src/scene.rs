@@ -48,7 +48,7 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Spawned>()
-            .add_systems(Startup, (setup, setup_display))
+            .add_systems(Startup, (setup, setup_display.after(crate::game::setup_game)))
             .add_systems(
                 Update,
                 (trial_visuals, roam_visuals, rockets, people, billboards, photo, render_resolution).after(crate::GameSet::Frame),
@@ -534,80 +534,59 @@ fn frame_limit(game: Option<Res<Game>>, mut next: Local<Option<std::time::Instan
 }
 
 /// The window stays at full size so the HUD and menus stay sharp. Only the
-/// 3D camera renders into the scaled buffer. At 100% it renders directly.
+/// 3D camera renders into the buffer. The display camera composites it with
+/// the HUD in one pass, including at 100% resolution.
 #[derive(Resource)]
 struct Display {
     buffer: Handle<Image>,
     size: UVec2,
-    scaled: bool,
 }
 
 #[derive(Component)]
 struct GameImage;
 
-fn setup_display(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn setup_display(mut commands: Commands, mut images: ResMut<Assets<Image>>, camera: Query<Entity, With<MainCamera>>) {
+    let Ok(scene) = camera.single() else { return };
     let buffer = images.add(Image::new_target_texture(
         1,
         1,
         TextureFormat::Rgba8Unorm,
         Some(TextureFormat::Rgba8UnormSrgb),
     ));
+    commands.entity(scene).insert(RenderTarget::Image(buffer.clone().into()));
     let layer = RenderLayers::layer(1);
     commands.spawn((
         Camera2d,
         Camera {
             order: 1,
-            clear_color: ClearColorConfig::None,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
         Msaa::Off,
         layer.clone(),
         PrimaryEguiContext,
     ));
-    commands.spawn((GameImage, Sprite::from_image(buffer.clone()), Visibility::Hidden, layer));
-    commands.insert_resource(Display {
-        buffer,
-        size: UVec2::ONE,
-        scaled: false,
-    });
+    commands.spawn((GameImage, Sprite::from_image(buffer.clone()), layer));
+    commands.insert_resource(Display { buffer, size: UVec2::ONE });
 }
 
 fn render_resolution(
     game: Res<Game>,
     packs: Res<crate::packs::Packs>,
     window: Query<&Window, With<PrimaryWindow>>,
-    mut camera: Query<(&mut RenderTarget, &mut Msaa), With<MainCamera>>,
-    mut image: Query<(&mut Sprite, &mut Visibility), With<GameImage>>,
+    mut camera: Query<&mut Msaa, With<MainCamera>>,
+    mut image: Query<&mut Sprite, With<GameImage>>,
     mut display: ResMut<Display>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let (Ok(window), Ok((mut camera, mut msaa)), Ok((mut sprite, mut visibility))) =
-        (window.single(), camera.single_mut(), image.single_mut())
-    else {
+    let (Ok(window), Ok(mut msaa), Ok(mut sprite)) = (window.single(), camera.single_mut(), image.single_mut()) else {
         return;
     };
-    let mode = if game.settings.antialias && game.settings.shadows != "off" {
-        Msaa::Sample4
-    } else {
-        Msaa::Off
-    };
+    let mode = if game.settings.antialias { Msaa::Sample4 } else { Msaa::Off };
     if !packs.is_on("graphics") && *msaa != mode {
         *msaa = mode;
     }
     let scale = game.settings.resolution as f32;
-    let scaled = scale < 0.999;
-    if scaled != display.scaled {
-        display.scaled = scaled;
-        *camera = if scaled {
-            RenderTarget::Image(display.buffer.clone().into())
-        } else {
-            RenderTarget::default()
-        };
-        *visibility = if scaled { Visibility::Inherited } else { Visibility::Hidden };
-    }
-    if !scaled {
-        return;
-    }
     let window_size = Vec2::new(window.physical_width() as f32, window.physical_height() as f32);
     let size = (window_size * scale).round().as_uvec2().max(UVec2::ONE);
     let logical_size = Vec2::new(window.width(), window.height());

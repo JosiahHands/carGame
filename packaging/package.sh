@@ -12,13 +12,12 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 copy_licenses() {
-    local destination=$1 file library
+    local destination=$1 file relative
     while IFS= read -r -d '' file; do
-        library=${file#vendor/}
-        library=${library%%/*}
-        mkdir -p "$destination/$library"
-        cp "$file" "$destination/$library/"
-    done < <(find vendor -mindepth 2 -maxdepth 2 -type f \
+        relative=${file#vendor/}
+        mkdir -p "$destination/${relative%/*}"
+        cp "$file" "$destination/$relative"
+    done < <(find vendor -mindepth 2 -type f \
         \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' -o -name 'UNLICENSE' \) -print0)
 }
 
