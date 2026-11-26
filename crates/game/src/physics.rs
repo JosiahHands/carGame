@@ -68,6 +68,8 @@ pub type Dynamics = Option<Arc<dyn CarDynamics>>;
 
 #[derive(Default)]
 pub struct CarPhysics {
+    /// The player's car (a pack's model may treat it differently from the rivals').
+    pub player: bool,
     /// Each car's own state for the pack's driving model.
     pub dynamics_state: Option<Box<dyn Any + Send + Sync>>,
     pub x: f64,

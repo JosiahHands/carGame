@@ -8,3 +8,4 @@ publish.workspace = true
 [dependencies]
 bevy.workspace = true
 game.workspace = true
+bevy_egui.workspace = true

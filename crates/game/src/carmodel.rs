@@ -228,6 +228,7 @@ pub struct CarMaterials {
     pub head: Handle<StandardMaterial>,
     pub tail: Handle<StandardMaterial>,
     pub glow: Option<Handle<StandardMaterial>>,
+    pub glass: Handle<StandardMaterial>,
     pub burned: Handle<StandardMaterial>,
 }
 
@@ -259,6 +260,8 @@ pub struct CarRig {
     pub glow_decal: Option<Entity>,
     /// Every mesh with a lit material, and that material, for wrecking and repairing.
     pub lit_parts: Vec<(Entity, Handle<StandardMaterial>)>,
+    /// The body shell, cabin, roof, body stripes and lamps (a real car body from a pack replaces these).
+    pub shell: Vec<Entity>,
     pub wrecked: bool,
     pub lights: (bool, bool),
 }
@@ -574,6 +577,9 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
     // Parts collected per group and material, merged at the end.
     let mut body_parts: BTreeMap<Mat, MeshData> = BTreeMap::new();
     let mut no_shadow: BTreeMap<Mat, MeshData> = BTreeMap::new();
+    // The body shell, cabin, roof, body stripes and lamps: what a real car body (Photo Real) replaces.
+    let mut shell: BTreeMap<Mat, MeshData> = BTreeMap::new();
+    let mut shell_no_shadow: BTreeMap<Mat, MeshData> = BTreeMap::new();
     fn put(parts: &mut BTreeMap<Mat, MeshData>, mat: Mat, mesh: &Mesh, t: Transform) {
         parts.entry(mat).or_default().add_mesh(mesh, &t, [1.0; 4]);
     }
@@ -596,19 +602,19 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
 
     // ---------- main body and cabin ----------
     let lower = lower_profile(&spec, arch_r, wheel_y);
-    body_parts
+    shell
         .entry(Mat::BodyPaint)
         .or_default()
         .append(&extrude_profile(&lower, spec.width, BEVEL, BEVEL));
     let glass = extrude_profile(&spec.cabin, spec.cabin_width, 0.03, 0.03);
-    no_shadow.entry(Mat::Glass).or_default().append(&glass);
+    shell_no_shadow.entry(Mat::Glass).or_default().append(&glass);
     let [_, roof_rear, roof_front, _] = spec.cabin;
     let roof_len = roof_front.0 - roof_rear.0;
     let roof_y = roof_rear.1.max(roof_front.1);
     let roof_mid = (roof_rear.0 + roof_front.0) / 2.0;
     let roof_top = roof_y + 0.045;
     put(
-        &mut body_parts,
+        &mut shell,
         Mat::Paint,
         &Cuboid::new(spec.cabin_width * 0.97, 0.05, roof_len + 0.06).mesh().build(),
         at(0.0, roof_y + 0.02, roof_mid),
@@ -629,9 +635,9 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
             for p in &mut stripe.positions {
                 p[0] += side * 0.2;
             }
-            body_parts.entry(Mat::Accent).or_default().append(&stripe);
+            shell.entry(Mat::Accent).or_default().append(&stripe);
             put(
-                &mut body_parts,
+                &mut shell,
                 Mat::Accent,
                 &Cuboid::new(0.22, 0.012, roof_len + 0.06).mesh().build(),
                 at(side * 0.2, roof_y + 0.05, roof_mid),
@@ -743,7 +749,7 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
     let (hz, hy) = spec.headlight;
     for side in [-1.0, 1.0] {
         put(
-            &mut no_shadow,
+            &mut shell_no_shadow,
             Mat::Head,
             &Cuboid::new(0.34, 0.1, 0.1).mesh().build(),
             at(side * (spec.width / 2.0 - 0.3), hy, hz + BEVEL),
@@ -752,7 +758,7 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
     let (tz, ty) = spec.taillight;
     for side in [-1.0, 1.0] {
         put(
-            &mut no_shadow,
+            &mut shell_no_shadow,
             Mat::Tail,
             &Cuboid::new(0.34, 0.08, 0.06).mesh().build(),
             at(side * (spec.width / 2.0 - 0.26), ty, tz - BEVEL),
@@ -995,17 +1001,26 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
         .spawn((Transform::from_xyz(0.0, body_y, 0.0), Visibility::default(), ChildOf(root)))
         .id();
     let mut lit_parts = Vec::new();
-    for (shadow, parts) in [(true, body_parts), (false, no_shadow)] {
+    let mut shell_parts = Vec::new();
+    for (shadow, is_shell, parts) in [
+        (true, false, body_parts),
+        (false, false, no_shadow),
+        (true, true, shell),
+        (false, true, shell_no_shadow),
+    ] {
         for (key, data) in parts {
             let mat = mats[&key].clone();
             let mut e = ctx.commands.spawn((
-                Mesh3d(ctx.meshes.add(data.build())),
+                Mesh3d(ctx.meshes.add(data.build_editable())),
                 MeshMaterial3d(mat.clone()),
                 Transform::default(),
                 ChildOf(body),
             ));
             if !shadow {
                 e.insert(NotShadowCaster);
+            }
+            if is_shell {
+                shell_parts.push(e.id());
             }
             lit_parts.push((e.id(), mat));
         }
@@ -1245,6 +1260,7 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
             rear_z,
         },
         mats: CarMaterials {
+            glass: mats[&Mat::Glass].clone(),
             paint,
             body_paint,
             head,
@@ -1258,12 +1274,23 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
         glow_light,
         glow_decal,
         lit_parts,
+        shell: shell_parts,
         wrecked: false,
         lights: (night, false),
     };
     rig.set_lights(night, false, ctx.materials, ctx.commands);
+    // Lets packs find every car and change how it looks.
+    ctx.commands.entity(root).insert(CarLook(Box::new(rig.clone())));
     rig
 }
+
+/// On every car's root: what it was built from, for packs that redraw cars.
+#[derive(Component, Clone, Debug)]
+pub struct CarLook(pub Box<CarRig>);
+
+/// On a car that mustn't be redrawn by packs (the see-through ghost).
+#[derive(Component)]
+pub struct Ghost;
 
 /// The parts of a wheel, by material, in the wheel's own space (axle along x, rim facing +x).
 fn build_wheel(style: &str, radius: f32, width: f32) -> Vec<(Mat, MeshData)> {

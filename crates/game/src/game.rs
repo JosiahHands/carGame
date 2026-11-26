@@ -995,7 +995,7 @@ impl<'w, 's> Ctx<'w, 's> {
                     .entity(*e)
                     .insert((MeshMaterial3d(ghost.clone()), bevy::light::NotShadowCaster));
             }
-            self.commands.entity(rig.root).insert(Visibility::Hidden);
+            self.commands.entity(rig.root).insert((Visibility::Hidden, crate::carmodel::Ghost));
             self.game.ghost = Some(rig);
         }
     }
@@ -1031,6 +1031,7 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
     let career = career::load_career(&storage);
     let best_drift = storage.get("carGame.bestDrift").and_then(|t| t.parse().ok()).unwrap_or(0.0);
     let mut physics = CarPhysics::new();
+    physics.player = true;
     physics.manual = settings.transmission == "manual";
     let map = std::env::var("CAR_GAME_MAP").unwrap_or_else(|_| settings.map.clone());
     let mode = if std::env::var("CAR_GAME_MODE").as_deref() == Ok("drive") {

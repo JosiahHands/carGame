@@ -267,7 +267,8 @@ impl World {
         let tex = b.images.add(textures::ground_texture(ground).into_image(true));
         let mat = Self::tex_mat(b, tex, Vec2::splat((size / 6.5) as f32), 1.0);
         let mesh = bevy::shape::Plane3d::default().mesh().size(size as f32, size as f32).build();
-        self.spawn(b, mesh, mat, Transform::default());
+        let e = self.spawn(b, mesh, mat, Transform::default());
+        b.commands.entity(e).insert(Wet);
     }
 
     fn build_roads(&mut self, b: &mut Build) {
@@ -292,7 +293,7 @@ impl World {
         }
         roads.colors.clear();
         let e = self.spawn(b, roads.build(), mat, Transform::default());
-        b.commands.entity(e).insert(NotShadowCaster);
+        b.commands.entity(e).insert((NotShadowCaster, Wet));
         // Plain asphalt squares at the crossings, so dashed lines don't overlap.
         let mut crossings = MeshData::default();
         let square = bevy::shape::Plane3d::default()
@@ -307,7 +308,7 @@ impl World {
         crossings.colors.clear();
         let cross_mat = Self::color_mat(b, hex_color(0x34363b), 0.9);
         let e = self.spawn(b, crossings.build(), cross_mat, Transform::default());
-        b.commands.entity(e).insert(NotShadowCaster);
+        b.commands.entity(e).insert((NotShadowCaster, Wet));
         let mut poles = Vec::new();
         let along: Vec<f64> = ROAD_LINES[..ROAD_LINES.len() - 1]
             .iter()
@@ -766,7 +767,7 @@ impl World {
         let receive_only = |b: &mut Build, w: &World, mesh: MeshData, mat: Handle<StandardMaterial>| {
             if !mesh.is_empty() {
                 let e = w.spawn(b, mesh.build(), mat, Transform::default());
-                b.commands.entity(e).insert(NotShadowCaster);
+                b.commands.entity(e).insert((NotShadowCaster, Wet));
             }
         };
         receive_only(b, self, m.road, road_mat);
@@ -1504,6 +1505,10 @@ impl World {
         self.weather_speed = if rain { 22.0 } else { 2.2 };
     }
 }
+
+/// Ground, roads and pavement: a pack can make them look wet in the rain.
+#[derive(Component)]
+pub struct Wet;
 
 /// Marks one of the five start lights (0-4) on the gantry.
 #[derive(Component)]

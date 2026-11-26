@@ -78,11 +78,21 @@ impl MeshData {
         self.indices.extend(back);
     }
 
-    pub fn build(mut self) -> Mesh {
+    /// The finished mesh, kept only on the graphics card.
+    pub fn build(self) -> Mesh {
+        self.build_with(RenderAssetUsages::RENDER_WORLD)
+    }
+
+    /// The finished mesh, also kept in the game's memory so it can be changed later.
+    pub fn build_editable(self) -> Mesh {
+        self.build_with(RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD)
+    }
+
+    fn build_with(mut self, usage: RenderAssetUsages) -> Mesh {
         if self.normals.len() != self.positions.len() {
             self.compute_normals();
         }
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);

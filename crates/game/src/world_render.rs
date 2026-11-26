@@ -21,8 +21,9 @@ pub struct MainCamera;
 #[derive(Component)]
 pub struct Sun;
 
+/// The game's own painted sky (a pack can hide it and draw a real one).
 #[derive(Component)]
-struct SkyDome;
+pub struct SkyDome;
 
 /// Where the player's car is, so the sun's shadows and the weather stay around it.
 #[derive(Resource, Default, Clone, Copy)]
@@ -91,10 +92,15 @@ impl Plugin for WorldRenderPlugin {
                     weather_mesh,
                 )
                     .chain()
+                    .in_set(WorldRenderSet)
                     .before(TransformSystems::Propagate),
             );
     }
 }
+
+/// The world's drawing systems (packs can run theirs after, to change the lighting).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WorldRenderSet;
 
 fn empty_mesh(meshes: &mut Assets<Mesh>, topology: PrimitiveTopology) -> Handle<Mesh> {
     let mut m = Mesh::new(topology, RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD);
@@ -134,7 +140,7 @@ fn setup(
         for t in m.indices.chunks_mut(3) {
             t.swap(1, 2); // seen from inside
         }
-        m.build()
+        m.build_editable()
     };
     let sky_mat = materials.add(StandardMaterial {
         base_color: Color::WHITE,

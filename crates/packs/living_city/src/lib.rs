@@ -1,6 +1,7 @@
 //! Living City pack: People in the city who live their own lives, remember you and talk, with a local AI.
 //!
 //! Rebuilt in stage 5 of 1.3.0. For now it only adds itself to the packs list.
+#![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::needless_range_loop)]
 
 use bevy::prelude::*;
 use game::packs::{PackInfo, RegisterPack};

@@ -38,8 +38,8 @@ pub enum PackOption {
 #[derive(Resource, Default)]
 pub struct Packs {
     pub list: Vec<PackInfo>,
-    /// Packs switched off.
-    pub off: Vec<String>,
+    /// Packs switched on (packs start off, as in 1.2.x where each was an extra install).
+    pub on: Vec<String>,
     /// Each pack's options, set by the pack (it can change them, say to show progress).
     pub options: HashMap<&'static str, Vec<PackOption>>,
     /// Option values: (pack, key) -> value.
@@ -50,17 +50,18 @@ pub struct Packs {
     pub dirty: bool,
 }
 
-const STATE_KEY: &str = "carGame.packs.v1";
+/// Which packs are on (1.2.x kept a different list under "carGame.packs.v1").
+const STATE_KEY: &str = "carGame.packs.v2";
 
 impl Packs {
     pub fn is_on(&self, id: &str) -> bool {
-        self.list.iter().any(|p| p.id == id) && !self.off.iter().any(|o| o == id)
+        self.list.iter().any(|p| p.id == id) && self.on.iter().any(|o| o == id)
     }
 
     pub fn set_on(&mut self, id: &str, on: bool) {
-        self.off.retain(|o| o != id);
-        if !on {
-            self.off.push(id.to_string());
+        self.on.retain(|o| o != id);
+        if on {
+            self.on.push(id.to_string());
         }
         self.dirty = true;
     }
@@ -94,8 +95,8 @@ impl Packs {
     /// Reads the on/off state and the pack's saved option values.
     pub fn load(&mut self, storage: &Storage) {
         if let Some(state) = storage.get_json(STATE_KEY) {
-            self.off = state
-                .get("off")
+            self.on = state
+                .get("on")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
@@ -118,7 +119,7 @@ impl Packs {
             return;
         }
         self.dirty = false;
-        storage.set_json(STATE_KEY, &json!({ "off": self.off, "removed": {} }));
+        storage.set_json(STATE_KEY, &json!({ "on": self.on }));
         for ((pack, key), v) in &self.values {
             storage.set_json(&format!("carGame.pack.{pack}.{key}"), v);
         }
