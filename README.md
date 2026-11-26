@@ -28,9 +28,10 @@ aren't signed by Apple or Microsoft, so the first time:
 
 ## Install or update
 
-Run these commands in Terminal on macOS or Linux, or in Git Bash on Windows.
-They download the ready-built app from the same release as the links above.
-Press H in the game to see the controls.
+Choose the commands for your shell. They download the ready-built app from
+the same release as the links above. Press H in the game to see the controls.
+
+### Bash (macOS, Linux, or Git Bash on Windows)
 
 **Install**
 
@@ -42,6 +43,24 @@ curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/inst
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/update.sh | bash
+```
+
+### PowerShell (Windows)
+
+Run the same command to install or update, then follow the setup prompts.
+
+```powershell
+$setup = Join-Path $env:TEMP 'Car-Game-Windows-Setup.exe'
+curl.exe -fSL "https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows-Setup.exe" -o $setup
+if ($?) { Start-Process -FilePath $setup -Wait }
+```
+
+### Command Prompt (Windows)
+
+Run the same command to install or update, then follow the setup prompts.
+
+```bat
+curl.exe -fSL "https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows-Setup.exe" -o "%TEMP%\Car-Game-Windows-Setup.exe" && start "" /wait "%TEMP%\Car-Game-Windows-Setup.exe"
 ```
 
 ## Packs
