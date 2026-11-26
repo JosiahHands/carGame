@@ -354,6 +354,28 @@ pub mod packs {
         }
     }
 
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// A pack's own saved data (Living City's whole city) is read with the
+        /// options, but changing an option must not write the old copy back
+        /// over what the pack has saved since.
+        #[test]
+        fn saving_options_leaves_other_pack_data_alone() {
+            let mut storage = Storage::in_memory();
+            storage.set("carGame.pack.npc.city", "\"old city\"");
+            let mut packs = Packs::default();
+            packs.load(&storage);
+            storage.set("carGame.pack.npc.city", "\"new city\"");
+            packs.set("npc", "tags", json!("off"));
+            packs.set_on("npc", true);
+            packs.save(&mut storage);
+            assert_eq!(storage.get("carGame.pack.npc.city"), Some("\"new city\""));
+            assert_eq!(storage.get("carGame.pack.npc.tags"), Some("\"off\""));
+        }
+    }
+
     /// Lets a pack add itself to the list.
     pub trait RegisterPack {
         fn register_pack(&mut self, info: PackInfo) -> &mut Self;

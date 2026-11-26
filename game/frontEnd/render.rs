@@ -2260,6 +2260,9 @@ pub mod world_render {
         let Ok(cam) = camera.single() else { return };
         let (right, up) = (cam.right().as_vec3(), cam.up().as_vec3());
         let fx = &world.effects;
+        // Smoke and dust aren't lit by the scene's lights, so at night they're
+        // darkened here (otherwise tire smoke glows white in the dark).
+        let smoke_light = if world.is_night() { 0.08 } else { 1.0 };
         for (pool, handle, additive) in [(&fx.glow, &h.glow, true), (&fx.smoke, &h.smoke, false)] {
             let mut m = MeshData::default();
             for p in pool.iter().filter(|p| p.alive) {
@@ -2276,7 +2279,7 @@ pub mod world_render {
                 let color = if additive {
                     [srgb.red * alpha, srgb.green * alpha, srgb.blue * alpha, alpha]
                 } else {
-                    [srgb.red, srgb.green, srgb.blue, alpha]
+                    [srgb.red * smoke_light, srgb.green * smoke_light, srgb.blue * smoke_light, alpha]
                 };
                 billboard(&mut m, p.pos.as_vec3(), size, right, up, color);
             }

@@ -963,16 +963,18 @@ pub fn rule_conversation(a: &Person, b: &Person, moment: &Moment) -> Conversatio
 
 /// A name the driver gave ("my name is Sam", "I'm Sam", "call me Sam").
 fn name_in(said: &str) -> String {
-    let lower = said.to_lowercase();
+    // Only ASCII letters change case here, so every position in `lower` is the
+    // same in `said` (full lowercasing can change a letter's length, like İ).
+    let lower = said.to_ascii_lowercase();
     for lead in ["my name is ", "i'm ", "i am ", "call me "] {
         if let Some(i) = lower.find(lead) {
             let rest = &said[i + lead.len()..];
             let name: String = rest
                 .chars()
-                .take_while(|c| c.is_ascii_alphabetic() || *c == '\'' || *c == '-')
+                .take_while(|c| c.is_alphabetic() || *c == '\'' || *c == '-')
                 .take(21)
                 .collect();
-            if name.len() >= 2 && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+            if name.chars().count() >= 2 && name.chars().next().is_some_and(char::is_alphabetic) {
                 return name;
             }
         }
@@ -1288,6 +1290,18 @@ mod tests {
         let long = (0..30).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
         assert!(short(&long).ends_with('…'));
         assert_eq!(name_in("Hi, my name is Sam!"), "Sam");
+    }
+
+    /// Letters that change length when lowercased (Turkish İ) mustn't throw
+    /// the name finder off the end of what was said, or into the middle of a letter.
+    #[test]
+    fn names_are_found_after_any_letters() {
+        assert_eq!(name_in("İİ i am x"), "");
+        assert_eq!(name_in("İstanbul! My name is Ayşe"), "Ayşe");
+        assert_eq!(name_in("ÉMILIE here. Call me Em"), "Em");
+        for said in ["İİİİİİ call me", "İ my name is", "ΣΣ i'm Bo"] {
+            let _ = name_in(said);
+        }
     }
 
     #[test]
