@@ -1,0 +1,5 @@
+# Libraries in vendor/ are kept byte for byte as published: cargo checks
+# every file against its checksum, so git must never change line endings
+# there (Windows checkouts would otherwise). Hidden from diffs and GitHub's
+# language stats too.
+/vendor/** -text -diff linguist-vendored
