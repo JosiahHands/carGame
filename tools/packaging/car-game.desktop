@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Car Game
+Comment=Drive, race and build your own cars
+Exec=car-game
+Icon=car-game
+Categories=Game;Simulation;
+Terminal=false

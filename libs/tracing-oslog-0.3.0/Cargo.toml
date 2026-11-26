@@ -1,0 +1,38 @@
+[build-dependencies.cc]
+version = "1.0"
+
+[dependencies.cfg-if]
+version = "1.0"
+
+[dependencies.tracing-core]
+version = "0.1"
+
+[dependencies.tracing-subscriber]
+default-features = false
+features = ["std", "registry"]
+version = "0.3"
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["Lucy <lucy@absolucy.moe>"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["development-tools::debugging", "development-tools::profiling", "os::macos-apis"]
+description = "A layer for tracing that outputs to the oslog on macOS/iOS"
+documentation = "https://docs.rs/tracing-oslog"
+edition = "2021"
+keywords = ["tracing", "oslog", "os_log", "macos", "ios"]
+license = "Zlib"
+name = "tracing-oslog"
+readme = "README.md"
+repository = "https://github.com/Absolucy/tracing-oslog"
+rust-version = "1.77"
+version = "0.3.0"
+
+[package.metadata.docs.rs]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-apple-ios"]

@@ -1,0 +1,103 @@
+# Car Game 1.3.0: the game rebuilt in Rust on the Bevy engine.
+#
+# game/          the game: game/backEnd (rules and data) and game/frontEnd
+#                (what you see, hear and touch); main.rs starts it
+# packs/         the optional packs, each in its own folder with its code/
+#                and its own libs/
+# libs/          every library the game uses, stored here so a build never
+#                downloads anything (see .cargo/config.toml)
+# tools/         packaging, smoke tests and the install and update scripts
+# builds/        everything built: the program, and the downloads
+[workspace]
+resolver = "3"
+members = [".", "game", "packs/real_physics/code", "packs/photo_real/code", "packs/living_city/code"]
+# The packs' own libraries are libraries, not parts of the game.
+exclude = ["packs/living_city/libs"]
+
+# The program itself: starts Bevy with the game and every pack.
+[package]
+name = "car_game"
+description = "Car Game: a 3D driving game."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[[bin]]
+name = "car-game"
+path = "game/main.rs"
+
+[dependencies]
+bevy.workspace = true
+game.workspace = true
+real_physics.workspace = true
+photo_real.workspace = true
+living_city.workspace = true
+
+[workspace.package]
+version = "1.3.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[workspace.dependencies]
+# Only the 3D, UI and audio parts of Bevy (no 2D sprites).
+bevy = { version = "=0.20.1", default-features = false, features = ["3d", "ui", "audio"] }
+# Menus, the garage and the on-screen displays.
+bevy_egui = { version = "=0.43.1", default-features = false, features = ["default_fonts", "render"] }
+# Saves (the same JSON the 1.2.x game wrote), share codes and randomness.
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+base64 = "0.23.1"
+rand = "0.10.4"
+# Lettering painted onto textures (number plates, race numbers, banners).
+ab_glyph = "0.2.32"
+epaint_default_fonts = "0.36.2"
+# How much memory the computer has, to pick graphics settings that suit it.
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+# Where saves go on each computer.
+directories = "6.0.0"
+# Reads the 1.2.x app's saves (Chromium's LevelDB) to bring progress over.
+rusty-leveldb = "4.0.2"
+game = { path = "game" }
+real_physics = { path = "packs/real_physics/code" }
+photo_real = { path = "packs/photo_real/code" }
+living_city = { path = "packs/living_city/code" }
+
+# Fast enough to play while developing: our code lightly optimized, the
+# libraries fully optimized (they rarely change, so they build once).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# The downloads: as fast and as small as practical.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Libraries only one pack uses live in that pack's own libs/ folder.
+[patch.crates-io]
+bindgen = { path = "packs/living_city/libs/bindgen-0.72.1" }
+cexpr = { path = "packs/living_city/libs/cexpr-0.6.0" }
+clang-sys = { path = "packs/living_city/libs/clang-sys-1.9.1" }
+cmake = { path = "packs/living_city/libs/cmake-0.1.58" }
+enumflags2 = { path = "packs/living_city/libs/enumflags2-0.7.12" }
+enumflags2_derive = { path = "packs/living_city/libs/enumflags2_derive-0.7.12" }
+find_cuda_helper = { path = "packs/living_city/libs/find_cuda_helper-0.2.0" }
+itertools = { path = "packs/living_city/libs/itertools-0.13.0" }
+llama-cpp-2 = { path = "packs/living_city/libs/llama-cpp-2-0.1.161" }
+llama-cpp-sys-2 = { path = "packs/living_city/libs/llama-cpp-sys-2-0.1.161" }
+minimal-lexical = { path = "packs/living_city/libs/minimal-lexical-0.2.1" }
+nom = { path = "packs/living_city/libs/nom-7.1.3" }
+prettyplease = { path = "packs/living_city/libs/prettyplease-0.2.37" }
+regex = { path = "packs/living_city/libs/regex-1.13.2" }
+shlex = { path = "packs/living_city/libs/shlex-1.3.0" }

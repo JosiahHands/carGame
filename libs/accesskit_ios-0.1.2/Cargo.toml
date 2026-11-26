@@ -1,0 +1,46 @@
+[dependencies.accesskit]
+version = "0.24.1"
+
+[dependencies.accesskit_consumer]
+version = "0.38.0"
+
+[dependencies.hashbrown]
+default-features = false
+features = ["default-hasher"]
+version = "0.16"
+
+[dependencies.objc2]
+version = "0.5.1"
+
+[dependencies.objc2-foundation]
+features = ["NSArray", "NSAttributedString", "NSDictionary", "NSNotification", "NSString", "NSValue", "NSThread"]
+version = "0.2.0"
+
+[dependencies.objc2-ui-kit]
+features = ["UIAccessibility", "UIAccessibilityConstants", "UIAccessibilityContainer", "UIAccessibilityElement", "UIAccessibilityIdentification", "UIGeometry", "UIResponder", "UIScreen", "UIView", "UIViewController", "UIWindow"]
+version = "0.2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[package]
+authors = ["The AccessKit contributors"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["gui"]
+description = "AccessKit UI accessibility infrastructure: iOS adapter"
+edition = "2024"
+keywords = ["gui", "ui", "accessibility"]
+license = "MIT OR Apache-2.0"
+name = "accesskit_ios"
+readme = "README.md"
+repository = "https://github.com/AccessKit/accesskit"
+resolver = "2"
+rust-version = "1.85"
+version = "0.1.2"
+
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-ios"

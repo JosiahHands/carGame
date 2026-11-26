@@ -1,0 +1,97 @@
+[dependencies.bytes]
+default-features = false
+optional = true
+version = "1"
+
+[dependencies.defmt]
+optional = true
+version = "1.0.1"
+
+[dependencies.embedded-io]
+optional = true
+version = "0.7"
+
+[dependencies.hash32]
+version = "0.3.0"
+
+[dependencies.portable-atomic]
+optional = true
+version = "1.0"
+
+[dependencies.serde_core]
+default-features = false
+optional = true
+version = "1"
+
+[dependencies.ufmt]
+optional = true
+version = "0.2"
+
+[dependencies.ufmt-write]
+optional = true
+version = "0.1"
+
+[dependencies.zeroize]
+default-features = false
+features = ["derive"]
+optional = true
+version = "1.8"
+
+[dev-dependencies.critical-section]
+features = ["std"]
+version = "1.1"
+
+[dev-dependencies.static_assertions]
+version = "1.1.0"
+
+[dev-dependencies.zeroize]
+default-features = true
+version = "1.8"
+
+[features]
+alloc = []
+bytes = ["dep:bytes"]
+defmt = ["dep:defmt"]
+"embedded-io-v0.7" = ["dep:embedded-io"]
+mpmc_large = []
+nightly = []
+portable-atomic = ["dep:portable-atomic"]
+portable-atomic-critical-section = ["dep:portable-atomic", "portable-atomic", "portable-atomic?/critical-section"]
+portable-atomic-unsafe-assume-single-core = ["dep:portable-atomic", "portable-atomic", "portable-atomic?/unsafe-assume-single-core"]
+serde = ["dep:serde_core"]
+ufmt = ["dep:ufmt", "dep:ufmt-write"]
+zeroize = ["dep:zeroize"]
+
+[lib]
+path = "src/lib.rs"
+
+[lints.cargo]
+unused_dependencies = "allow"
+
+[package]
+authors = ["Jorge Aparicio <jorge@japaric.io>", "Per Lindgren <per.lindgren@ltu.se>", "Emil Fresk <emil.fresk@gmail.com>"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+categories = ["data-structures", "no-std"]
+description = "`static` friendly data structures that don't require dynamic memory allocation"
+documentation = "https://docs.rs/heapless"
+edition = "2021"
+keywords = ["static", "no-heap"]
+license = "MIT OR Apache-2.0"
+name = "heapless"
+readme = "README.md"
+repository = "https://github.com/rust-embedded/heapless"
+rust-version = "1.88"
+version = "0.9.4"
+
+[package.metadata.docs.rs]
+features = ["bytes", "embedded-io-v0.7", "ufmt", "zeroize", "serde", "defmt", "mpmc_large", "portable-atomic-critical-section", "alloc"]
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["i686-unknown-linux-gnu"]
+
+[target.'cfg(any(target_arch = "arm", target_pointer_width = "32", target_pointer_width = "64"))'.dependencies.stable_deref_trait]
+default-features = false
+version = "1"

@@ -1,0 +1,32 @@
+[features]
+webgl = ["wgpu-hal/gles"]
+
+[lib]
+path = "src/lib.rs"
+
+[lints.clippy]
+ref_as_ptr = "warn"
+
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[package]
+authors = ["gfx-rs developers"]
+autobenches = false
+autobins = false
+autoexamples = false
+autolib = false
+autotests = false
+description = "Feature unification helper crate for the WebAssembly platform"
+edition = "2021"
+homepage = "https://wgpu.rs/"
+keywords = ["graphics"]
+license = "MIT OR Apache-2.0"
+name = "wgpu-core-deps-wasm"
+readme = "README.md"
+repository = "https://github.com/gfx-rs/wgpu"
+rust-version = "1.76"
+version = "30.0.2"
+
+[target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies.wgpu-hal]
+version = "30.0.0"

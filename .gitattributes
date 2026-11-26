@@ -1,0 +1,6 @@
+# Stored libraries are kept byte for byte as published: cargo checks every
+# file in libs/ against its checksum, so git must never change their line
+# endings (Windows checkouts would otherwise). Hidden from diffs and GitHub's
+# language stats too.
+/libs/** -text -diff linguist-vendored
+/packs/*/libs/** -text -diff linguist-vendored

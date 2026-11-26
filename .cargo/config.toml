@@ -1,0 +1,17 @@
+# Every library the game uses is stored in libs/ (and the libraries only one
+# pack uses, in that pack's own libs/ folder: see [patch.crates-io] in
+# Cargo.toml), so building never downloads anything. To add or update a
+# library, see "Building the game" in the README.
+[source.crates-io]
+replace-with = "stored-libraries"
+
+[source.stored-libraries]
+directory = "libs"
+
+[net]
+offline = true
+
+# Everything built goes in builds/: the program in builds/release (or
+# builds/debug while developing), the downloads in builds/downloads.
+[build]
+target-dir = "builds"
