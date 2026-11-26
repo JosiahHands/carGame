@@ -184,7 +184,7 @@ export class PoliceCar {
       const az = player.z + player.vz * lead;
       const distance = Math.hypot(ax - p.x, az - p.z);
       const yours = Math.hypot(player.vx, player.vz);
-      // Straight at you if nothing's in the way; otherwise round the block, along the roads.
+      // Straight at you if nothing's in the way; otherwise around the block, along the roads.
       this.repath -= dt;
       if (this.repath <= 0) {
         this.repath = 0.8;
@@ -239,7 +239,7 @@ export class PoliceCar {
     } else if (waiting) {
       this.hold(input);
     } else if (Math.abs(angle) > 2 && speed < 6 && this.mode === 'chase') {
-      // You're behind: turn round (a three-point turn, the quick way).
+      // You're behind: turn around (a three-point turn, the quick way).
       input.throttle = 0.6;
       input.steer = Math.sign(angle);
       input.handbrake = speed > 3;

@@ -46,7 +46,7 @@ export function wearGrip(wear: number): number {
  *
  * Tuned so a tire settles about 25 °C over the air cruising, near its best
  * window driven hard, and around 120 °C sliding flat out (understeering
- * round a skidpad). The heat grows more slowly than the work, as the hot
+ * around a skidpad). The heat grows more slowly than the work, as the hot
  * rubber sheds more of it.
  */
 export function heatTire(t: number, slipPower: number, speed: number, ambient: number, dt: number): number {

@@ -134,7 +134,7 @@ export class Body {
         part(new THREE.SphereGeometry(r * 1.03, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.38), hair, this.head, 0, y, -0.01);
         break;
       case 'bald':
-        // A fringe round the back and sides.
+        // A fringe around the back and sides.
         part(new THREE.TorusGeometry(r * 0.92, 0.035, 6, 20, Math.PI * 1.2), hair, this.head, 0, y - 0.01, -0.01).rotation.set(Math.PI / 2, 0, -Math.PI * 0.1 + Math.PI);
         break;
     }

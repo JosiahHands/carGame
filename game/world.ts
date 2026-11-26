@@ -1,6 +1,6 @@
 // The drivable world: the city, or one of the race track venues (see
 // venues.ts for the list, and how each one looks). The city is a grid of streets
-// with buildings, parks, a car park and a stunt park. The race tracks
+// with buildings, parks, a parking lot and a stunt park. The race tracks
 // themselves (road, curbs, banking, barriers) come from raceTrack.ts; this file
 // puts them on the map and dresses them up with grandstands, a paddock, trees,
 // rocks, buildings, floodlights and weather.
@@ -29,7 +29,7 @@ export interface Course {
   radius: number;
 }
 
-/** The city's lap, through glowing arches round the streets. The last arch is the finish line. */
+/** The city's lap, through glowing arches around the streets. The last arch is the finish line. */
 const CITY_COURSE: Course = {
   checkpoints: [
     { x: 0, z: 120 },
@@ -214,7 +214,7 @@ export class World {
   /** Which track at this venue: 0 is the main one, others are generated (see venues.ts). */
   layout = 0;
   venue: Venue = venue('city');
-  /** The map spans -half..half on x and z, with a wall all the way round. */
+  /** The map spans -half..half on x and z, with a wall all the way around. */
   half = HALF_SIZE;
   /** The race track, on the circuit and speedway maps. */
   track: RaceTrack | null = null;
@@ -472,12 +472,12 @@ export class World {
 
   private buildBlocks(): void {
     const centers = ROAD_LINES.slice(0, -1).map((c) => c + 40);
-    const pavement = concreteTexture();
+    const sidewalk = concreteTexture();
     const trees: THREE.Vector3[] = [];
     for (const bx of centers) {
       for (const bz of centers) {
         const inner = 80 - ROAD_WIDTH; // 68 m square between the roads
-        const t = pavement.clone();
+        const t = sidewalk.clone();
         t.repeat.set(inner / 4, inner / 4);
         t.needsUpdate = true;
         const slab = new THREE.Mesh(
@@ -500,7 +500,7 @@ export class World {
         this.blocks.push({ x: bx, z: bz, kind });
 
         if (kind === 'park') {
-          // Grass park ringed by pavement, full of trees.
+          // Grass park ringed by sidewalk, full of trees.
           const grass = new THREE.Mesh(
             new THREE.PlaneGeometry(inner - 8, inner - 8),
             new THREE.MeshStandardMaterial({ color: 0x5b8f43, roughness: 1 }),
@@ -524,7 +524,7 @@ export class World {
           }
         } else if (kind === 'lot') {
           this.group.add(slab);
-          this.buildCarPark(bx, bz);
+          this.buildParkingLot(bx, bz);
         } else {
           this.group.add(slab);
           this.buildStuntPark(bx, bz);
@@ -639,7 +639,7 @@ export class World {
     this.group.add(trunks, leaves);
   }
 
-  private buildCarPark(bx: number, bz: number): void {
+  private buildParkingLot(bx: number, bz: number): void {
     const lineMat = new THREE.MeshBasicMaterial({ color: 0xf0f0f0 });
     const asphalt = new THREE.Mesh(
       new THREE.PlaneGeometry(60, 60),
@@ -751,13 +751,13 @@ export class World {
     const track = new RaceTrack(path.map((p) => ({ x: p.x - cx, z: p.z - cz })), style);
     this.track = track;
     const reach = Math.max(...track.points.map((p) => Math.max(Math.abs(p.x), Math.abs(p.z))));
-    this.half = Math.ceil(reach + 110); // room round the outside for grandstands and trees
+    this.half = Math.ceil(reach + 110); // room around the outside for grandstands and trees
     this.buildGround();
     this.group.add(track.buildMeshes());
     this.walls.push(...track.walls());
     this.addGantry(track);
 
-    // The lap: arches spaced round the track, the last one on the start line.
+    // The lap: arches spaced around the track, the last one on the start line.
     const count = Math.max(6, Math.round(track.length / 320));
     const checkpoints = [];
     for (let k = 1; k <= count; k++) {
@@ -792,7 +792,7 @@ export class World {
     for (let i = 0; i < 22; i++) this.addParkedCar(start.x - 150 + i * 14, pz - 34, Math.PI / 2);
     for (let i = 0; i < 22; i++) if (this.rand() < 0.7) this.addParkedCar(start.x - 150 + i * 14, pz - 90, -Math.PI / 2);
 
-    // Floodlights round the outside of the track.
+    // Floodlights around the outside of the track.
     const lights: THREE.Vector3[] = [];
     for (let along = 60; along < track.length; along += 140) {
       const p = track.pose(along, -(wall + 5));
@@ -925,7 +925,7 @@ export class World {
     this.group.add(mesh);
   }
 
-  /** Office blocks packed round a street circuit, wherever there's room. They can be destroyed, like the city's. */
+  /** Office blocks packed around a street circuit, wherever there's room. They can be destroyed, like the city's. */
   private addCityBlocks(count: number): void {
     let placed = 0;
     for (let tries = 0; placed < count && tries < count * 30; tries++) {
@@ -1064,7 +1064,7 @@ export class World {
     stand.add(bodies, heads);
     this.group.add(stand);
 
-    // Solid all round, so a car that jumps the barrier crashes into it.
+    // Solid all around, so a car that jumps the barrier crashes into it.
     const corner = (lx: number, lz: number) => new THREE.Vector3(lx, 0, lz).applyAxisAngle(new THREE.Vector3(0, 1, 0), facing).add(stand.position);
     const corners = [corner(-length / 2, 0), corner(length / 2, 0), corner(length / 2, depth + 0.4), corner(-length / 2, depth + 0.4)];
     for (let i = 0; i < 4; i++) {
@@ -1219,7 +1219,7 @@ export class World {
     this.scene.add(this.weather);
   }
 
-  /** Lets the rain or snow fall, keeping it in a box round (x, z) so it always surrounds the car. */
+  /** Lets the rain or snow fall, keeping it in a box around (x, z) so it always surrounds the car. */
   private updateWeather(dt: number, x: number, z: number): void {
     if (!this.weather) return;
     const attr = this.weather.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -1232,7 +1232,7 @@ export class World {
       const a = i * perDrop * 3; // the drop's first point
       let dy = -fall;
       if (p[a + 1] - fall < 0) dy += WEATHER_HEIGHT; // fell out of the bottom: back to the top
-      // Wrapped round the box, so drops left behind reappear ahead of the car.
+      // Wrapped around the box, so drops left behind reappear ahead of the car.
       const dx = p[a] - x > half ? -WEATHER_BOX : p[a] - x < -half ? WEATHER_BOX : 0;
       const dz = p[a + 2] - z > half ? -WEATHER_BOX : p[a + 2] - z < -half ? WEATHER_BOX : 0;
       for (let k = 0; k < perDrop; k++) {
@@ -1272,7 +1272,7 @@ export class World {
   }
 
   /**
-   * How much grip the tires have at (x, z), compared to dry tarmac: less in
+   * How much grip the tires have at (x, z), compared to dry asphalt: less in
    * the rain and snow, and less again on grass.
    */
   gripAt(x: number, z: number): number {
@@ -1280,7 +1280,7 @@ export class World {
     return this.offRoad(x, z) ? weather * 0.75 : weather;
   }
 
-  /** Whether (x, z) is grass that slows the car down: anywhere off the tarmac on the race tracks. */
+  /** Whether (x, z) is grass that slows the car down: anywhere off the asphalt on the race tracks. */
   offRoad(x: number, z: number): boolean {
     if (!this.track || this.track.isPaved(x, z)) return false;
     return !this.pavedAreas.some((a) => x > a.minX && x < a.maxX && z > a.minZ && z < a.maxZ);

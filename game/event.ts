@@ -1,6 +1,6 @@
 // One event: a race against rivals, or a challenge against the clock. It
 // places the cars, counts down, runs the rivals, keeps track of everyone's
-// progress round the lap, and works out the result and stars at the end.
+// progress around the lap, and works out the result and stars at the end.
 //
 // The kinds of event:
 //   race         Most laps first. Stars for 1st, 2nd and 3rd.
@@ -124,10 +124,10 @@ interface Racer {
   name: string;
   physics: CarPhysics;
   rival: Rival | null;
-  /** Meters round the lap (0..length) the last time it was on the track. */
+  /** Meters around the lap (0..length) the last time it was on the track. */
   along: number;
   offset: number;
-  /** Meters driven round the track since the start line; starts negative on the grid. */
+  /** Meters driven around the track since the start line; starts negative on the grid. */
   distance: number;
   /** Seconds since GO when it finished, or null. */
   finished: number | null;
@@ -170,7 +170,7 @@ export class EventRun {
   unbankedDrift = 0;
   /** Seconds of the jump going on now: they still count in a stunt show if the time runs out mid-air. */
   unbankedAir = 0;
-  /** The furthest the player has got (meters round the track): each speed camera counts once per lap. */
+  /** The furthest the player has got (meters around the track): each speed camera counts once per lap. */
   private trapMark = -Infinity;
   readonly track: RaceTrack | null;
   readonly racers: Racer[] = [];
@@ -275,7 +275,7 @@ export class EventRun {
   }
 
   /**
-   * Drives a steady pace car round the track, unseen, to set the targets:
+   * Drives a steady pace car around the track, unseen, to set the targets:
    * its time for a time attack and its speeds through the cameras for a speed
    * trap. 3 stars needs the pace car's result; 2 and 1 stars a little less.
    */
@@ -475,9 +475,9 @@ export class EventRun {
   }
 
   /**
-   * Moves a car's place round the lap on. Progress only counts on the road
+   * Moves a car's place around the lap on. Progress only counts on the road
    * (or just off it): a car out on the grass, or on another part of the track
-   * (a big jump round the lap), is off course, and progress only carries on
+   * (a big jump around the lap), is off course, and progress only carries on
    * once it's back where it left.
    */
   private updateProgress(r: Racer, dt: number): void {

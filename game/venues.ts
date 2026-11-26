@@ -21,9 +21,9 @@ export interface Theme {
   /** Always night here (the neon city). */
   night: boolean;
   weather: 'clear' | 'rain' | 'snow';
-  /** How grippy the road is: 1 is dry tarmac; rain and snow are slippery. */
+  /** How grippy the road is: 1 is dry asphalt; rain and snow are slippery. */
   grip: number;
-  /** Extra things round the track. */
+  /** Extra things around the track. */
   scenery: 'paddock' | 'mesas' | 'mountains' | 'city' | 'woods';
   /** Lap names for the start gantry's banner. */
   banner: string;
@@ -88,7 +88,7 @@ export const VENUES: Venue[] = [
   {
     value: 'city',
     label: 'City',
-    about: 'Streets, parks, a car park and a stunt park, all destroyable.',
+    about: 'Streets, parks, a parking lot and a stunt park, all destroyable.',
     theme: { ...DAY, scenery: 'city' },
   },
   {

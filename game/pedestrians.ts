@@ -1,4 +1,4 @@
-// People walking round the city's pavements in free roam. They stroll round
+// People walking around the city's sidewalks in free roam. They stroll around
 // the blocks, leap out of the way of cars (always in time: nobody gets hurt),
 // run from explosions, and cheer big jumps and fast passes.
 //
@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { ROAD_LINES, type World } from './world';
 
 const PER_BLOCK = 3;
-/** The pavement loop round each block: this far from the block's center (the road edge is 34 m out). */
+/** The sidewalk loop around each block: this far from the block's center (the road edge is 34 m out). */
 const LOOP = 32;
 const SIDE = LOOP * 2;
 const PERIMETER = SIDE * 4;
@@ -19,11 +19,11 @@ const SHIRTS = [0xd7263d, 0x1b98e0, 0x3bb273, 0xf46036, 0xffd23f, 0x7b2cbf, 0xff
 const TROUSERS = [0x2b3a55, 0x3a3a3a, 0x6b4f3a, 0x1d3557, 0x8a8f99, 0x4a5d23];
 
 interface Person {
-  /** The center of the block they walk round, and where they are on its loop (meters). */
+  /** The center of the block they walk around, and where they are on its loop (meters). */
   bx: number;
   bz: number;
   along: number;
-  /** +1 walks one way round, -1 the other. */
+  /** +1 walks one way around, -1 the other. */
   way: number;
   pace: number;
   /** Walk cycle, for swinging arms and legs. */
@@ -73,7 +73,7 @@ export class Pedestrians {
     return [this.legs, this.arms, this.bodies, this.heads];
   }
 
-  /** Puts people on the pavements (city only). */
+  /** Puts people on the sidewalks (city only). */
   load(world: World, on: boolean): void {
     this.people = [];
     if (on && world.map === 'city') {
@@ -124,7 +124,7 @@ export class Pedestrians {
       const at = this.loopPoint(p);
       if (Math.hypot(at.x + p.off.x - x, at.z + p.off.z - z) > radius) continue;
       p.fleeing = 3 + Math.random() * 2;
-      // Run whichever way round the loop takes them away from it.
+      // Run whichever way around the loop takes them away from it.
       p.way = (at.dx * (at.x - x) + at.dz * (at.z - z)) >= 0 ? 1 : -1;
     }
   }
@@ -199,7 +199,7 @@ export class Pedestrians {
           p.lean = away;
         }
       }
-      // Flying through the air from a dodge, then walking back to the pavement.
+      // Flying through the air from a dodge, then walking back to the sidewalk.
       if (p.off.y > 0 || p.vel.y > 0) {
         p.vel.y -= GRAVITY * dt;
         p.off.addScaledVector(p.vel, dt);
@@ -208,7 +208,7 @@ export class Pedestrians {
           p.vel.set(0, 0, 0);
         }
       } else if (p.dodging <= 0 && !blocked) {
-        p.off.multiplyScalar(Math.exp(-dt * 1.5)); // back onto the pavement
+        p.off.multiplyScalar(Math.exp(-dt * 1.5)); // back onto the sidewalk
       }
       x = at.x + p.off.x;
       z = at.z + p.off.z;
@@ -217,7 +217,7 @@ export class Pedestrians {
     for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
   }
 
-  /** Where on the loop round the block, and the direction of the loop there. */
+  /** Where on the loop around the block, and the direction of the loop there. */
   private loopPoint(p: Person): { x: number; z: number; dx: number; dz: number } {
     const side = Math.floor(p.along / SIDE);
     const t = p.along - side * SIDE - LOOP;

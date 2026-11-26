@@ -1,7 +1,7 @@
 // Real car models. Each body type gets a detailed car body (models/cars.glb:
 // six cars by Daniel Zhabotinsky, CC BY 4.0, see models/CREDITS.md) with
 // every badge and logo taken off. The body is stretched to the car's garage
-// shape and sits round the game's own wheels, so the garage still decides
+// shape and sits around the game's own wheels, so the garage still decides
 // the paint (and finish, pattern and stripes), window tint, length, width,
 // height, lift, wheels, rims, track and every add-on.
 //
@@ -316,7 +316,7 @@ function fitModel(rig: CarRig, lib: Library): void {
   near.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
   const solid = meshes.filter((m) => m.material !== glass);
 
-  // Racing stripes over the bonnet, roof and boot (not over the windows).
+  // Racing stripes over the hood, roof and trunk (not over the windows).
   const stripe = parts.find((p) => p.name === 'shell-stripe');
   if (stripe) {
     for (const side of [-1, 1]) {
@@ -327,7 +327,7 @@ function fitModel(rig: CarRig, lib: Library): void {
     }
   }
 
-  // Number plates onto the bumpers.
+  // License plates onto the bumpers.
   const ray = new THREE.Raycaster();
   fastRays(solid);
   for (const plate of parts) {

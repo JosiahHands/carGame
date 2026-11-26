@@ -16,7 +16,7 @@ import { BEVEL, type CarRig, type CarShape } from '../../game/carModel';
 import { seatExhausts, unseatExhausts, type Moved } from './exhausts';
 import { fastRays } from './fastRays';
 
-/** Smooth height of the body's top outline (bonnet, roof line of the lower body, boot) at any z. */
+/** Smooth height of the body's top outline (hood, roof line of the lower body, trunk) at any z. */
 function topLine(shape: CarShape): (z: number) => number {
   // The outline's first and last points are the bottoms of the bumpers; the rest is the top.
   const points = shape.spec.top.slice(1, -1).map(([z, y]) => new THREE.Vector2(z, y));
@@ -144,8 +144,8 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
   }
   const stations = [...zs].filter((z) => z >= rearZ && z <= frontZ).sort((a, b) => a - b);
 
-  const lower = quarter(7, 7); // bottom middle round to the side (quite square)
-  const upper = quarter(5, 9); // side round to the top middle
+  const lower = quarter(7, 7); // bottom middle around to the side (quite square)
+  const upper = quarter(5, 9); // side around to the top middle
   const rings: { z: number; points: Pt[] }[] = [];
   const archRow: number[] = []; // which segment is the ledge over the wheel, per station (-1 if none)
 
@@ -159,7 +159,7 @@ function buildShell(shape: CarShape, materials: Record<Paint, THREE.Material>): 
     const inArch = arch > yb + 0.02;
     const edgeY = inArch ? Math.min(arch, yS - 0.01) : yb + (yS - yb) * 0.3;
 
-    // Right half, from the bottom middle up: under the car, round the sill, up the side...
+    // Right half, from the bottom middle up: under the car, around the sill, up the side...
     const half: Pt[] = [];
     for (let i = lower.length - 1; i >= 0; i--) {
       const { c, s } = lower[i];
@@ -257,11 +257,11 @@ function buildCabin(shape: CarShape, top: (z: number) => number, materials: Reco
   const segments = arc.length - 1; // per side
   const pick = (k: number, j: number): Paint => {
     const z = (stations[k] + stations[k + 1]) / 2;
-    // Distance round from the window's bottom edge: 0 at the bottom, `segments` at the top middle.
+    // Distance around from the window's bottom edge: 0 at the bottom, `segments` at the top middle.
     const from = j < segments ? j : 2 * segments - 1 - j;
     const zone = z < c1[0] ? 'rear' : z > c2[0] ? 'screen' : 'roof';
-    if (from >= 8) return zone === 'roof' ? 'paint' : 'glass'; // the top: roof, or windscreen and rear window
-    if (from >= (zone === 'rear' ? 7 : 6)) return 'paint'; // pillars and roof rails (slimmer round the rear window)
+    if (from >= 8) return zone === 'roof' ? 'paint' : 'glass'; // the top: roof, or windshield and rear window
+    if (from >= (zone === 'rear' ? 7 : 6)) return 'paint'; // pillars and roof rails (slimmer around the rear window)
     if (from === 0) return 'trim'; // the rubber seal along the bottom of the windows
     if (pillars.some((p) => Math.abs(z - p) < 0.05)) return 'paint';
     return 'glass';
@@ -337,7 +337,7 @@ export function sculptCar(rig: CarRig): void {
       stripe.visible = false;
       undo.hidden.push(stripe);
     }
-    // Over the bonnet, roof and boot (not the glass).
+    // Over the hood, roof and trunk (not the glass).
     const [, roofRear, roofFront] = spec.cabin;
     const surfaces = (z: number) => (z > roofRear[0] + 0.03 && z < roofFront[0] - 0.03 ? [shell.mesh, cabin.outside] : [shell.mesh]);
     for (const side of [-1, 1]) add(stripeStrip(shape, surfaces, side * 0.2, 0.22, accent));
@@ -441,7 +441,7 @@ export function sculptCar(rig: CarRig): void {
 function tireGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
   const w = width / 2;
   const rim = radius * rimShare;
-  // The tire's cross-section, from the inner bead round the tread to the outer bead.
+  // The tire's cross-section, from the inner bead around the tread to the outer bead.
   const profile = [
     [rim * 1.01, -w * 0.92],
     [radius * 0.86, -w],
@@ -455,7 +455,7 @@ function tireGeometry(radius: number, width: number, rimShare: number): THREE.Bu
     [rim * 1.01, w * 0.92],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const geometry = new THREE.LatheGeometry(profile, 40);
-  // Lathe turns round y; the game's tires turn round y too before being laid on their side.
+  // Lathe turns around y; the game's tires turn around y too before being laid on their side.
   geometry.computeVertexNormals();
   return geometry;
 }

@@ -79,7 +79,7 @@ export class SkySystem {
       const u = (sky.material as THREE.ShaderMaterial).uniforms;
       u.turbidity.value = weather.turbidity;
       u.rayleigh.value = weather.rayleigh;
-      // A small, tight glow round the sun (a big one washes out half the sky).
+      // A small, tight glow around the sun (a big one washes out half the sky).
       u.mieCoefficient.value = 0.003;
       u.mieDirectionalG.value = weather.clouds > 0.7 ? 0.55 : 0.75;
       u.exposure.value = weather.exposure;

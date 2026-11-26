@@ -12,11 +12,11 @@ import { ROAD_LINES, type CarTarget, type World } from '../../game/world';
 
 const LANE = 3; // meters from a road's center line to the middle of its right-hand lane
 const CURB = 4.6; // where cars park: by the right-hand curb
-const PAVEMENT = 7.5; // where people stand to get in: on the pavement beside the car
+const SIDEWALK = 7.5; // where people stand to get in: on the sidewalk beside the car
 const LOW = ROAD_LINES[0];
 const HIGH = ROAD_LINES[ROAD_LINES.length - 1];
 const CRUISE = 12; // m/s
-const TURN = 6; // m/s round a corner
+const TURN = 6; // m/s around a corner
 
 /** A point the car drives through, and how fast it can take it. */
 export interface Waypoint {
@@ -77,7 +77,7 @@ export function parkingNear(x: number, z: number): { x: number; z: number; headi
   const k = curbNear(x, z);
   const p = curbPoint(k, CURB);
   const d = curbDirection(k);
-  return { ...p, heading: Math.atan2(d.fx, d.fz), door: curbPoint(k, PAVEMENT) };
+  return { ...p, heading: Math.atan2(d.fx, d.fz), door: curbPoint(k, SIDEWALK) };
 }
 
 /**

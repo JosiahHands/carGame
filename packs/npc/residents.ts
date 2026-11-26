@@ -82,7 +82,7 @@ export function makeResidents(taken: string[]): CastMember[] {
   const people: CastMember[] = [];
   for (let i = 0; i < RESIDENTS && i < names.length; i++) {
     const name = names[i];
-    // Spread the jobs round the places, with a few people of no fixed job.
+    // Spread the jobs around the places, with a few people of no fixed job.
     const work = JOBS[i % JOBS.length];
     const role = pick(work.roles);
     const trait = () => Math.round((0.1 + random() * 0.85) * 100) / 100;

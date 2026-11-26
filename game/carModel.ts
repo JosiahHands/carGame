@@ -103,7 +103,7 @@ const BODIES: Record<BodyShape, BodySpec> = {
     headlight: [2.38, 0.82],
     taillight: [-2.42, 0.9],
   },
-  // A low, wide supercar wedge with a steeply raked windscreen.
+  // A low, wide supercar wedge with a steeply raked windshield.
   wedge: {
     width: 1.98,
     top: [[-2.25, 0.3], [-2.27, 0.78], [-1.6, 0.84], [-0.6, 0.86], [1.0, 0.74], [2.1, 0.48], [2.3, 0.34], [2.32, 0.26]],
@@ -174,7 +174,7 @@ export interface CarRig {
   width: number;
   height: number;
   wheelBase: number;
-  /** Driver's eye height above the ground, for the bonnet camera. */
+  /** Driver's eye height above the ground, for the hood camera. */
   eyeHeight: number;
   /** The exhaust tips, where nitro flames and boost trails come out. */
   exhausts: THREE.Object3D[];
@@ -236,7 +236,7 @@ function paintMaterial(color: string, finish: PaintFinish, carbonMap: THREE.Text
 
 /**
  * Texture coordinates for an extruded body side: the (z, y) position in
- * meters, as if looking at the car side on. The roof and bonnet get the top
+ * meters, as if looking at the car side on. The roof and hood get the top
  * row of the pattern. Used to lay paint patterns over the body.
  */
 const SIDE_ON_UVS = {
@@ -794,7 +794,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
     const ammo = add(new THREE.BoxGeometry(0.14, 0.12, 0.2), partMat.accent);
     ammo.position.set(0.47, roofTop + 0.12, roofMid - 0.05);
   } else {
-    // No machine gun on the roof: it fires from just above the bonnet.
+    // No machine gun on the roof: it fires from just above the hood.
     gunMuzzle.set(0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
   }
   if (roofPod && gunMetal) {
@@ -812,7 +812,7 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
       }
     }
   } else {
-    // No rocket pod on the roof: rockets fire from just above the bonnet.
+    // No rocket pod on the roof: rockets fire from just above the hood.
     rocketMuzzle.set(-0.3, body.position.y + spec.headlight[1] + 0.2, frontZ + 0.1);
   }
 

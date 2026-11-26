@@ -212,7 +212,7 @@ export function relaxSuspension(s: SuspensionState, sp: SuspensionSpecs, dt: num
 
 /**
  * Small bumps in the road surface under a point, m: a fixed pattern (the same
- * every time you drive over the same spot), rougher off the tarmac.
+ * every time you drive over the same spot), rougher off the asphalt.
  */
 export function roughness(x: number, z: number, amplitude: number): number {
   if (amplitude <= 0) return 0;

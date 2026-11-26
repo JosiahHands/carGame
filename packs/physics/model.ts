@@ -194,7 +194,7 @@ export interface Specs {
   wheelY: number[];
 }
 
-const ROLLING = 0.013; // rolling resistance on tarmac (Bosch)
+const ROLLING = 0.013; // rolling resistance on asphalt (Bosch)
 const GRASS_ROLLING = 0.09;
 const DRIVELINE = 0.88; // share of engine power that reaches the wheels
 /** Share of the downforce on the front axle (a little more on the back keeps a car stable at speed). */

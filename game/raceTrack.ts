@@ -3,11 +3,11 @@
 // The track is a center line sampled every few meters. Each sample knows which
 // way the road runs, how sharply it turns and how much it is banked. From
 // that, the track can answer "how high is the road here?" and "is this on the
-// tarmac?", give the barrier walls for the car to bump into, and build its own
+// asphalt?", give the barrier walls for the car to bump into, and build its own
 // meshes: road, curbs, start line, barriers and catch fence.
 //
 // Positions across the road are given as an offset from the center line, in
-// meters, with positive offsets to the left (as seen driving round the track).
+// meters, with positive offsets to the left (as seen driving around the track).
 //
 // Tracks are drawn like a turtle drawing: straights and corners in turn (see
 // drawTrack). generateLayout makes new ones from a seed number, so there can be
@@ -247,7 +247,7 @@ export class RaceTrack {
     return this.surfaceHeight(near.bank, near.offset);
   }
 
-  /** Whether (x, z) is on the road, its curbs or other tarmac, rather than on grass. */
+  /** Whether (x, z) is on the road, its curbs or other asphalt, rather than on grass. */
   isPaved(x: number, z: number): boolean {
     const near = this.nearest(x, z);
     if (!near) return false;
@@ -270,7 +270,7 @@ export class RaceTrack {
     return near ? { along: near.along, offset: near.offset } : null;
   }
 
-  /** The sample at `along` meters from the start line (wrapping round the lap). */
+  /** The sample at `along` meters from the start line (wrapping around the lap). */
   pointAt(along: number): TrackPoint {
     const n = this.points.length;
     const i = Math.floor((((along % this.length) + this.length) % this.length) / this.length * n) % n;
@@ -334,14 +334,14 @@ export class RaceTrack {
     const s = this.style;
     const edge = s.width / 2;
     const n = this.points.length;
-    const all = Array.from({ length: n + 1 }, (_, i) => i % n); // every sample, back round to the first
+    const all = Array.from({ length: n + 1 }, (_, i) => i % n); // every sample, back around to the first
 
     // The road, with white lines along both edges.
     const road = trackTexture();
     group.add(this.ribbon(all, -edge, edge, 0.03, new THREE.MeshStandardMaterial({ map: road, roughness: 0.85 }), 10));
 
     // Speedway apron: a lighter flat strip along the inside, and a strip of
-    // tarmac between the road and the outside wall.
+    // asphalt between the road and the outside wall.
     const paved = new THREE.MeshStandardMaterial({ color: 0x55575c, roughness: 0.9 });
     if (s.apron > 0) group.add(this.ribbon(all, this.inside * edge, this.inside * (edge + s.apron), 0.025, paved));
     if (s.fence > 0) group.add(this.ribbon(all, -this.inside * edge, -this.inside * (edge + s.outsideRunoff), 0.025, paved));
@@ -665,7 +665,7 @@ function endOf(steps: TrackStep[]): { x: number; z: number } {
       const [degrees, radius] = step;
       const turn = (degrees * Math.PI) / 180;
       const side = Math.sign(turn);
-      // Round the corner's center, from the old heading to the new one.
+      // Around the corner's center, from the old heading to the new one.
       const cx = x + side * radius * Math.cos(heading);
       const cz = z - side * radius * Math.sin(heading);
       heading += turn;
@@ -680,7 +680,7 @@ function endOf(steps: TrackStep[]): { x: number; z: number } {
  * Whether a closed loop of points (about 2 m apart) keeps different parts of
  * itself at least `clearance` meters apart. Points close together along the
  * loop are allowed to be close, of course; only parts more than a long way
- * round the loop from each other are checked.
+ * around the loop from each other are checked.
  */
 function isClearOfItself(points: { x: number; z: number }[], clearance: number): boolean {
   const step = 4; // check every 4th point: about 8 m apart
@@ -690,7 +690,7 @@ function isClearOfItself(points: { x: number; z: number }[], clearance: number):
   const apart = Math.ceil((Math.max(clearance * 2.4, 140) / 2) / step);
   for (let i = 0; i < n; i++) {
     for (let j = i + apart; j < n; j++) {
-      if (n - (j - i) < apart) continue; // close together the other way round the loop
+      if (n - (j - i) < apart) continue; // close together the other way around the loop
       if ((pts[i].x - pts[j].x) ** 2 + (pts[i].z - pts[j].z) ** 2 < clearance * clearance) return false;
     }
   }
@@ -727,7 +727,7 @@ function runsOf(flags: boolean[]): number[][] {
 
 // ---------- textures ----------
 
-/** Race track tarmac running along V, with a white line down each edge. */
+/** Race track asphalt running along V, with a white line down each edge. */
 function trackTexture(): THREE.CanvasTexture {
   const rand = seededRandom(21);
   return canvasTexture(256, 256, (ctx) => {

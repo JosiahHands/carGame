@@ -171,7 +171,7 @@ export class GarageUI {
         number('Height', 'height', 0.05, times);
         this.hint('Big enough (about 10 ft tall or more) and the car flattens buildings, cars, lamps and trees in its way.');
         this.heading('Plates and numbers');
-        this.text('Number plate', 8, () => c.plate, (v) => ((c.plate = cleanPlate(v)), look()), cleanPlate);
+        this.text('License plate', 8, () => c.plate, (v) => ((c.plate = cleanPlate(v)), look()), cleanPlate);
         number('Race number', 'raceNumber', 1, (v) => (v === 0 ? 'None' : `#${v}`));
         break;
       case 'Paint':

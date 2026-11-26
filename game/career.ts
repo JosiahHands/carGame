@@ -107,7 +107,7 @@ export type WeaponId = 'gun' | 'rockets' | 'shockwave';
 export const WEAPON_SHOP: { id: WeaponId; name: string; about: string; icon: string; price: number; unlock: number }[] = [
   { id: 'gun', name: 'Machine gun', about: 'Fast shots from the roof. Overheats if you hold the trigger too long.', icon: '🔫', price: 800, unlock: 6 },
   { id: 'rockets', name: 'Rocket pod', about: 'Rockets that blow up everything near where they land.', icon: '🚀', price: 3500, unlock: 11 },
-  { id: 'shockwave', name: 'Shockwave', about: 'A blast all round the car, then a few seconds to recharge.', icon: '💥', price: 10000, unlock: 31 },
+  { id: 'shockwave', name: 'Shockwave', about: 'A blast all around the car, then a few seconds to recharge.', icon: '💥', price: 10000, unlock: 31 },
 ];
 
 /** What each weapon upgrade does. */

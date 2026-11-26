@@ -22,11 +22,11 @@ checked against its Sketchfab page.
 
 ## Changes made
 
-- All badges, name plates and number plates were removed (the game draws its own
+- All badges, name plates and license plates were removed (the game draws its own
   plates), and a small emblem printed in the van's interior was painted over.
 - The wheels, brakes, spoiler, roll cage and bull bar were removed: the game
   draws these itself from the garage settings.
-- Parts hidden under the bonnet (engine) were removed.
+- Parts hidden under the hood (engine) were removed.
 - Each body was turned to face forward, centered between its axles and scaled to meters.
 - The paint, windows and lamps were given standard names so the game can
   recolor the paint, tint the windows and light the lamps. The hatchback's

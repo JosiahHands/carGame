@@ -401,7 +401,7 @@ function short(text: string): string {
   return words.length <= 20 ? words.join(' ') : words.slice(0, 20).join(' ').replace(/[,;:]$/, '') + '…';
 }
 
-/** Takes off quote marks wrapped round a whole sentence. */
+/** Takes off quote marks wrapped around a whole sentence. */
 function unquote(text: string): string {
   return text.trim().replace(/^["“'](.*)["”']$/s, '$1').trim();
 }

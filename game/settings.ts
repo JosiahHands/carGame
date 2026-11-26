@@ -31,9 +31,9 @@ export interface Settings {
   announcer: boolean;
   /** Streaks at the edge of the screen at high speed. */
   speedLines: boolean;
-  /** How many cars drive round the city in free roam. */
+  /** How many cars drive around the city in free roam. */
   traffic: 'off' | 'light' | 'normal' | 'busy';
-  /** People walking on the city's pavements in free roam. */
+  /** People walking on the city's sidewalks in free roam. */
   pedestrians: boolean;
 }
 

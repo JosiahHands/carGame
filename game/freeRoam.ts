@@ -89,7 +89,7 @@ export class FreeRoam {
     const half = track.style.width / 2;
     const wrenches: THREE.Vector3[] = [];
     for (let i = 0; i < 8; i++) {
-      // Spread round the lap, at different places across the road; every
+      // Spread around the lap, at different places across the road; every
       // other one just off the edge.
       const along = ((i + 0.3 + rand() * 0.4) / 8) * track.length;
       const offset = i % 2 === 0 ? (rand() - 0.5) * track.style.width * 0.7 : (rand() < 0.5 ? -1 : 1) * (half + 2.5);
@@ -113,7 +113,7 @@ export class FreeRoam {
     const fast = world.map === 'oval';
     straights.slice(0, 2).forEach((s, k) => {
       const p = track.points[s.end];
-      // Longer straights have higher targets. The speedway is flat out all the way round.
+      // Longer straights have higher targets. The speedway is flat out all the way around.
       const top = fast ? 1 : Math.min(1.25, 0.8 + (s.length * 4) / 1200);
       const base = fast ? [110, 145, 180] : [70, 95, 125];
       zones.push({ id: `${world.map}:speed${k}`, kind: 'speed', name: `${k === 0 ? 'Main' : 'Back'} straight camera`, x: p.x, z: p.z, radius: half + 3, targets: base.map((v) => Math.round((v * top) / 5) * 5) as [number, number, number] });
@@ -171,7 +171,7 @@ export class FreeRoam {
     const zones: Zone[] = [
       { id: 'city:speed0', kind: 'speed', name: 'Downtown camera', x: ROAD_LINES[3], z: 200, radius: 7, targets: [60, 80, 100] },
       { id: 'city:speed1', kind: 'speed', name: 'Crosstown camera', x: -200, z: ROAD_LINES[3], radius: 7, targets: [60, 80, 100] },
-      { id: 'city:drift', kind: 'drift', name: 'Car park drift zone', x: lot?.x ?? 40, z: lot?.z ?? -40, radius: 45, targets: [1500, 4000, 8000] },
+      { id: 'city:drift', kind: 'drift', name: 'Parking lot drift zone', x: lot?.x ?? 40, z: lot?.z ?? -40, radius: 45, targets: [1500, 4000, 8000] },
     ];
     if (stunt) zones.push({ id: 'city:jump', kind: 'jump', name: 'Stunt park', x: stunt.x, z: stunt.z, radius: 42, targets: [1.2, 2, 3] });
     return { wrenches, zones };

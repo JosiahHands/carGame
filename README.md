@@ -283,7 +283,7 @@ lines and an announcer finish it off. Each can be turned off in Settings.
 Eight venues, each with its own main track. Any other track number makes a new
 generated track, so there are endless tracks for the career and quick races:
 
-- **City:** streets, parks, a car park and a stunt park full of ramps and cones.
+- **City:** streets, parks, a parking lot and a stunt park full of ramps and cones.
 - **Grand Prix circuit:** a twisty 2 km race track with fast sweepers, a
   hairpin, esses and a chicane. It has red and white curbs, barriers,
   grandstands full of fans, floodlights, and a paddock with pit garages and
@@ -319,7 +319,7 @@ change up too early and the engine bogs down.
 The city is alive in free roam: **traffic** drives the streets, keeps to its lane,
 takes turns at the crossings, queues, and honks if you block the road. Ram it or
 blow it up for points, or skim past for a near miss. **Pedestrians** walk the
-pavements, leap out of your way (nobody gets hurt), run from explosions, and
+sidewalks, leap out of your way (nobody gets hurt), run from explosions, and
 cheer your big jumps. Set the traffic from Off to Busy, or turn pedestrians off,
 in Settings.
 

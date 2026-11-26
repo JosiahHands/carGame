@@ -1,4 +1,4 @@
-// Chase, far-chase and bonnet cameras for driving; an orbit camera in the garage
+// Chase, far-chase and hood cameras for driving; an orbit camera in the garage
 // and in photo mode.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';

@@ -66,7 +66,7 @@ const minimap = new Minimap();
 document.body.append(minimap.canvas);
 const freeRoam = new FreeRoam(scene);
 const music = new Music();
-// The city's NPCs: traffic and people on the pavements (free roam only).
+// The city's NPCs: traffic and people on the sidewalks (free roam only).
 const traffic = new Traffic();
 traffic.onHonk = () => audio.trafficHorn();
 const people = new Pedestrians(scene);
@@ -555,7 +555,7 @@ function handleAction(action: Action): void {
       garage.show('Settings');
       break;
     case 'camera': {
-      const names = { chase: 'Chase camera', far: 'Far camera', hood: 'Bonnet camera' };
+      const names = { chase: 'Chase camera', far: 'Far camera', hood: 'Hood camera' };
       toast(names[cameraRig.nextMode()]);
       break;
     }

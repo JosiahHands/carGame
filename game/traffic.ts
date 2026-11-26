@@ -13,7 +13,7 @@ const STOP = 9; // meters before a crossing's center where cars wait their turn
 const BLOCK = ROAD_LINES[1] - ROAD_LINES[0]; // 80 m between crossings
 const LOW = ROAD_LINES[0];
 const HIGH = ROAD_LINES[ROAD_LINES.length - 1];
-const TURN_SPEED = 7; // m/s round a corner
+const TURN_SPEED = 7; // m/s around a corner
 const LOOK_AHEAD = 28; // meters a car looks ahead for something to stop for
 
 /** Directions of travel: +z, +x, -z, -x. Heading = atan2(x, z) of the forward vector. */
@@ -22,7 +22,7 @@ const FORWARD: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
 /** The right-hand side for each direction (cars drive on the right). */
 const RIGHT: [number, number][] = [[-1, 0], [0, 1], [1, 0], [0, -1]];
 
-/** A straight line (no control point) or a curve round a corner (a quadratic Bézier). */
+/** A straight line (no control point) or a curve around a corner (a quadratic Bézier). */
 interface Segment {
   ax: number;
   az: number;
@@ -149,7 +149,7 @@ export class Traffic {
       // Wheels, and brake lights when slowing or stopped.
       for (const w of t.rig.wheels) {
         w.spin.rotation.x += (car.speed / w.radius) * dt;
-        // Turning from +z to +x (one step round the directions) is a left turn.
+        // Turning from +z to +x (one step around the directions) is a left turn.
         if (w.front) w.steer.rotation.y = car.onCrossing && car.seg.cx !== undefined ? (car.exitDir === (car.dir + 1) % 4 ? 0.35 : -0.35) : 0;
       }
       t.rig.setLights({ night, braking: car.speed < car.cruise * 0.6 });

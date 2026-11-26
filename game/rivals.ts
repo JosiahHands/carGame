@@ -33,7 +33,7 @@ export interface RivalSpec {
 /** Where a car is in the race, for the rivals to see each other (and the player). */
 export interface RacerPosition {
   physics: CarPhysics;
-  /** Meters from the start line round the lap, 0..track length. */
+  /** Meters from the start line around the lap, 0..track length. */
   along: number;
   /** Meters to the left of the center line. */
   offset: number;

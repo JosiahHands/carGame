@@ -30,12 +30,12 @@ export const MAX_REVERSE = 12;
 const MPH = 0.44704; // meters per second
 /**
  * Most sideways acceleration the tires can give, in m/s², at normal grip on
- * dry tarmac: about 2.2 g, like a race car. Take a corner faster than that
+ * dry asphalt: about 2.2 g, like a race car. Take a corner faster than that
  * and the car runs wide (understeer), so you brake for the tight ones. More
  * grip and downforce raise it; rain, snow and grass lower it.
  */
 export const TIRE_GRIP = 22;
-/** With the handbrake on, the car can swing round this many times faster than its grip allows, and slides. */
+/** With the handbrake on, the car can swing around this many times faster than its grip allows, and slides. */
 const DRIFT_TURN = 3;
 /** A car this tall (meters) or taller flattens anything up to twice its height. */
 const GIANT_HEIGHT = 3;
@@ -132,7 +132,7 @@ export class CarPhysics {
   length = 4.4;
   width = 1.9;
   height = 1.3;
-  /** Grip of the surface under the car, from the world: 1 on dry tarmac. */
+  /** Grip of the surface under the car, from the world: 1 on dry asphalt. */
   surfaceGrip = 1;
   /**
    * All-terrain tires (the rally truck in the career): grass slows the car
@@ -459,7 +459,7 @@ export class CarPhysics {
     }
 
     // Turning, limited to what the tires can hold: too fast for a corner and
-    // the car runs wide. The handbrake lets it swing round further and slide.
+    // the car runs wide. The handbrake lets it swing around further and slide.
     let yawRate = (vf / this.wheelBase) * Math.tan(this.steerAngle) * control;
     if (input.handbrake && Math.abs(vf) > 3) yawRate *= 1.5;
     const maxYaw = (this.cornerGrip(vf) * (input.handbrake ? DRIFT_TURN : 1)) / Math.max(1, Math.abs(vf));
@@ -467,7 +467,7 @@ export class CarPhysics {
     const dYaw = yawRate * dt;
     this.heading += dYaw;
 
-    // Rebuild velocity. Grippy tires carry most of the speed round the turn;
+    // Rebuild velocity. Grippy tires carry most of the speed around the turn;
     // a sliding car keeps going the old way, which makes it drift.
     const carry = input.handbrake ? 0.25 : 0.85;
     const oldFx = fx;

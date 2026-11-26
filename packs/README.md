@@ -124,7 +124,7 @@ files outside the archive.
   paint, livery, stripes, tint, rims and accent color).
 - `realCars.ts`: real car models from `models/cars.glb`, one per body type, put
   over the sculpted body once loaded (it stays if they can't load). Each is
-  stretched round the game's own wheels and takes the garage's paint, pattern,
+  stretched around the game's own wheels and takes the garage's paint, pattern,
   stripes, tint and lights; far-away cars use a simpler copy. The models are
   by Daniel Zhabotinsky (CC BY 4.0) with every badge and plate removed; see
   `models/CREDITS.md`. The Packs tab's "Car models" setting switches between
@@ -186,7 +186,7 @@ files outside the archive.
 - `police.ts`: BUDDY's police car. It uses the game's car physics and is
   driven the way the rival drivers drive, with a light bar, a siren, a roof
   gun and a hit box for your weapons. It patrols along routes and chases you
-  (straight at you, or round the blocks).
+  (straight at you, or around the blocks).
 - `index.ts`: the simulation. It runs the city's clock and daily routines and
   each person's decisions: the AI decides for people near you, one at a time,
   and everyone else follows their plan and the built-in brain. It also covers

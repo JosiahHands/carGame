@@ -117,7 +117,7 @@ interface Trip {
   /** The car: someone's own, or null for BUDDY's police car. */
   car: NpcCar | null;
   phase: 'walk' | 'drive';
-  /** Where they get in, on the pavement by the car. */
+  /** Where they get in, on the sidewalk by the car. */
   door: { x: number; z: number };
   /** Where each of them is going once they're out (null: BUDDY, back to GUY's side). */
   dests: Map<Npc, Place | 'home' | null>;
@@ -571,7 +571,7 @@ const pack: Pack = {
       const h = hourOf(clock);
       let score = (mind.likes[place.kind] ?? 0) * 0.8;
       const kind = place.kind;
-      // Hungry: somewhere to eat (breakfast, lunch and dinner come round at their times).
+      // Hungry: somewhere to eat (breakfast, lunch and dinner come around at their times).
       const eat: Partial<Record<PlaceKind, number>> = { diner: 1.6, coffee: 1.1, bakery: 1.3, market: 0.8 };
       score += (1 - n.food) * (eat[kind] ?? 0);
       if (h >= 6.5 && h < 9.5 && (kind === 'coffee' || kind === 'bakery')) score += 0.6;
@@ -1252,7 +1252,7 @@ const pack: Pack = {
       return options.chases && active && !chase && !!officer && !officer.asleep && !(police && police.wrecked > 0);
     };
 
-    /** Where to stand by a car to get in or out (on the pavement side). */
+    /** Where to stand by a car to get in or out (on the sidewalk side). */
     const doorOf = (x: number, z: number, heading: number, i = 0) => ({
       x: x - Math.cos(heading) * 2.6 - Math.sin(heading) * i * 1.2,
       z: z + Math.sin(heading) * 2.6 - Math.cos(heading) * i * 1.2,
@@ -1662,7 +1662,7 @@ const pack: Pack = {
       if (e.points < 300) return;
       witness(e.x, e.z, 40, (npc) => {
         const fun = thrill(npc) > 0;
-        if (Math.random() < 0.4) remember(npc.mind, clock, fun ? `The driver drifted round the corner by ${placeName(e.x, e.z)}. Smooth!` : 'The driver was sliding all over the road again.', 2, ['driver'], 'saw');
+        if (Math.random() < 0.4) remember(npc.mind, clock, fun ? `The driver drifted around the corner by ${placeName(e.x, e.z)}. Smooth!` : 'The driver was sliding all over the road again.', 2, ['driver'], 'saw');
         feel(npc.mind, 'driver', fun ? 0.015 : -0.01);
         emote(npc, fun ? 'amused' : 'annoyed', 8);
         shout(npc, npc.mind.emotion);

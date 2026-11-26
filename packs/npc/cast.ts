@@ -72,7 +72,7 @@ const STARS: CastMember[] = [
     role: 'bank teller',
     bio:
       'Works the counter at the city bank. Wakes up cheerful every single day, greets everyone by name and believes every day can be the best one yet. ' +
-      'Lately he has started to wonder whether there is more to life than his routine, and he is fascinated by the drivers who tear round the city.',
+      'Lately he has started to wonder whether there is more to life than his routine, and he is fascinated by the drivers who tear around the city.',
     voice: 'warm, upbeat and earnest; easily amazed; sees the good in everyone',
     traits: { kindness: 0.95, courage: 0.5, curiosity: 0.8, humor: 0.65, energy: 0.85 },
     look: { skin: 0xf1c9a5, hair: 0x5a3a22, hairStyle: 'short', shirt: 0x2f74d0, trousers: 0xb9a57d, shoes: 0x5b4636, hat: 'none', glasses: false, build: 1, height: 1.82, extra: 'none' },
@@ -123,7 +123,7 @@ const STARS: CastMember[] = [
     id: 'priya',
     name: 'PRIYA',
     role: 'fitness trainer',
-    bio: 'Runs the gym and jogs round the blocks every morning. Competitive about everything, including how fast other people drive.',
+    bio: 'Runs the gym and jogs around the blocks every morning. Competitive about everything, including how fast other people drive.',
     voice: 'brisk, motivational, competitive',
     traits: { kindness: 0.6, courage: 0.8, curiosity: 0.5, humor: 0.45, energy: 0.98 },
     look: { skin: 0xa86b3c, hair: 0x111111, hairStyle: 'bun', shirt: 0xff4d6d, trousers: 0x222222, shoes: 0xffffff, hat: 'none', glasses: false, build: 0.95, height: 1.7, extra: 'headband' },

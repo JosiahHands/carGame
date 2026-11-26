@@ -69,7 +69,7 @@ export interface CarConfig {
   lightBar: boolean;
   /**
    * Show the weapons the car has on the roof (the machine gun and rocket
-   * pod). Off, they fire from just above the bonnet instead.
+   * pod). Off, they fire from just above the hood instead.
    */
   roofGuns: boolean;
   /**
