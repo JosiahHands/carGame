@@ -179,8 +179,10 @@ impl Canvas {
             (w, h) = (nw, nh);
             levels += 1;
         }
-        let mut image = Image::default();
-        image.data = Some(data);
+        let mut image = Image {
+            data: Some(data),
+            ..Default::default()
+        };
         image.texture_descriptor.size = Extent3d {
             width: self.width,
             height: self.height,

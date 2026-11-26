@@ -3,9 +3,12 @@
 //!
 //! The old app was built with Electron and kept everything in its browser
 //! storage (Chromium's LevelDB), in its folder under the system's app data.
-//! Filled in during stage 6 of 1.3.0; it only ever reads the old data.
+//! This only ever reads the old data: the folder is copied somewhere
+//! temporary first, and the copy is what gets opened.
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
-use std::path::PathBuf;
+use rusty_leveldb::{DB, LdbIterator, Options};
 
 /// Where the old app may have kept its data on this system. The folder was
 /// named after the app ("Car Game") or its package ("car-game").
@@ -22,12 +25,131 @@ pub fn old_app_folders() -> Vec<PathBuf> {
     base.map(|b| vec![b.join("Car Game"), b.join("car-game")]).unwrap_or_default()
 }
 
+/// The old game's saves (name -> JSON text, like its browser storage), or
+/// None if there's no old game on this computer.
+pub fn read_old_saves() -> Option<BTreeMap<String, String>> {
+    let mut found = BTreeMap::new();
+    for folder in old_app_folders() {
+        let db = folder.join("Local Storage").join("leveldb");
+        if db.is_dir()
+            && let Ok(entries) = read_local_storage(&db)
+        {
+            found.extend(entries);
+        }
+        // The Living City pack kept its people in a file of its own.
+        let city = folder.join("packs").join("npc").join("city.json");
+        if let Ok(text) = std::fs::read_to_string(&city) {
+            found.insert("carGame.pack.npc.city".to_string(), text);
+        }
+    }
+    if found.is_empty() { None } else { Some(found) }
+}
+
+/// Reads the game's entries from a copy of a Chromium "Local Storage/leveldb" folder.
+pub fn read_local_storage(dir: &Path) -> std::io::Result<BTreeMap<String, String>> {
+    let copy = std::env::temp_dir().join(format!("car-game-import-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&copy);
+    std::fs::create_dir_all(&copy)?;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        // The lock file belongs to the old app, if it's open.
+        if name != "LOCK" && entry.file_type()?.is_file() {
+            std::fs::copy(entry.path(), copy.join(&name))?;
+        }
+    }
+    let result = read_copy(&copy);
+    let _ = std::fs::remove_dir_all(&copy);
+    result
+}
+
+fn read_copy(dir: &Path) -> std::io::Result<BTreeMap<String, String>> {
+    let options = Options {
+        create_if_missing: false,
+        ..Options::default()
+    };
+    let mut db = DB::open(dir, options).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let mut iter = db.new_iter().map_err(|e| std::io::Error::other(e.to_string()))?;
+    let mut out = BTreeMap::new();
+    while iter.advance() {
+        let Some((key, value)) = iter.current() else { continue };
+        if let Some(name) = storage_key(&key)
+            && name.starts_with("carGame.")
+            && let Some(text) = decode(&value)
+        {
+            out.insert(name, text);
+        }
+    }
+    Ok(out)
+}
+
+/// A Chromium local storage key is "_" + the page's origin + a zero byte +
+/// the name, which starts with a byte saying how it's written.
+fn storage_key(key: &[u8]) -> Option<String> {
+    if key.first() != Some(&b'_') {
+        return None;
+    }
+    let zero = key.iter().position(|b| *b == 0)?;
+    decode(&key[zero + 1..])
+}
+
+/// Chromium writes strings as 0x01 + Latin-1, or 0x00 + UTF-16 (little-endian).
+fn decode(bytes: &[u8]) -> Option<String> {
+    let (&kind, rest) = bytes.split_first()?;
+    match kind {
+        1 => Some(rest.iter().map(|b| *b as char).collect()),
+        0 => {
+            let units: Vec<u16> = rest.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            String::from_utf16(&units).ok()
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn looks_in_both_old_folder_names() {
-        let folders = super::old_app_folders();
+        let folders = old_app_folders();
         assert_eq!(folders.len(), 2);
         assert!(folders[0].ends_with("Car Game") && folders[1].ends_with("car-game"));
+    }
+
+    #[test]
+    fn reads_chromium_strings() {
+        assert_eq!(
+            storage_key(b"_file://\x00\x01carGame.config.v1").as_deref(),
+            Some("carGame.config.v1")
+        );
+        assert_eq!(decode(b"\x01{\"a\":1}").as_deref(), Some("{\"a\":1}"));
+        assert_eq!(decode(&[0, b'h', 0, b'i', 0]).as_deref(), Some("hi"));
+        assert_eq!(storage_key(b"META:file://"), None);
+    }
+
+    /// A database written the way Chromium writes it can be read back.
+    #[test]
+    fn reads_a_local_storage_database() {
+        let dir = std::env::temp_dir().join(format!("car-game-import-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        {
+            let mut db = DB::open(
+                &dir,
+                Options {
+                    create_if_missing: true,
+                    ..Options::default()
+                },
+            )
+            .unwrap();
+            db.put(b"VERSION", b"1").unwrap();
+            db.put(b"_file://\x00\x01carGame.career.v1", b"\x01{\"coins\":1234}").unwrap();
+            db.put(b"_file://\x00\x01other.thing", b"\x01x").unwrap();
+            db.flush().unwrap();
+        }
+        let saves = read_local_storage(&dir).unwrap();
+        assert_eq!(saves.get("carGame.career.v1").map(String::as_str), Some("{\"coins\":1234}"));
+        assert_eq!(saves.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

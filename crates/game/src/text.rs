@@ -15,12 +15,11 @@ pub fn thousands(n: f64) -> String {
     if negative { format!("-{out}") } else { out }
 }
 
-/// Seconds as m:ss.mmm (like the 1.2.x game's formatTime).
+/// 83.456 seconds -> "1:23.46".
 pub fn format_time(seconds: f64) -> String {
-    let s = seconds.max(0.0);
-    let minutes = (s / 60.0).floor();
-    let rest = s - minutes * 60.0;
-    format!("{}:{:06.3}", minutes as u64, rest)
+    let minutes = (seconds / 60.0).floor();
+    let rest = seconds - minutes * 60.0;
+    format!("{}:{:05.2}", minutes as i64, rest)
 }
 
 #[cfg(test)]
@@ -29,6 +28,7 @@ mod tests {
     fn numbers() {
         assert_eq!(super::thousands(1234567.0), "1,234,567");
         assert_eq!(super::thousands(12.0), "12");
-        assert_eq!(super::format_time(83.456), "1:23.456");
+        assert_eq!(super::format_time(83.456), "1:23.46");
+        assert_eq!(super::format_time(5.0), "0:05.00");
     }
 }

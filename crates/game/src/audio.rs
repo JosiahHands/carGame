@@ -292,7 +292,7 @@ impl SynthPlayer {
         let in_bar = step % 16;
         let chord = CHORDS[(step / 32) % CHORDS.len()];
         let driving = self.level > 0.15;
-        let mut add = |v: Voice, voices: &mut Vec<Voice>| voices.push(Voice { music: true, ..v });
+        let add = |v: Voice, voices: &mut Vec<Voice>| voices.push(Voice { music: true, ..v });
         let tone = |wave: Wave, freq: f32, length: f32, volume: f32, cutoff: f32, attack: f32| {
             let detune = 2f32.powf((crate::rng::random() as f32 - 0.5) * 12.0 / 1200.0);
             let mut v = Voice::tone(
@@ -313,7 +313,11 @@ impl SynthPlayer {
                 add(tone(Wave::Sawtooth, hz(n + 24), STEP * 16.0, 0.035, 900.0, 0.6), &mut self.voices);
             }
         }
-        if if driving { in_bar % 2 == 0 } else { in_bar % 4 == 0 } {
+        if if driving {
+            in_bar.is_multiple_of(2)
+        } else {
+            in_bar.is_multiple_of(4)
+        } {
             add(
                 tone(
                     Wave::Sawtooth,
@@ -327,7 +331,7 @@ impl SynthPlayer {
             );
         }
         if driving {
-            if in_bar % 4 == 0 {
+            if in_bar.is_multiple_of(4) {
                 let mut kick = Voice::tone(Wave::Sine, 140.0, Envelope::Decay { volume: 0.5, length: 0.3 });
                 kick.freq_end = 40.0;
                 kick.sweep = 0.12;

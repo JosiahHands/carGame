@@ -11,6 +11,7 @@ impl Plugin for LivingCityPack {
     fn build(&self, app: &mut App) {
         app.register_pack(PackInfo {
             id: "npc",
+            icon: "🧠",
             name: "Living City",
             about: "People in the city who live their own lives, remember you and talk, with a local AI.",
         });

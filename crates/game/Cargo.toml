@@ -16,3 +16,4 @@ directories.workspace = true
 import.workspace = true
 ab_glyph.workspace = true
 epaint_default_fonts.workspace = true
+sysinfo.workspace = true

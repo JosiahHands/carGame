@@ -573,7 +573,6 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
 
     // Parts collected per group and material, merged at the end.
     let mut body_parts: BTreeMap<Mat, MeshData> = BTreeMap::new();
-    let mut root_parts: BTreeMap<Mat, MeshData> = BTreeMap::new();
     let mut no_shadow: BTreeMap<Mat, MeshData> = BTreeMap::new();
     fn put(parts: &mut BTreeMap<Mat, MeshData>, mat: Mat, mesh: &Mesh, t: Transform) {
         parts.entry(mat).or_default().add_mesh(mesh, &t, [1.0; 4]);

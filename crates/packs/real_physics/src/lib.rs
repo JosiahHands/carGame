@@ -11,6 +11,7 @@ impl Plugin for RealPhysicsPack {
     fn build(&self, app: &mut App) {
         app.register_pack(PackInfo {
             id: "physics",
+            icon: "🧪",
             name: "Real Physics",
             about: "Suspension, tire grip that warms up and wears, engines, gearboxes, brake fade and crash damage.",
         });

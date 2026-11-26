@@ -337,7 +337,7 @@ pub struct World {
     pub map: String,
     pub layout: u32,
     pub half: f64,
-    pub track: Option<RaceTrack>,
+    pub track: Option<std::sync::Arc<RaceTrack>>,
     pub spawn: Spot,
     pub course: Course,
     /// Targets destroyed since last asked (for the score and sounds).
@@ -420,7 +420,7 @@ impl World {
     /// Fills the lookup grid of posts and walls. They never move, so this is done once per map.
     pub(crate) fn build_cells(&mut self) {
         self.cells.clear();
-        let mut add = |cells: &mut HashMap<(i64, i64), Cell>, min_x: f64, max_x: f64, min_z: f64, max_z: f64, put: &dyn Fn(&mut Cell)| {
+        let add = |cells: &mut HashMap<(i64, i64), Cell>, min_x: f64, max_x: f64, min_z: f64, max_z: f64, put: &dyn Fn(&mut Cell)| {
             for cx in (min_x / CELL).floor() as i64..=(max_x / CELL).floor() as i64 {
                 for cz in (min_z / CELL).floor() as i64..=(max_z / CELL).floor() as i64 {
                     put(cells.entry((cx, cz)).or_default());

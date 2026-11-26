@@ -668,7 +668,7 @@ impl World {
         for r in ramps {
             self.add_ramp(b, r);
         }
-        let mut place = |w: &mut World, b: &mut Build, x: f64, z: f64| {
+        let place = |w: &mut World, b: &mut Build, x: f64, z: f64| {
             let root = w.root.expect("map root");
             let entity = b
                 .commands
@@ -752,7 +752,7 @@ impl World {
             radius,
         };
         self.spawn = self.course.start;
-        self.track = Some(track);
+        self.track = Some(std::sync::Arc::new(track));
     }
 
     fn spawn_track_meshes(&mut self, b: &mut Build, track: &RaceTrack) {

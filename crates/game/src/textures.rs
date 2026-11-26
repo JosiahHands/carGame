@@ -195,7 +195,7 @@ pub fn livery_texture(pattern: &str, base: &str, accent: &str, length: f64, heig
             }
         }
         "flames" => {
-            let mut tongue = |c: &mut Canvas, y: f32, reach: f32, thick: f32, color: Rgba| {
+            let tongue = |c: &mut Canvas, y: f32, reach: f32, thick: f32, color: Rgba| {
                 let mut pts = vec![(wf, y - thick)];
                 bezier(
                     (wf, y - thick),

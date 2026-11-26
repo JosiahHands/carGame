@@ -605,7 +605,7 @@ pub fn hsl_hex(h: f64, s: f64, l: f64) -> String {
     let f = |n: f64| {
         let k = (n + h * 12.0) % 12.0;
         let a = s * l.min(1.0 - l);
-        let c = l - a * (k - 3.0).min(9.0 - k).min(1.0).max(-1.0);
+        let c = l - a * (k - 3.0).min(9.0 - k).clamp(-1.0, 1.0);
         (c * 255.0).round() as u8
     };
     format!("#{:02x}{:02x}{:02x}", f(0.0), f(8.0), f(4.0))

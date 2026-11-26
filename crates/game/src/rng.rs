@@ -13,6 +13,7 @@ impl Seeded {
     }
 
     /// The next number, 0 up to (not including) 1.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f64 {
         self.0 = self.0.wrapping_add(0x6d2b_79f5);
         let mut t = self.0;

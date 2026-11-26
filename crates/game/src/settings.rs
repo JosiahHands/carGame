@@ -135,12 +135,12 @@ pub fn load_settings(storage: &Storage) -> Settings {
     if let (Some(saved), Some(target)) = (storage.get_json(STORAGE_KEY), merged.as_object_mut()) {
         for (key, value) in saved.as_object().into_iter().flatten() {
             // Only keep saved values of the right type, so a broken save can't break the game.
-            let same_type = match (target.get(key), value) {
+            let same_type = matches!(
+                (target.get(key), value),
                 (Some(Value::Number(_)), Value::Number(_))
-                | (Some(Value::Bool(_)), Value::Bool(_))
-                | (Some(Value::String(_)), Value::String(_)) => true,
-                _ => false,
-            };
+                    | (Some(Value::Bool(_)), Value::Bool(_))
+                    | (Some(Value::String(_)), Value::String(_))
+            );
             if same_type {
                 target.insert(key.clone(), value.clone());
             }

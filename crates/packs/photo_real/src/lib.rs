@@ -11,6 +11,7 @@ impl Plugin for PhotoRealPack {
     fn build(&self, app: &mut App) {
         app.register_pack(PackInfo {
             id: "graphics",
+            icon: "🌅",
             name: "Photo Real",
             about: "Real car bodies, lifelike lighting and materials, and camera effects.",
         });

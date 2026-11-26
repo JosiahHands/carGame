@@ -39,6 +39,8 @@ rand = "0.10.4"
 # Lettering painted onto textures (number plates, race numbers, banners).
 ab_glyph = "0.2.32"
 epaint_default_fonts = "0.36.2"
+# How much memory the computer has, to pick graphics settings that suit it.
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 # Where saves go on each computer.
 directories = "6.0.0"
 # Reads the 1.2.x app's saves (Chromium's LevelDB) to bring progress over.
