@@ -49,7 +49,7 @@ export function wearGrip(wear: number): number {
  * round a skidpad). The heat grows more slowly than the work, as the hot
  * rubber sheds more of it.
  */
-export function heatTyre(t: number, slipPower: number, speed: number, ambient: number, dt: number): number {
+export function heatTire(t: number, slipPower: number, speed: number, ambient: number, dt: number): number {
   const heating = 1.5 * Math.max(0, slipPower) ** 0.25;
   const cooling = 0.02 * (t - ambient) * (1 + speed / 20);
   return t + (heating - cooling) * dt;

@@ -9,7 +9,7 @@
 // - any crash damage.
 import type { CarPhysics } from '../../game/carPhysics';
 import { CORNER_MARGIN, type CarState, type Realism } from './model';
-import { bestTemperature } from './tyres';
+import { bestTemperature } from './tires';
 
 const W = 300;
 const H = 172;
@@ -90,8 +90,8 @@ export class Telemetry {
 
     // ---------- the four tires, seen from above ----------
     const best = bestTemperature(GRIP[grip] ?? 1.2);
-    const tyreW = 16;
-    const tyreH = 28;
+    const tireW = 16;
+    const tireH = 28;
     const travel = s.susp.compression;
     const full = Math.max(1e-6, Math.max(...travel, 0.05) * 1.6);
     for (let i = 0; i < 4; i++) {
@@ -99,22 +99,22 @@ export class Telemetry {
       const y = 22 + (i < 2 ? 0 : 56);
       const use = s.usage[i];
       ctx.fillStyle = use < 0.8 ? '#3bb273' : use < 1.15 ? '#ffb627' : '#e63946';
-      roundRect(ctx, x, y, tyreW, tyreH, 4);
+      roundRect(ctx, x, y, tireW, tireH, 4);
       ctx.fill();
       // Worn rubber: the tire goes darker from the top down.
       if (s.wear[i] > 0.01) {
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
-        ctx.fillRect(x, y, tyreW, tyreH * Math.min(1, s.wear[i]));
+        ctx.fillRect(x, y, tireW, tireH * Math.min(1, s.wear[i]));
       }
       // Bars beside it: the weight on the tire, and how far its spring is squashed.
-      bar(ctx, x + tyreW + 4, y, tyreH, Math.min(2, s.load[i]) / 2, 'rgba(255,255,255,0.8)');
-      bar(ctx, x + tyreW + 10, y, tyreH, Math.max(0, travel[i]) / full, '#9b8cff');
+      bar(ctx, x + tireW + 4, y, tireH, Math.min(2, s.load[i]) / 2, 'rgba(255,255,255,0.8)');
+      bar(ctx, x + tireW + 10, y, tireH, Math.max(0, travel[i]) / full, '#9b8cff');
       // Temperature.
       const t = s.temp[i];
       ctx.font = '600 9px system-ui, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = Number.isNaN(t) ? 'rgba(255,255,255,0.4)' : temperatureColour(t - best);
-      ctx.fillText(Number.isNaN(t) ? '--°' : `${Math.round(t)}°`, x, y + tyreH + 11);
+      ctx.fillStyle = Number.isNaN(t) ? 'rgba(255,255,255,0.4)' : temperatureColor(t - best);
+      ctx.fillText(Number.isNaN(t) ? '--°' : `${Math.round(t)}°`, x, y + tireH + 11);
     }
 
     // ---------- the engine: revs, turbo boost, gear, and the brakes' temperature ----------
@@ -170,16 +170,16 @@ export class Telemetry {
 }
 
 /** A vertical bar filled from the bottom (0..1). */
-function bar(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, fill: number, colour: string, w = 4): void {
+function bar(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, fill: number, color: string, w = 4): void {
   const f = Math.max(0, Math.min(1, fill));
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = colour;
+  ctx.fillStyle = color;
   ctx.fillRect(x, y + h * (1 - f), w, h * f);
 }
 
 /** Blue when cold, green in the tire's window, red when overheated. */
-function temperatureColour(off: number): string {
+function temperatureColor(off: number): string {
   if (off < -25) return '#6fb8ff';
   if (off < -10) return '#a8e0ff';
   if (off <= 15) return '#3bd18a';

@@ -16,7 +16,7 @@ import { TimeTrial, formatTime } from '../game/timeTrial';
 import { NO_WEAPONS, STOCK_WEAPONS, Weapons, type Loadout } from '../game/weapons';
 import { venue } from '../game/venues';
 import { World } from '../game/world';
-import { CHASSIS, awaitingChoice, careerCar, carLoadout, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armourFor, lockedReason, LEVELS, type Level } from '../game/career';
+import { CHASSIS, awaitingChoice, careerCar, carLoadout, dailyLevel, loadCareer, makeLevel, payDaily, payLevel, resetCareer, saveCareer, armorFor, lockedReason, LEVELS, type Level } from '../game/career';
 import { EventRun, type EventSpec } from '../game/event';
 import { MenuUI } from '../game/menuUI';
 import { FreeRoam, type FreeRoamEvent } from '../game/freeRoam';
@@ -157,8 +157,8 @@ function showLength(m: number): string {
   if (settings.units === 'mph') return `${Math.round(m * 3.281).toLocaleString()} ft`;
   return `${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString()} m`;
 }
-function speedInUnits(metresPerSecond: number): number {
-  return metresPerSecond * (settings.units === 'mph' ? 2.237 : 3.6);
+function speedInUnits(metersPerSecond: number): number {
+  return metersPerSecond * (settings.units === 'mph' ? 2.237 : 3.6);
 }
 
 // ---------- HUD ----------
@@ -1124,7 +1124,7 @@ function playLevel(level: Level): void {
     toast(reason);
     return;
   }
-  level.spec.armour = armourFor(career.upgrades.armour);
+  level.spec.armor = armorFor(career.upgrades.armor);
   const drivenCar = careerCar(config, career.car, career.upgrades);
   // A fresh copy of the level each time: the targets are worked out as it starts.
   again = () => playLevel(level.number === 0 ? dailyLevel(career) : makeLevel(level.number));

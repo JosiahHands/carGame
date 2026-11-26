@@ -57,16 +57,16 @@ export const CHASSIS: Chassis[] = [
   },
 ];
 
-export type UpgradeId = 'engine' | 'gearbox' | 'tyres' | 'brakes' | 'nitro' | 'aero' | 'armour';
+export type UpgradeId = 'engine' | 'gearbox' | 'tires' | 'brakes' | 'nitro' | 'aero' | 'armor';
 
 export const UPGRADES: { id: UpgradeId; name: string; about: string; icon: string }[] = [
   { id: 'engine', name: 'Engine', about: '+8% power: faster acceleration', icon: '🔧' },
   { id: 'gearbox', name: 'Gearbox', about: '+3.5% top speed', icon: '⚙️' },
-  { id: 'tyres', name: 'Tires', about: '+3% grip: faster through corners', icon: '🛞' },
+  { id: 'tires', name: 'Tires', about: '+3% grip: faster through corners', icon: '🛞' },
   { id: 'brakes', name: 'Brakes', about: '+6% braking: brake later', icon: '🛑' },
   { id: 'nitro', name: 'Nitro', about: '+5% boost and a longer-lasting bottle', icon: '🔥' },
   { id: 'aero', name: 'Aero', about: 'More downforce: more grip at speed', icon: '🪽' },
-  { id: 'armour', name: 'Armor', about: '+12% toughness in takedowns', icon: '🛡️' },
+  { id: 'armor', name: 'Armor', about: '+12% toughness in takedowns', icon: '🛡️' },
 ];
 
 /** Most upgrade levels in the career; the sandbox goes up to SANDBOX_MAX_UPGRADE. */
@@ -89,7 +89,7 @@ function steps(level: number): number {
 export type Upgrades = Record<UpgradeId, number>;
 
 export function noUpgrades(): Upgrades {
-  return { engine: 0, gearbox: 0, tyres: 0, brakes: 0, nitro: 0, aero: 0, armour: 0 };
+  return { engine: 0, gearbox: 0, tires: 0, brakes: 0, nitro: 0, aero: 0, armor: 0 };
 }
 
 /** All upgrades at the same level (for rivals). */
@@ -163,7 +163,7 @@ export function careerTuning(chassis: number, up: Upgrades): Tuning {
   const t: Tuning = { ...DEFAULT_CONFIG.tuning, downforce: 0, ...c.tuning, jump: 0, gravity: 1, bounce: 0.35, airControl: 0.15, infiniteNitro: false };
   t.horsepower *= 1 + 0.08 * steps(up.engine);
   t.topSpeed *= 1 + 0.035 * steps(up.gearbox);
-  t.grip += 0.03 * steps(up.tyres);
+  t.grip += 0.03 * steps(up.tires);
   t.brakes *= 1 + 0.06 * steps(up.brakes);
   t.nitroPower *= 1 + 0.05 * steps(up.nitro);
   t.nitroSeconds += 0.3 * steps(up.nitro);
@@ -171,8 +171,8 @@ export function careerTuning(chassis: number, up: Upgrades): Tuning {
   return t;
 }
 
-/** How much damage a car with this armor level can take, for EventSpec.armour. */
-export function armourFor(level: number): number {
+/** How much damage a car with this armor level can take, for EventSpec.armor. */
+export function armorFor(level: number): number {
   return 100 * (1 + 0.12 * steps(level));
 }
 
@@ -297,7 +297,10 @@ export function loadCareer(): CareerSave {
     if (Array.isArray(raw.stars)) save.stars = save.stars.map((_, i) => num(raw.stars![i], 0, 3));
     if (Array.isArray(raw.bestScore)) save.bestScore = save.bestScore.map((_, i) => (typeof raw.bestScore![i] === 'number' && Number.isFinite(raw.bestScore![i]) ? Math.max(0, raw.bestScore![i]) : 0));
     if (Array.isArray(raw.best)) save.best = save.best.map((_, i) => (typeof raw.best![i] === 'string' ? raw.best![i].slice(0, 20) : ''));
-    for (const k of Object.keys(save.upgrades) as UpgradeId[]) save.upgrades[k] = num(raw.upgrades?.[k], 0, SANDBOX_MAX_UPGRADE);
+    // Saves from before 1.2.3 spelled two upgrades the British way.
+    const before: Partial<Record<UpgradeId, string>> = { tires: 'tyres', armor: 'armour' };
+    const ups = (raw.upgrades ?? {}) as Record<string, unknown>;
+    for (const k of Object.keys(save.upgrades) as UpgradeId[]) save.upgrades[k] = num(ups[k] ?? ups[before[k] ?? k], 0, SANDBOX_MAX_UPGRADE);
     for (const k of Object.keys(save.arsenal) as WeaponId[]) save.arsenal[k] = num(raw.arsenal?.[k], 0, MAX_WEAPON_LEVEL);
     if (Array.isArray(raw.owned)) save.owned = [...new Set([0, ...raw.owned.filter((i) => typeof i === 'number' && CHASSIS[i])])];
     save.car = save.owned.includes(raw.car as number) ? (raw.car as number) : 0;
@@ -527,7 +530,7 @@ function buildSpec(o: SpecOptions): EventSpec {
   const spec: EventSpec = {
     kind: o.kind, title: '', map: o.map, layout: o.layout, laps: 1, timeLimit: 0, rivals,
     targets: [3, 2, 1], night: o.night, weapons: false, noNitro: twist < 0.12, catchUp: o.catchUp ?? 0.6,
-    armour: 100, rivalArmour: 150 + 2 * o.level, rivalDamage: 1.2 + o.level * 0.03, boss: o.boss?.name,
+    armor: 100, rivalArmor: 150 + 2 * o.level, rivalDamage: 1.2 + o.level * 0.03, boss: o.boss?.name,
   };
   const grow = 1 + o.level * 0.006; // challenge targets get a bit harder every level
   switch (o.kind) {
@@ -555,7 +558,7 @@ function buildSpec(o: SpecOptions): EventSpec {
       spec.weapons = true;
       spec.timeLimit = 120;
       spec.catchUp = 0;
-      spec.rivalArmour = 200 + 4 * o.level; // a rocket or two each, more later on
+      spec.rivalArmor = 200 + 4 * o.level; // a rocket or two each, more later on
       spec.targets = [4, 8, 13].map((t) => Math.round(t * Math.min(1.5, grow))) as [number, number, number];
       break;
     case 'drift':

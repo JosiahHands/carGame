@@ -144,7 +144,7 @@ files outside the archive.
   springs. It has two-stage dampers, bump stops and anti-roll bars. The road
   under each wheel comes from `world.heightAt`, plus a fixed pattern of small
   bumps. The springs give the weight on each tire.
-- `tyres.ts`: the grip curve, a simplified Pacejka "Magic Formula" with a
+- `tires.ts`: the grip curve, a simplified Pacejka "Magic Formula" with a
   friction ellipse for combined slip. Also tire temperature and wear, and how
   they change grip.
 - `powertrain.ts`: torque curves for each engine, turbo lag, the automatic

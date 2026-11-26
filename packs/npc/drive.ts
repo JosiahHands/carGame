@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { ROAD_LINES, type CarTarget, type World } from '../../game/world';
 
 const LANE = 3; // meters from a road's center line to the middle of its right-hand lane
-const KERB = 4.6; // where cars park: by the right-hand curb
+const CURB = 4.6; // where cars park: by the right-hand curb
 const PAVEMENT = 7.5; // where people stand to get in: on the pavement beside the car
 const LOW = ROAD_LINES[0];
 const HIGH = ROAD_LINES[ROAD_LINES.length - 1];
@@ -27,7 +27,7 @@ export interface Waypoint {
 }
 
 /** Where a car parks near a spot: a road, a side of it, and how far along. */
-interface Kerb {
+interface Curb {
   /** 'x': a road running along z at x = line. 'z': a road running along x at z = line. */
   road: 'x' | 'z';
   line: number;
@@ -37,8 +37,8 @@ interface Kerb {
 }
 
 /** The curb nearest a spot, away from the crossings. */
-function kerbNear(x: number, z: number): Kerb {
-  let best: Kerb = { road: 'x', line: ROAD_LINES[0], along: z, side: 1 };
+function curbNear(x: number, z: number): Curb {
+  let best: Curb = { road: 'x', line: ROAD_LINES[0], along: z, side: 1 };
   let bestD = Infinity;
   for (const line of ROAD_LINES) {
     const dx = Math.abs(x - line);
@@ -63,21 +63,21 @@ function kerbNear(x: number, z: number): Kerb {
  * The way a car faces when it's parked on a side of a road: cars drive on
  * the right, so on the +x side of a road along z, they face -z.
  */
-function kerbDirection(k: Kerb): { fx: number; fz: number } {
+function curbDirection(k: Curb): { fx: number; fz: number } {
   if (k.road === 'x') return { fx: 0, fz: k.side > 0 ? -1 : 1 };
   return { fx: k.side > 0 ? 1 : -1, fz: 0 };
 }
 
-function kerbPoint(k: Kerb, out: number): { x: number; z: number } {
+function curbPoint(k: Curb, out: number): { x: number; z: number } {
   return k.road === 'x' ? { x: k.line + k.side * out, z: k.along } : { x: k.along, z: k.line + k.side * out };
 }
 
 /** Where a car parks near (x, z), which way it faces, and where you stand to get in. */
 export function parkingNear(x: number, z: number): { x: number; z: number; heading: number; door: { x: number; z: number } } {
-  const k = kerbNear(x, z);
-  const p = kerbPoint(k, KERB);
-  const d = kerbDirection(k);
-  return { ...p, heading: Math.atan2(d.fx, d.fz), door: kerbPoint(k, PAVEMENT) };
+  const k = curbNear(x, z);
+  const p = curbPoint(k, CURB);
+  const d = curbDirection(k);
+  return { ...p, heading: Math.atan2(d.fx, d.fz), door: curbPoint(k, PAVEMENT) };
 }
 
 /**
@@ -88,8 +88,8 @@ export function parkingNear(x: number, z: number): { x: number; z: number; headi
 export function routeTo(x: number, z: number, heading: number, tx: number, tz: number): Waypoint[] {
   const fx = Math.round(Math.sin(heading));
   const fz = Math.round(Math.cos(heading));
-  const end = kerbNear(tx, tz);
-  const endDir = kerbDirection(end);
+  const end = curbNear(tx, tz);
+  const endDir = curbDirection(end);
   // Center-line points: where the car is now, the crossings it goes through, and the end.
   const snap = (v: number) => ROAD_LINES.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
   const onX = Math.abs(fx) < 0.5; // driving along z, on a road at x = line
@@ -108,9 +108,9 @@ export function routeTo(x: number, z: number, heading: number, tx: number, tz: n
   const zFirst = { x: first.x, z: last.z };
   const backwards = (p: { x: number; z: number }) => (p.x - first.x) * fx + (p.z - first.z) * fz < -1;
   const corner = backwards(xFirst) ? zFirst : xFirst;
-  const centre = [{ x: onX ? line : x, z: onX ? z : line }, first, corner, last, { x: end.road === 'x' ? end.line : end.along, z: end.road === 'x' ? end.along : end.line }];
+  const center = [{ x: onX ? line : x, z: onX ? z : line }, first, corner, last, { x: end.road === 'x' ? end.line : end.along, z: end.road === 'x' ? end.along : end.line }];
   // Drop points that repeat.
-  const pts = centre.filter((p, i) => i === 0 || Math.hypot(p.x - centre[i - 1].x, p.z - centre[i - 1].z) > 0.5);
+  const pts = center.filter((p, i) => i === 0 || Math.hypot(p.x - center[i - 1].x, p.z - center[i - 1].z) > 0.5);
 
   // Into the right-hand lane: each leg moves over to its right; corners are where two lanes meet.
   const legDir = (a: { x: number; z: number }, b: { x: number; z: number }) => ({ x: Math.sign(Math.round(b.x - a.x)), z: Math.sign(Math.round(b.z - a.z)) });
@@ -122,7 +122,7 @@ export function routeTo(x: number, z: number, heading: number, tx: number, tz: n
     const next = legs[i + 1];
     if (!next) {
       // The last leg: pull in to the curb at the end.
-      const stop = kerbPoint(end, KERB);
+      const stop = curbPoint(end, CURB);
       out.push({ x: leg.b.x + r.x * LANE - leg.d.x * 10, z: leg.b.z + r.z * LANE - leg.d.z * 10, speed: 6 }, { ...stop, speed: 0 });
       return;
     }

@@ -3,7 +3,7 @@
 // saying), and the pack's settings in the Packs tab.
 import type { GameApi, PanelUI } from '../../game/packs';
 import { button, el } from '../../libs/dom';
-import { castMember, TRAIT_LABELS, TRAIT_NAMES, type Emotion } from './cast';
+import { castMember, TRAIT_NAMES, type Emotion } from './cast';
 import type { Npc } from './index';
 import { feelingWord, friendship, isFriend, moodWord, traitWords, type Memory, type Mind } from './mind';
 import { MODELS, type AiStatus, type ModelChoice } from './protocol';
@@ -329,7 +329,7 @@ export function buildJournal(
       const bar = el('i');
       bar.style.width = `${Math.round(mind.traits[t] * 100)}%`;
       const drift = mind.traits[t] - npc.member.traits[t];
-      row.append(el('span', '', TRAIT_LABELS[t]), el('div', 'npc-bar'), el('em', '', Math.abs(drift) >= 0.02 ? (drift > 0 ? '▲' : '▼') : ''));
+      row.append(el('span', '', t), el('div', 'npc-bar'), el('em', '', Math.abs(drift) >= 0.02 ? (drift > 0 ? '▲' : '▼') : ''));
       row.children[1].append(bar);
       traits.append(row);
     }

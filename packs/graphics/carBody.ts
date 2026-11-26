@@ -385,13 +385,13 @@ export function sculptCar(rig: CarRig): void {
   const disc = keep(new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.9, roughness: 0.42 }));
   const caliperPaint = keep(new THREE.MeshStandardMaterial({ color: rig.config.accentColor, roughness: 0.35, metalness: 0.2 }));
   for (const wheel of rig.wheels) {
-    const tyre = wheel.spin.getObjectByName('tyre') as THREE.Mesh | undefined;
-    if (!tyre || tyre.geometry.type !== 'CylinderGeometry') continue;
-    const { radiusTop: radius, height: width } = (tyre.geometry as THREE.CylinderGeometry).parameters;
-    undo.swapped.push({ mesh: tyre, geometry: tyre.geometry });
-    tyre.geometry = keep(tyreGeometry(radius, width, rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66));
+    const tire = wheel.spin.getObjectByName('tire') as THREE.Mesh | undefined;
+    if (!tire || tire.geometry.type !== 'CylinderGeometry') continue;
+    const { radiusTop: radius, height: width } = (tire.geometry as THREE.CylinderGeometry).parameters;
+    undo.swapped.push({ mesh: tire, geometry: tire.geometry });
+    tire.geometry = keep(tireGeometry(radius, width, rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66));
     // Inside the rim: a barrel and a backing plate (so you can't see through the wheel), and a brake disc.
-    const wheelGroup = tyre.parent!;
+    const wheelGroup = tire.parent!;
     const rimR = radius * (rig.config.wheelStyle === 'offroad' ? 0.56 : 0.66);
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(rimR * 0.99, rimR * 0.99, width * 0.9, 28, 1, true), trim);
     barrel.rotation.z = Math.PI / 2;
@@ -438,7 +438,7 @@ export function sculptCar(rig: CarRig): void {
 }
 
 /** A tire with rounded sidewalls and a flat tread, around the x axis like the game's own. */
-function tyreGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
+function tireGeometry(radius: number, width: number, rimShare: number): THREE.BufferGeometry {
   const w = width / 2;
   const rim = radius * rimShare;
   // The tire's cross-section, from the inner bead round the tread to the outer bead.

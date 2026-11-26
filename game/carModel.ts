@@ -192,7 +192,7 @@ export interface CarRig {
   setLights(state: { night: boolean; braking: boolean }): void;
   /** Shows flickering nitro flames out of the exhausts. Call every frame. */
   setNitro(on: boolean): void;
-  /** Turns the car into a burnt-out wreck (every surface dark and rough), or back again. */
+  /** Turns the car into a burned-out wreck (every surface dark and rough), or back again. */
   setWrecked(wrecked: boolean): void;
   /** Rainbow paint and underglow, and the waving flag. `time` is in seconds. */
   animate(time: number): void;
@@ -330,7 +330,7 @@ function buildWheel(
   const tire = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 28, 1), rubber);
   tire.rotation.z = Math.PI / 2;
   tire.castShadow = true;
-  tire.name = 'tyre';
+  tire.name = 'tire';
   g.add(tire);
 
   const face = width / 2 + 0.006;
@@ -946,9 +946,9 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
   // The whole car grows or shrinks with the size setting.
   root.scale.setScalar(config.size);
 
-  // For wrecks: one burnt material, and a note of each part's real material to put back.
+  // For wrecks: one burned material, and a note of each part's real material to put back.
   let wrecked = false;
-  const burnt = track(new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1, metalness: 0.2 }));
+  const burned = track(new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1, metalness: 0.2 }));
   const realMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   let lightsState = { night: envNight, braking: false }; // to restore the lights after a wreck is repaired
 
@@ -985,11 +985,11 @@ export function buildCar(config: CarConfig, envNight = false, withLights = true)
       if (on === wrecked) return;
       wrecked = on;
       if (on) {
-        // Swap every lit surface for burnt metal (glowing parts like the flames stay as they are).
+        // Swap every lit surface for burned metal (glowing parts like the flames stay as they are).
         root.traverse((part) => {
           if (part instanceof THREE.Mesh && !(part.material instanceof THREE.MeshBasicMaterial)) {
             realMaterials.set(part, part.material);
-            part.material = burnt;
+            part.material = burned;
           }
         });
         beam.intensity = 0;

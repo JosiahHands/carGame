@@ -68,9 +68,9 @@ export interface EventSpec {
   /** How hard the rivals catch up when behind and ease off when ahead, 0..1. */
   catchUp: number;
   /** How much damage the player's car can take in a takedown (100 is normal). */
-  armour: number;
+  armor: number;
   /** How much damage each rival can take from weapons and rams. */
-  rivalArmour: number;
+  rivalArmor: number;
   /** How hard the rivals' bullets hit, per hit. */
   rivalDamage: number;
   /** The boss's name, for duels. */
@@ -594,7 +594,7 @@ export class EventRun {
   private hurtRival(r: Racer, damage: number, direction: THREE.Vector3): void {
     const rival = r.rival;
     if (!rival || rival.wrecked > 0 || !rival.active || this.state !== 'running') return;
-    r.hp -= (damage * 100) / this.spec.rivalArmour;
+    r.hp -= (damage * 100) / this.spec.rivalArmor;
     if (r.hp > 0) return;
     // Wrecked! Blown up and thrown into the air; back after a few seconds.
     rival.wrecked = RESPAWN_TIME;
@@ -618,7 +618,7 @@ export class EventRun {
 
   private hurtPlayer(damage: number): void {
     if (this.playerWrecked > 0 || this.state !== 'running') return;
-    this.me.hp -= (damage * 100) / this.spec.armour;
+    this.me.hp -= (damage * 100) / this.spec.armor;
     if (this.me.hp > 0) return;
     this.me.hp = 0;
     this.playerWrecked = 3;

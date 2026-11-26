@@ -77,9 +77,9 @@ export class Pedestrians {
   load(world: World, on: boolean): void {
     this.people = [];
     if (on && world.map === 'city') {
-      const centres = ROAD_LINES.slice(0, -1).map((c) => c + 40);
-      for (const bx of centres) {
-        for (const bz of centres) {
+      const centers = ROAD_LINES.slice(0, -1).map((c) => c + 40);
+      for (const bx of centers) {
+        for (const bz of centers) {
           for (let k = 0; k < PER_BLOCK && this.people.length < this.max; k++) {
             this.people.push({
               bx, bz, along: Math.random() * PERIMETER, way: Math.random() < 0.5 ? 1 : -1, pace: 1 + Math.random() * 0.6,

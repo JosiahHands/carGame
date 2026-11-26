@@ -40,7 +40,7 @@ export interface TrackStyle {
   /** Bank angle in degrees on the straights and in the tightest turns (0 and 0 for a flat track). */
   bank: [number, number];
   /** Red and white curbs on the corners. */
-  kerbs: boolean;
+  curbs: boolean;
   /** Grass between the road and the barrier on the outside of the track (meters). */
   outsideRunoff: number;
   /** Grass on the inside; null means no barrier on the inside at all. */
@@ -252,11 +252,11 @@ export class RaceTrack {
     const near = this.nearest(x, z);
     if (!near) return false;
     const s = this.style;
-    const kerb = s.kerbs ? 1.4 : 0.3;
+    const curb = s.curbs ? 1.4 : 0.3;
     // How far past each edge of the road is still paved: the apron on the
     // inside, and the strip up to the wall on the outside of a speedway.
-    const insidePaved = s.width / 2 + Math.max(s.apron, kerb);
-    const outsidePaved = s.width / 2 + (s.fence > 0 ? s.outsideRunoff : kerb);
+    const insidePaved = s.width / 2 + Math.max(s.apron, curb);
+    const outsidePaved = s.width / 2 + (s.fence > 0 ? s.outsideRunoff : curb);
     const towardsInside = this.inside * near.offset;
     return towardsInside <= insidePaved && -towardsInside <= outsidePaved;
   }
@@ -347,13 +347,13 @@ export class RaceTrack {
     if (s.fence > 0) group.add(this.ribbon(all, -this.inside * edge, -this.inside * (edge + s.outsideRunoff), 0.025, paved));
 
     // Curbs: red and white strips on both edges wherever the road turns tightly.
-    if (s.kerbs) {
-      const kerb = new THREE.MeshStandardMaterial({ map: kerbTexture(), roughness: 0.7 });
+    if (s.curbs) {
+      const curb = new THREE.MeshStandardMaterial({ map: curbTexture(), roughness: 0.7 });
       const tight = this.points.map((p) => Math.abs(p.curve) > 1 / 160);
       // Run each curb a little (16 m) before and after the corner.
       const wanted = tight.map((_, i) => [-4, -3, -2, -1, 0, 1, 2, 3, 4].some((k) => tight[(i + k + n) % n]));
       for (const run of runsOf(wanted)) {
-        for (const side of [1, -1]) group.add(this.ribbon(run, side * edge, side * (edge + 1.4), 0.04, kerb, 3));
+        for (const side of [1, -1]) group.add(this.ribbon(run, side * edge, side * (edge + 1.4), 0.04, curb, 3));
       }
     }
 
@@ -397,9 +397,9 @@ export class RaceTrack {
 
   /**
    * A strip following the road surface between two offsets, over the given
-   * samples. Texture V runs along the track, one repeat every `metresPerRepeat`.
+   * samples. Texture V runs along the track, one repeat every `metersPerRepeat`.
    */
-  private ribbon(indices: number[], from: number, to: number, lift: number, material: THREE.Material, metresPerRepeat = 10): THREE.Mesh {
+  private ribbon(indices: number[], from: number, to: number, lift: number, material: THREE.Material, metersPerRepeat = 10): THREE.Mesh {
     const positions: number[] = [];
     const uvs: number[] = [];
     const index: number[] = [];
@@ -412,7 +412,7 @@ export class RaceTrack {
       for (const [offset, u] of [[from, 0], [to, 1]]) {
         const p = this.offsetPoint(i, offset);
         positions.push(p.x, p.y + lift, p.z);
-        uvs.push(u, distance / metresPerRepeat);
+        uvs.push(u, distance / metersPerRepeat);
       }
       if (k > 0) {
         const a = (k - 1) * 2;
@@ -748,7 +748,7 @@ function trackTexture(): THREE.CanvasTexture {
 }
 
 /** Red and white curb stripes across V. */
-function kerbTexture(): THREE.CanvasTexture {
+function curbTexture(): THREE.CanvasTexture {
   return canvasTexture(32, 64, (ctx) => {
     ctx.fillStyle = '#d7263d';
     ctx.fillRect(0, 0, 32, 32);

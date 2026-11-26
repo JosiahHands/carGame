@@ -86,7 +86,7 @@ export function makeResidents(taken: string[]): CastMember[] {
     const work = JOBS[i % JOBS.length];
     const role = pick(work.roles);
     const trait = () => Math.round((0.1 + random() * 0.85) * 100) / 100;
-    const traits: Traits = { kindness: trait(), courage: trait(), curiosity: trait(), humour: trait(), energy: trait() };
+    const traits: Traits = { kindness: trait(), courage: trait(), curiosity: trait(), humor: trait(), energy: trait() };
     const likes = [...new Set([pick(LIKES), pick(LIKES), pick(LIKES)])].filter((k) => k !== work.job).slice(0, 3);
     const friends = [...new Set([0, 1, 2].slice(0, 1 + Math.floor(random() * 3)).map(() => people.length ? pick(people).id : ''))].filter(Boolean);
     const hobby = pick(HOBBIES);

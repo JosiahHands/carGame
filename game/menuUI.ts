@@ -153,9 +153,9 @@ export class MenuUI {
       spin.disabled = true;
       const { index, text: won } = spinWheel(this.save);
       // Turn at least five times, then stop with the prize under the pointer (a bit off center, for realism).
-      const centre = index * slice + slice / 2;
+      const center = index * slice + slice / 2;
       const jitter = (Math.random() - 0.5) * slice * 0.6;
-      turned += 360 * 5 + ((360 - centre - (turned % 360) + 360) % 360) + jitter;
+      turned += 360 * 5 + ((360 - center - (turned % 360) + 360) % 360) + jitter;
       wheel.style.transform = `rotate(${turned}deg)`;
       turned -= jitter;
       text.textContent = 'Spinning…';
@@ -432,7 +432,7 @@ export class MenuUI {
 
   /** Bars for power, top speed, grip and braking, compared to the car in use (a white tick). */
   private statBars(t: Tuning, compare: Tuning): HTMLElement {
-    const max = careerTuning(CHASSIS.length - 1, { ...noUpgrades(), engine: 10, gearbox: 10, tyres: 10, brakes: 10, aero: 10 });
+    const max = careerTuning(CHASSIS.length - 1, { ...noUpgrades(), engine: 10, gearbox: 10, tires: 10, brakes: 10, aero: 10 });
     const bars = el('div', 'stat-bars');
     const speed = (mph: number) => (this.events.units() === 'mph' ? `${Math.round(mph)} mph` : `${Math.round(mph * 1.609)} km/h`);
     const rows: [string, number, number, number, string][] = [
@@ -620,7 +620,7 @@ export class MenuUI {
 
   /** Cars for a quick race: the garage build, every career car (stock and fully upgraded), and the showcase builds. */
   private quickCars(): { id: string; label: string; config: () => CarConfig }[] {
-    const maxed = { ...noUpgrades(), engine: 10, gearbox: 10, tyres: 10, brakes: 10, nitro: 10, aero: 10, armour: 10 };
+    const maxed = { ...noUpgrades(), engine: 10, gearbox: 10, tires: 10, brakes: 10, nitro: 10, aero: 10, armor: 10 };
     return [
       { id: 'garage', label: '🔧 My garage build', config: () => ({ ...this.looks, tuning: { ...this.looks.tuning } }) },
       { id: 'career', label: `🏆 My career car`, config: () => careerCar(this.looks, this.save.car, this.save.upgrades) },

@@ -580,7 +580,7 @@ const pack: Pack = {
       // Tired, bored, curious.
       if (kind === 'park') score += (1 - n.rest) * 1.2 + (1 - n.fun) * 0.3;
       if (kind === 'stunts') score += (1 - n.fun) * (0.4 + t.courage);
-      if (kind === 'music') score += (1 - n.fun) * (0.3 + t.humour * 0.8) + (h >= 19 ? 0.4 * t.energy : 0);
+      if (kind === 'music') score += (1 - n.fun) * (0.3 + t.humor * 0.8) + (h >= 19 ? 0.4 * t.energy : 0);
       if (kind === 'gym') score += (1 - n.fun) * t.energy * 0.8 - (1 - n.rest) * 0.8;
       if (kind === 'news' || kind === 'library') score += t.curiosity * 0.4;
       if (kind === 'market') score += t.curiosity * 0.2;
@@ -1036,7 +1036,7 @@ const pack: Pack = {
     /** How someone takes a wild bit of driving: the bold and fun-loving enjoy it, the timid and kind don't. */
     const thrill = (npc: Npc) => {
       const t = npc.mind.traits;
-      return (t.courage + t.energy + t.humour) / 3 - 0.5 + (npc.mind.feelings.driver ?? 0) * 0.4;
+      return (t.courage + t.energy + t.humor) / 3 - 0.5 + (npc.mind.feelings.driver ?? 0) * 0.4;
     };
 
     // ---------- the police ----------
@@ -1049,9 +1049,9 @@ const pack: Pack = {
      * calls him) he decides what to do about it: let it go, write a ticket,
      * or come after you.
      */
-    const offence = (what: string, x: number, z: number, reach = 30, severity = 1) => {
+    const offense = (what: string, x: number, z: number, reach = 30, severity = 1) => {
       if (!active) return;
-      lastOffence = clock;
+      lastOffense = clock;
       heat = Math.min(5, heat + severity * (chase ? 0.3 : 1));
       if (crimes[0] !== what) crimes.unshift(what);
       if (crimes.length > 6) crimes.pop();
@@ -1224,7 +1224,7 @@ const pack: Pack = {
 
     let chase: Chase | null = null;
     /** When you last did something BUDDY could hold against you (city clock). */
-    let lastOffence = -Infinity;
+    let lastOffense = -Infinity;
     let police: PoliceCar | null = null;
 
     /** BUDDY's police car (made the first time it's needed). */
@@ -1240,7 +1240,7 @@ const pack: Pack = {
         if (from.distanceTo(game.camera.position) < 70) game.audio.gunshot();
       };
       car.onHit = () => {
-        if (!chase) offence('shooting at a police car', car.x, car.z, 500, 3);
+        if (!chase) offense('shooting at a police car', car.x, car.z, 500, 3);
       };
       police = car;
       return car;
@@ -1376,7 +1376,7 @@ const pack: Pack = {
         why: 'Thinking the chase over: keep going, or give it up?',
         nearby: c.crew.slice(1).map((n) => n.member.name),
         crimes: { list: crimes.slice(0, 5), heat: Math.round(heat) },
-        chase: { seconds: clock - c.started, distance, hurt: Math.max(0, 1 - car.hp / 100), quiet: clock - lastOffence, partner: plea },
+        chase: { seconds: clock - c.started, distance, hurt: Math.max(0, 1 - car.hp / 100), quiet: clock - lastOffense, partner: plea },
       };
       const brain = aiReady() && aiDecides < 2 ? local : rules;
       if (brain === local) aiDecides++;
@@ -1578,7 +1578,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion);
         shout(npc, npc.mind.emotion);
       });
-      offence('reckless driving', e.x, e.z, 30, 0.7);
+      offense('reckless driving', e.x, e.z, 30, 0.7);
       // Your passenger felt that.
       if (rider && e.impact > 8) {
         remember(rider.npc.mind, clock, `The driver crashed with me in the car! ${thrill(rider.npc) > 0.2 ? 'What a ride.' : 'Never again.'}`, 6, ['driver'], 'saw');
@@ -1599,7 +1599,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion);
         shout(npc, npc.mind.emotion);
       });
-      offence(`smashing ${thing}`, e.x, e.z, 40, e.kind === 'building' ? 2 : e.kind === 'car' ? 1.2 : 0.8);
+      offense(`smashing ${thing}`, e.x, e.z, 40, e.kind === 'building' ? 2 : e.kind === 'car' ? 1.2 : 0.8);
     });
 
     game.on('jump', (e) => {
@@ -1629,7 +1629,7 @@ const pack: Pack = {
         emote(npc, npc.mind.emotion, 8);
         shout(npc, npc.mind.emotion);
       });
-      offence('dangerous driving', e.x, e.z, 25, 0.5);
+      offense('dangerous driving', e.x, e.z, 25, 0.5);
     });
 
     game.on('explosion', (e) => {
@@ -1643,7 +1643,7 @@ const pack: Pack = {
         if (d < 25 && !npc.chatting) dive(npc, npc.x - e.x, npc.z - e.z);
         shout(npc, 'scared');
       });
-      offence('causing an explosion', e.x, e.z, 60, 2.5);
+      offense('causing an explosion', e.x, e.z, 60, 2.5);
     });
 
     game.on('horn', (e) => {
@@ -2553,7 +2553,7 @@ const pack: Pack = {
         for (const { npc: other } of near(npc.x, npc.z, 25)) {
           if (other !== npc) remember(other.mind, clock, `The driver nearly ran over ${npc.member.name}!`, 6, ['driver', npc.member.id], 'saw');
         }
-        offence(hit ? `hitting ${npc.member.name}` : 'nearly hitting someone', npc.x, npc.z, 30, hit ? 2.5 : 1.2);
+        offense(hit ? `hitting ${npc.member.name}` : 'nearly hitting someone', npc.x, npc.z, 30, hit ? 2.5 : 1.2);
         checkBond(npc);
       }
     };
@@ -2623,7 +2623,7 @@ const pack: Pack = {
         // Speeding past the police.
         if (npc.member.id === OFFICER && !npc.asleep && clock - lastSpeeding > 6 && Math.hypot(p.vx, p.vz) > 32 && Math.hypot(npc.x - p.x, npc.z - p.z) < (npc.inCar ? 45 : 22)) {
           lastSpeeding = clock;
-          offence('speeding', npc.x, npc.z, 45, 0.4);
+          offense('speeding', npc.x, npc.z, 45, 0.4);
         }
         npc.label.setFriend(isFriend(m));
       }
@@ -2877,14 +2877,14 @@ export function describeCar(config: CarConfig): string {
     van: 'van',
     wedge: 'wedge-shaped supercar',
   };
-  const colour = colourName(config.paintColor);
+  const color = colorName(config.paintColor);
   const giant = config.size > 2.5 ? 'giant ' : '';
-  const words = `${giant}${colour} ${kind[config.body] ?? 'car'}`;
+  const words = `${giant}${color} ${kind[config.body] ?? 'car'}`;
   return `${/^[aeiou]/.test(words) ? 'an' : 'a'} ${words}`;
 }
 
 /** A color in plain words. */
-function colourName(hex: string): string {
+function colorName(hex: string): string {
   const c = new THREE.Color(hex);
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl);

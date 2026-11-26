@@ -11,7 +11,7 @@
 //      of engine, turbo lag, a slipping clutch when pulling away, a moment
 //      with the power cut while changing gear, and engine braking. The
 //      differential shares the push between the driven wheels.
-//   3. Each tire (tyres.ts): how fast its contact patch slides along the
+//   3. Each tire (tires.ts): how fast its contact patch slides along the
 //      road (wheelspin or locked brakes) and across it (slip angle), and the
 //      force from the "Magic Formula" curve real tire models use. Grip rises
 //      with slip to a peak, then falls away as it slides, and is shared: a
@@ -31,7 +31,7 @@ import { CarPhysics, GEAR_TOPS, MAX_REVERSE, type CarDynamics, type CarInput } f
 import type { World } from '../../game/world';
 import { autoGear, differential, engineFor, spoolTurbo, torqueAt, turboShare, type Engine } from './powertrain';
 import { FRONT, LEFT, newSuspension, relaxSuspension, roughness, stepSuspension, suspensionSpecs, type SuspensionSpecs, type SuspensionState } from './suspension';
-import { ambientTemperature, bestTemperature, heatTyre, magic, PEAK, PEAK_SLIP, temperatureGrip, wearGrip } from './tyres';
+import { ambientTemperature, bestTemperature, heatTire, magic, PEAK, PEAK_SLIP, temperatureGrip, wearGrip } from './tires';
 
 /** How much driving help a car gets. Rivals always get full help. */
 export type Assists = 'full' | 'some' | 'off';
@@ -53,7 +53,7 @@ export interface ModelOptions {
 /** What each realism level switches on. */
 interface Rules {
   /** Tires warm up and cool down (otherwise they're always at their best). */
-  tyreHeat: boolean;
+  tireHeat: boolean;
   /** Where the tires start: this many °C under their best (null: at the air temperature, stone cold). */
   startBelowBest: number | null;
   /** The least grip a cold or overheated tire keeps. */
@@ -72,17 +72,17 @@ interface Rules {
 }
 
 const RULES: Record<Realism | 'rival', Rules> = {
-  friendly: { tyreHeat: false, startBelowBest: 0, tempFloor: 1, wear: 0, shift: 0, turboLag: false, damage: 0, brakeFade: false, road: 0.5 },
-  real: { tyreHeat: true, startBelowBest: 20, tempFloor: 0.88, wear: 0.5, shift: 0.15, turboLag: true, damage: 1, brakeFade: true, road: 1 },
-  sim: { tyreHeat: true, startBelowBest: null, tempFloor: 0.8, wear: 1, shift: 0.2, turboLag: true, damage: 1.6, brakeFade: true, road: 1.25 },
-  rival: { tyreHeat: false, startBelowBest: 0, tempFloor: 1, wear: 0, shift: 0.15, turboLag: true, damage: 0, brakeFade: false, road: 1 },
+  friendly: { tireHeat: false, startBelowBest: 0, tempFloor: 1, wear: 0, shift: 0, turboLag: false, damage: 0, brakeFade: false, road: 0.5 },
+  real: { tireHeat: true, startBelowBest: 20, tempFloor: 0.88, wear: 0.5, shift: 0.15, turboLag: true, damage: 1, brakeFade: true, road: 1 },
+  sim: { tireHeat: true, startBelowBest: null, tempFloor: 0.8, wear: 1, shift: 0.2, turboLag: true, damage: 1.6, brakeFade: true, road: 1.25 },
+  rival: { tireHeat: false, startBelowBest: 0, tempFloor: 1, wear: 0, shift: 0.15, turboLag: true, damage: 0, brakeFade: false, road: 1 },
 };
 
 /**
  * The weight the tires feel, m/s². Low-gravity cars (the moon buggy) keep
  * Earth grip, or they could hardly pull away; they still fly further.
  */
-function tyreGravity(car: CarPhysics): number {
+function tireGravity(car: CarPhysics): number {
   return Math.max(car.gravity, 9.81);
 }
 
@@ -247,7 +247,7 @@ export function specsOf(car: CarPhysics): Specs {
     suspension: suspensionSpecs({
       frequency,
       size,
-      gravity: tyreGravity(car),
+      gravity: tireGravity(car),
       wheelBase: car.wheelBase,
       halfTrack,
       rearBar: Math.max(0, drift - 5) * 0.06,
@@ -284,12 +284,12 @@ export class RealisticDynamics implements CarDynamics {
     // Downforce: the same as the arcade model, doubling the grip at 10/10 and 100 mph.
     const down = 1 + (car.downforce / 10) * (speed / 44.7) ** 2;
     // Cold, hot or worn tires grip less.
-    const tyres = (car.dynamicsState as CarState | null)?.gripFactor ?? 1;
+    const tires = (car.dynamicsState as CarState | null)?.gripFactor ?? 1;
     // Under the limit: weight transfer costs some grip in a real corner, and
     // the drivers that plan with this (rivals, the city's drivers) need some
     // in hand to brake and turn at once. (0.82 kept rivals on the road about
     // a third more of the time than 0.92, for the same lap times.)
-    return mu * tyreGravity(car) * down * tyres * CORNER_MARGIN;
+    return mu * tireGravity(car) * down * tires * CORNER_MARGIN;
   }
 
   /**
@@ -516,7 +516,7 @@ export class RealisticDynamics implements CarDynamics {
     if (throttleBrakes) driveForce = 0;
 
     // ---------- the suspension: weight on each wheel ----------
-    const g0 = tyreGravity(car);
+    const g0 = tireGravity(car);
     const down = 1 + (car.downforce / 10) * (u / 44.7) ** 2;
     const g = g0 * down;
     const wheelBase = sp.front + sp.rear;
@@ -603,7 +603,7 @@ export class RealisticDynamics implements CarDynamics {
       // Load sensitivity: a heavily loaded tire grips a bit less per kg.
       const sensitivity = Math.max(0.7, 1 - 0.12 * (n / Math.max(1e-6, staticLoad) - 1));
       // Temperature and wear (always at their best on Friendly), a bent wheel, and the tire leaning over as the body rolls.
-      const condition = rules.tyreHeat ? temperatureGrip(s.temp[i], best, rules.tempFloor) * wearGrip(s.wear[i]) : 1;
+      const condition = rules.tireHeat ? temperatureGrip(s.temp[i], best, rules.tempFloor) * wearGrip(s.wear[i]) : 1;
       gripSum += condition;
       const camber = 1 - Math.min(0.05, Math.abs(s.susp.roll) * 0.6);
       const peakForce = mu * n * sensitivity * condition * camber * (1 - s.damage.wheel[i] * 0.5) * (grassy ? 0.8 : 1) * (FRONT[i] ? 1 : rearGrip);
@@ -618,7 +618,7 @@ export class RealisticDynamics implements CarDynamics {
       // The tire force for a given wheel spin, as a function, so the wheel can
       // be stepped implicitly (stable however stiff the tire is).
       const angle = s.slipAngle[i];
-      const tyre = (spin: number) => {
+      const tire = (spin: number) => {
         const ratio = Math.max(-1.5, Math.min(1.5, (spin * sp.radius - wu) / ref));
         const sx = ratio / PEAK_SLIP;
         const sy = Math.tan(Math.max(-1.4, Math.min(1.4, angle))) / PEAK_SLIP;
@@ -629,7 +629,7 @@ export class RealisticDynamics implements CarDynamics {
       };
 
       // Traction control and ABS: ease off when the wheel spins or locks.
-      const now = tyre(s.spin[i]);
+      const now = tire(s.spin[i]);
       // (Traction control watches the whole grip budget, so it also stops
       // wheelspin from pushing the back out mid-corner.)
       if (help > 0 && drive > 0 && (now.ratio > 0.2 + (1 - help) * 0.25 || now.usage > 1.05 + (1 - help) * 0.3)) {
@@ -644,7 +644,7 @@ export class RealisticDynamics implements CarDynamics {
       // Wheel spin: inertia × d(spin)/dt = (drive − tire force) × radius, minus brakes.
       const inertia = sp.wheelInertia;
       const h = 1e-3;
-      const slope = (tyre(s.spin[i] + h).fx - now.fx) / h; // how the tire force changes with spin
+      const slope = (tire(s.spin[i] + h).fx - now.fx) / h; // how the tire force changes with spin
       const free = s.spin[i] + (dt * (drive - now.fx) * sp.radius) / inertia;
       // Implicit step: allows for the tire force growing as the spin changes.
       let spin = s.spin[i] + (free - s.spin[i]) / (1 + (dt * sp.radius * Math.max(0, slope)) / inertia);
@@ -655,16 +655,16 @@ export class RealisticDynamics implements CarDynamics {
         brakePower += brake * Math.abs(spin * sp.radius);
       }
       s.spin[i] = spin;
-      const out = tyre(spin);
+      const out = tire(spin);
       s.slipRatio[i] = out.ratio;
       s.usage[i] = out.usage;
       s.load[i] = n / Math.max(1e-6, staticLoad);
 
       // The tire heats up as it slides (and a little as it rolls), and wears.
-      if (rules.tyreHeat) {
+      if (rules.tireHeat) {
         const sliding = Math.abs(out.fx * (spin * sp.radius - wu)) + Math.abs(out.fy * wv);
         const rolling = 0.012 * (n / Math.max(1e-6, staticLoad)) * Math.abs(wu);
-        s.temp[i] = heatTyre(s.temp[i], sliding + rolling, speed, ambient, dt);
+        s.temp[i] = heatTire(s.temp[i], sliding + rolling, speed, ambient, dt);
         s.wear[i] = Math.min(1, s.wear[i] + sliding * 2.5e-5 * rules.wear * dt); // bald after about 15 minutes sliding flat out on Simulation
       }
 

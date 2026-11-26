@@ -87,7 +87,7 @@ const pack: Pack = {
       const radius = (0.55 + Math.min(1, dent.lost / 25) * 0.6) * size;
       const depth = Math.min(0.22, 0.03 + dent.lost * 0.006) * size;
       rig.root.updateMatrixWorld(true);
-      const centre = rig.root.localToWorld(new THREE.Vector3(dent.across, rig.height * 0.45, dent.along));
+      const center = rig.root.localToWorld(new THREE.Vector3(dent.across, rig.height * 0.45, dent.along));
       // The push goes into the car (the crash normal points away from what it hit).
       const push = new THREE.Vector3(dent.nx, -0.15, dent.nz).normalize().multiplyScalar(depth);
       const point = new THREE.Vector3();
@@ -105,12 +105,12 @@ const pack: Pack = {
         const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
         inverse.copy(mesh.matrixWorld).invert();
         // The push in the part's own coordinates (parts can be scaled and turned).
-        const from = centre.clone().applyMatrix4(inverse);
-        const localPush = centre.clone().add(push).applyMatrix4(inverse).sub(from);
+        const from = center.clone().applyMatrix4(inverse);
+        const localPush = center.clone().add(push).applyMatrix4(inverse).sub(from);
         let changed = false;
         for (let i = 0; i < pos.count; i++) {
           point.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
-          const d = point.distanceTo(centre);
+          const d = point.distanceTo(center);
           if (d >= radius) continue;
           const falloff = (1 - d / radius) ** 2;
           pos.setXYZ(i, pos.getX(i) + localPush.x * falloff, pos.getY(i) + localPush.y * falloff, pos.getZ(i) + localPush.z * falloff);

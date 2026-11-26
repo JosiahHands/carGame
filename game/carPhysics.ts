@@ -34,7 +34,7 @@ const MPH = 0.44704; // meters per second
  * and the car runs wide (understeer), so you brake for the tight ones. More
  * grip and downforce raise it; rain, snow and grass lower it.
  */
-export const TYRE_GRIP = 22;
+export const TIRE_GRIP = 22;
 /** With the handbrake on, the car can swing round this many times faster than its grip allows, and slides. */
 const DRIFT_TURN = 3;
 /** A car this tall (meters) or taller flattens anything up to twice its height. */
@@ -242,7 +242,7 @@ export class CarPhysics {
   /** Most sideways acceleration the tires can give at this speed (m/s²), with downforce and the surface. */
   cornerGrip(speed: number): number {
     if (CarPhysics.dynamics) return CarPhysics.dynamics.cornerGrip(this, speed, this.surfaceGrip);
-    return TYRE_GRIP * this.gripMultiplier * this.surfaceGrip * (1 + (this.downforce / 10) * (speed / (100 * MPH)) ** 2);
+    return TIRE_GRIP * this.gripMultiplier * this.surfaceGrip * (1 + (this.downforce / 10) * (speed / (100 * MPH)) ** 2);
   }
 
   /**
@@ -264,7 +264,7 @@ export class CarPhysics {
       return lo;
     }
     // Solve v² × curve = grip × (1 + k v²), where k is the downforce part.
-    const g = TYRE_GRIP * this.gripMultiplier * surfaceGrip;
+    const g = TIRE_GRIP * this.gripMultiplier * surfaceGrip;
     const k = (this.downforce / 10) / (100 * MPH) ** 2;
     const room = Math.abs(curve) - g * k;
     return room <= 0 ? Infinity : Math.sqrt(g / room);

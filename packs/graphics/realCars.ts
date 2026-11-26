@@ -215,9 +215,9 @@ export function fitFor(rig: CarRig, m: Measure): { scale: THREE.Vector3; positio
   let y = spec.wheelRadius - m.wheelRadius * sy;
   // ...but the body rides up if the tires would poke through the tops of its arches
   // (bigger wheels than the model's, or a squashed body).
-  const tyreTop = rig.shape.wheelY + spec.wheelRadius * config.wheelSize + 0.015;
+  const tireTop = rig.shape.wheelY + spec.wheelRadius * config.wheelSize + 0.015;
   const archTop = spec.wheelRadius + m.archRadius * sy;
-  y += Math.max(0, tyreTop - archTop);
+  y += Math.max(0, tireTop - archTop);
   return {
     scale: new THREE.Vector3(sx, sy, sz),
     position: new THREE.Vector3(0, y, (spec.axleFront + spec.axleRear) / 2),

@@ -58,12 +58,12 @@ export class CityMap {
   /** Lays out the places and routes for this city (the same every time, as the city is). */
   build(world: World): void {
     this.clear();
-    const centres = ROAD_LINES.slice(0, -1).map((c) => c + 40);
+    const centers = ROAD_LINES.slice(0, -1).map((c) => c + 40);
     // Routes: the four corners of every block; along the block's sides, and across each road to the next block.
     const index = new Map<string, number>();
     const key = (x: number, z: number) => `${Math.round(x)},${Math.round(z)}`;
-    for (const bx of centres) {
-      for (const bz of centres) {
+    for (const bx of centers) {
+      for (const bz of centers) {
         for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
           index.set(key(bx + dx * LOOP, bz + dz * LOOP), this.nodes.length);
           this.nodes.push({ x: bx + dx * LOOP, z: bz + dz * LOOP, next: [] });
@@ -75,8 +75,8 @@ export class CityMap {
       this.nodes[a].next.push(b);
       this.nodes[b].next.push(a);
     };
-    for (const bx of centres) {
-      for (const bz of centres) {
+    for (const bx of centers) {
+      for (const bz of centers) {
         const c = (dx: number, dz: number) => index.get(key(bx + dx * LOOP, bz + dz * LOOP));
         link(c(-1, -1), c(1, -1));
         link(c(1, -1), c(1, 1));
