@@ -491,15 +491,21 @@ pub mod dev {
     //! `CAR_GAME_SCREENSHOT=shot.png car-game` saves a picture of the game once
     //! it has settled, then quits.
 
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use bevy::image::TextureFormatPixelInfo;
     use bevy::prelude::*;
-    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 
     /// Frames to wait before the picture, so the first shaders have compiled.
     const SETTLE_FRAMES: u32 = 120;
     /// Frames to keep running once the picture is on disk.
     const SAVE_FRAMES: u32 = 5;
-    /// Frames to wait for the picture at most (software renderers can take a
-    /// long time to compile the capture pipeline), before giving up with an error.
+    /// Frames to wait before trying again after a blank picture.
+    const RETRY_FRAMES: u32 = 30;
+    /// Frames to wait for a picture at most (software renderers can take a
+    /// long time to compile their shaders), before giving up with an error.
     const GIVE_UP_FRAMES: u32 = 3000;
 
     pub struct DevPlugin;
@@ -507,14 +513,17 @@ pub mod dev {
     impl Plugin for DevPlugin {
         fn build(&self, app: &mut App) {
             if let Some(path) = std::env::var_os("CAR_GAME_SCREENSHOT") {
+                let capture_at = std::env::var("CAR_GAME_SCREENSHOT_FRAMES")
+                    .ok()
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(SETTLE_FRAMES)
+                    .clamp(1, 3600);
                 app.insert_resource(ScreenshotThenQuit {
                     path: path.into(),
                     frame: 0,
-                    capture_at: std::env::var("CAR_GAME_SCREENSHOT_FRAMES")
-                        .ok()
-                        .and_then(|value| value.parse::<u32>().ok())
-                        .unwrap_or(SETTLE_FRAMES)
-                        .clamp(1, 3600),
+                    capture_at,
+                    next_try: capture_at,
+                    blank: Arc::new(AtomicBool::new(false)),
                     saved_at: None,
                 })
                 .add_systems(Update, screenshot_then_quit);
@@ -527,8 +536,29 @@ pub mod dev {
         path: std::path::PathBuf,
         frame: u32,
         capture_at: u32,
+        /// The frame the next picture is taken on.
+        next_try: u32,
+        /// Set when a picture came back blank (the game hadn't drawn anything yet).
+        blank: Arc<AtomicBool>,
         /// The frame the picture was found on disk.
         saved_at: Option<u32>,
+    }
+
+    /// Whether a picture shows anything: a blank one (every pixel the same,
+    /// as when the shaders are still compiling) is no use.
+    fn has_detail(image: &Image) -> bool {
+        let Some(data) = image.data.as_ref() else { return false };
+        let pixel = image.texture_descriptor.format.pixel_size().unwrap_or(4).max(1);
+        let mut seen: Vec<&[u8]> = Vec::new();
+        for chunk in data.chunks_exact(pixel).step_by(997) {
+            if !seen.contains(&chunk) {
+                seen.push(chunk);
+                if seen.len() >= 8 {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn screenshot_then_quit(mut commands: Commands, mut shot: ResMut<ScreenshotThenQuit>, mut exit: MessageWriter<AppExit>) {
@@ -540,30 +570,44 @@ pub mod dev {
         // Progress in the log, so a slow machine can be told apart from a stuck one.
         if shot.frame.is_multiple_of(30) && shot.saved_at.is_none() {
             info!(
-                "Screenshot: frame {} (the picture is taken at frame {})",
-                shot.frame, shot.capture_at
+                "Screenshot: frame {} (the next picture is taken at frame {})",
+                shot.frame, shot.next_try
             );
         }
-        if shot.frame == shot.capture_at {
+        if shot.saved_at.is_none() && shot.blank.swap(false, Ordering::Relaxed) {
+            info!("The picture was blank (still preparing to draw): trying again");
+            shot.next_try = shot.frame + RETRY_FRAMES;
+        }
+        if shot.frame == shot.next_try && shot.saved_at.is_none() {
+            let mut save = save_to_disk(shot.path.clone());
+            let blank = shot.blank.clone();
             commands
                 .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(shot.path.clone()));
-        } else if shot.frame > shot.capture_at {
-            // Quit once the picture is really on disk, however long the capture takes.
-            if shot.saved_at.is_none() && std::fs::metadata(&shot.path).is_ok_and(|m| m.len() > 0) {
-                shot.saved_at = Some(shot.frame);
-                info!("Screenshot saved at frame {}", shot.frame);
+                .observe(move |captured: On<ScreenshotCaptured>| {
+                    if has_detail(&captured.image) {
+                        save(captured);
+                    } else {
+                        blank.store(true, Ordering::Relaxed);
+                    }
+                });
+        }
+        if shot.frame < shot.capture_at {
+            return;
+        }
+        // Quit once a picture is really on disk, however long the capture takes.
+        if shot.saved_at.is_none() && std::fs::metadata(&shot.path).is_ok_and(|m| m.len() > 0) {
+            shot.saved_at = Some(shot.frame);
+            info!("Screenshot saved at frame {}", shot.frame);
+        }
+        match shot.saved_at {
+            Some(at) if shot.frame >= at + SAVE_FRAMES => {
+                exit.write(AppExit::Success);
             }
-            match shot.saved_at {
-                Some(at) if shot.frame >= at + SAVE_FRAMES => {
-                    exit.write(AppExit::Success);
-                }
-                None if shot.frame > shot.capture_at + GIVE_UP_FRAMES => {
-                    error!("The screenshot was never saved to {}", shot.path.display());
-                    exit.write(AppExit::error());
-                }
-                _ => {}
+            None if shot.frame > shot.capture_at + GIVE_UP_FRAMES => {
+                error!("No picture with anything in it was saved to {}", shot.path.display());
+                exit.write(AppExit::error());
             }
+            _ => {}
         }
     }
 
