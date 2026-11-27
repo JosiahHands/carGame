@@ -104,11 +104,16 @@ fn popup_text_wraps_with_room_between_title_and_description() {
     }
 }
 
-pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Result {
+pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>, mut big: Local<bigmap::BigMap>) -> Result {
     let ctx = contexts.ctx_mut()?;
     if game.screen_shot {
         return Ok(());
     }
+    if game.map_open && game.mode == Mode::Drive {
+        bigmap::show(ctx, &game, &world, &mut big);
+        return Ok(());
+    }
+    big.open = false;
     // The game's version, in the top left corner of every screen (left out of saved photos).
     egui::Area::new(egui::Id::new("version"))
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(8.0, 4.0))
@@ -418,7 +423,15 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
                     );
                 }
                 if !game.help {
-                    ui.label(RichText::new("H for help · Esc for the garage").size(12.0).color(MUTED));
+                    ui.label(
+                        RichText::new(format!(
+                            "{} for help · {} map · Esc for the garage",
+                            game.bindings.label("help"),
+                            game.bindings.label("map")
+                        ))
+                        .size(12.0)
+                        .color(MUTED),
+                    );
                 }
             });
             if game.trial.active {
@@ -465,8 +478,8 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
         if game.help {
             area("help", egui::Align2::LEFT_CENTER, [16.0, 0.0]).show(ctx, |ui| {
                 panel_frame().show(ui, |ui| {
-                    for line in HELP {
-                        ui.label(RichText::new(*line).size(13.0).color(Color32::WHITE));
+                    for line in help_lines(&game.bindings) {
+                        ui.label(RichText::new(line).size(13.0).color(Color32::WHITE));
                     }
                 });
             });
@@ -564,20 +577,63 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
     Ok(())
 }
 
-pub const HELP: &[&str] = &[
-    "W / ↑  accelerate        S / ↓  brake, reverse",
-    "A D / ← →  steer          Space  handbrake (drift)",
-    "Shift  nitro              J  jump (if the car can)",
-    "E or left click  fire     Q / 1 2 3  weapons",
-    "X / Z  change gear (manual)",
-    "C  camera   R  reset   T  time trial   B  slow motion",
-    "G  garage   P  photo mode   N  night   V  horn",
-    "M  sound   F11  fullscreen   H  this help   Esc  menu",
-    "F  get out of the car, or into the nearest one (free roam)",
-    "On foot: W S walk, A D turn, Shift run, Space jump",
-    "   E or click  punch or shoot   1 fists   2 pistol",
-    "Controller: triggers drive, A handbrake, B nitro, RB fire, D-pad up get in/out",
-];
+/// The controls, with the keys they're on now (Garage → Controls changes them).
+pub fn help_lines(b: &crate::input::Bindings) -> Vec<String> {
+    let k = |id: &str| b.label(id);
+    vec![
+        format!("{}  accelerate        {}  brake, reverse", k("accelerate"), k("brake")),
+        format!("{} {}  steer          {}  handbrake (drift)", k("left"), k("right"), k("handbrake")),
+        format!("{}  nitro              {}  jump (if the car can)", k("nitro"), k("jump")),
+        format!(
+            "{} or left click  fire     {} / {} {} {}  weapons",
+            k("fire"),
+            k("nextWeapon"),
+            k("weapon1"),
+            k("weapon2"),
+            k("weapon3")
+        ),
+        format!("{} / {}  change gear (manual)", k("shiftUp"), k("shiftDown")),
+        format!(
+            "{}  camera   {}  reset   {}  time trial   {}  slow motion",
+            k("camera"),
+            k("reset"),
+            k("trial"),
+            k("slowmo")
+        ),
+        format!(
+            "{}  map   {}  garage   {}  photo mode   {}  night   {}  horn",
+            k("map"),
+            k("garage"),
+            k("photo"),
+            k("night"),
+            k("horn")
+        ),
+        format!(
+            "{}  sound   {}  fullscreen   {}  this help   Esc  menu",
+            k("mute"),
+            k("fullscreen"),
+            k("help")
+        ),
+        format!("{}  get out of the car, or into the nearest one (free roam)", k("enterExit")),
+        format!(
+            "On foot: {} {} walk, {} {} turn, {} run, {} jump",
+            k("accelerate"),
+            k("brake"),
+            k("left"),
+            k("right"),
+            k("nitro"),
+            k("handbrake")
+        ),
+        format!(
+            "   {} or click  punch or shoot   {} fists   {} pistol",
+            k("fire"),
+            k("weapon1"),
+            k("weapon2")
+        ),
+        "Change any key: Garage → Controls".into(),
+        "Controller: triggers drive, A handbrake, B nitro, RB fire, D-pad up get in/out".into(),
+    ]
+}
 
 pub mod minimap {
     //! The minimap in the top-right corner. It turns with the car, so the way you
@@ -655,7 +711,7 @@ pub mod minimap {
                     .map(|p| to_screen(p.x, p.z))
                     .collect();
                 if pts.len() > 1 {
-                    painter.add(Shape::line(pts, Stroke::new((crate::land::ROAD_WIDTH * ppm) as f32, asphalt)));
+                    painter.add(Shape::line(pts, Stroke::new((road.half * 2.0 * ppm) as f32, asphalt)));
                 }
             }
             for t in &land.towns {
@@ -760,5 +816,312 @@ pub mod minimap {
             Stroke::new(2.0, Color32::from_white_alpha(90)),
             egui::StrokeKind::Inside,
         );
+    }
+}
+
+pub mod bigmap {
+    //! The full-screen map (M): the whole open world, its highways and
+    //! interstates, towns, hamlets and the sea, north up. Drag to move it,
+    //! scroll to zoom. On the race tracks, the track.
+    use bevy::math::DVec2;
+    use bevy_egui::egui::{self, Color32, Pos2, Shape, Stroke};
+
+    use crate::game::Game;
+    use crate::land::{Biome, Land, Size, WATER};
+    use crate::world::World;
+
+    /// How many pixels across the painted land is (it's drawn bigger, smoothly).
+    const PIXELS: usize = 192;
+
+    #[derive(Default)]
+    pub struct BigMap {
+        pub open: bool,
+        center: DVec2,
+        /// Meters per screen point.
+        scale: f64,
+        /// The painted land: where it's centered, how far it reaches, its pixels, and how many are done.
+        land: Option<(DVec2, f64, u64, Vec<Color32>, usize)>,
+        texture: Option<egui::TextureHandle>,
+    }
+
+    fn hex(rgb: u32) -> Color32 {
+        Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
+    }
+
+    /// The land's color at (x, z), roughly (for the map).
+    fn land_color(land: &Land, x: f64, z: f64) -> Color32 {
+        let h = land.wild_height(x, z);
+        if h < WATER {
+            return if h < -3.0 { hex(0x2b6b94) } else { hex(0x4b8fb5) };
+        }
+        if h < 1.4 && land.main_biome(x, z) == Biome::Lakes {
+            return hex(0xd9c899);
+        }
+        match land.main_biome(x, z) {
+            Biome::Plains => hex(0x86ad5c),
+            Biome::Forest => hex(0x3f6d38),
+            Biome::Mountains if h > 150.0 => hex(0xeef2f5),
+            Biome::Mountains if h > 60.0 => hex(0x8c8a84),
+            Biome::Mountains => hex(0x6f8f55),
+            Biome::Desert => hex(0xd2a56d),
+            Biome::Lakes => hex(0x6fa055),
+        }
+    }
+
+    pub fn show(ctx: &egui::Context, game: &Game, world: &World, big: &mut BigMap) {
+        let p = &game.physics;
+        let me = DVec2::new(p.x, p.z);
+        let screen = ctx.content_rect();
+        if !big.open {
+            big.open = true;
+            big.center = me;
+            big.scale = if world.land.is_some() {
+                9000.0 / screen.height().max(1.0) as f64
+            } else {
+                2.0
+            };
+            if let Some(t) = &world.track {
+                let (mut lo, mut hi) = (DVec2::splat(f64::MAX), DVec2::splat(f64::MIN));
+                for q in &t.points {
+                    lo = lo.min(DVec2::new(q.x, q.z));
+                    hi = hi.max(DVec2::new(q.x, q.z));
+                }
+                big.center = (lo + hi) / 2.0;
+                big.scale = ((hi - lo).max_element() * 1.2) / screen.height().max(1.0) as f64;
+            }
+        }
+        egui::Area::new(egui::Id::new("big map"))
+            .fixed_pos(screen.min)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                let (rect, response) = ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
+                // Drag to move, scroll to zoom (around the pointer).
+                if response.dragged() {
+                    let d = response.drag_delta();
+                    big.center.x += d.x as f64 * big.scale;
+                    big.center.y += d.y as f64 * big.scale;
+                }
+                let scroll = ui.input(|i| i.smooth_scroll_delta.y) as f64;
+                if scroll != 0.0 {
+                    big.scale = (big.scale * (-scroll * 0.0025).exp()).clamp(0.3, 80.0);
+                }
+                let painter = ui.painter_at(rect);
+                let mid = rect.center();
+                let (cx, cz, k) = (big.center.x, big.center.y, big.scale);
+                // North (+z) is up; +x is to the left, as you see it facing north.
+                let to_screen = |x: f64, z: f64| Pos2::new(mid.x - ((x - cx) / k) as f32, mid.y - ((z - cz) / k) as f32);
+                painter.rect_filled(rect, 0.0, hex(0x1d2a33));
+                if let Some(land) = world.land.as_deref() {
+                    paint_land(ctx, &painter, land, big, me);
+                    if let (Some(tex), Some((c, reach, _, _, _))) = (&big.texture, &big.land) {
+                        let a = to_screen(c.x + reach, c.y + reach);
+                        let b = to_screen(c.x - reach, c.y - reach);
+                        painter.image(
+                            tex.id(),
+                            egui::Rect::from_two_pos(a, b),
+                            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                    draw_land(&painter, land, &to_screen, k);
+                } else if let Some(t) = &world.track {
+                    let mut pts: Vec<Pos2> = t.points.iter().map(|q| to_screen(q.x, q.z)).collect();
+                    pts.push(pts[0]);
+                    painter.add(Shape::line(pts, Stroke::new(((t.style.width / k) as f32).max(3.0), hex(0x2b2d31))));
+                }
+                // Markers (wrenches, challenges, the lap).
+                let mut markers = game.trial.map_markers();
+                markers.extend(game.free_roam.map_markers(p.x, p.z));
+                for (x, z, color, size) in markers {
+                    painter.circle_filled(to_screen(x, z), size.max(4.0), hex(color));
+                }
+                // Your car, parked, and you.
+                if let Some(t) = game.own_car.and_then(|i| world.targets.get(i)) {
+                    let at = to_screen(t.x, t.z);
+                    painter.circle_filled(at, 6.0, hex(0x1b98e0));
+                    painter.text(
+                        at + egui::vec2(9.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        "your car",
+                        egui::FontId::proportional(13.0),
+                        Color32::WHITE,
+                    );
+                }
+                let at = to_screen(p.x, p.z);
+                let (s, c) = p.heading.sin_cos();
+                let f = egui::vec2(-(s as f32), -(c as f32));
+                let side = egui::vec2(-f.y, f.x);
+                let tip = at + f * 13.0;
+                let arrow = vec![tip, at - f * 8.0 + side * 8.0, at - f * 3.0, at - f * 8.0 - side * 8.0];
+                painter.add(Shape::convex_polygon(
+                    vec![arrow[0], arrow[1], arrow[2]],
+                    hex(0xff5a36),
+                    Stroke::NONE,
+                ));
+                painter.add(Shape::convex_polygon(
+                    vec![arrow[0], arrow[2], arrow[3]],
+                    hex(0xff5a36),
+                    Stroke::NONE,
+                ));
+                painter.add(Shape::closed_line(arrow, Stroke::new(1.5, Color32::WHITE)));
+                // North, and how to use it.
+                let north = rect.right_top() + egui::vec2(-40.0, 50.0);
+                painter.add(Shape::convex_polygon(
+                    vec![
+                        north + egui::vec2(0.0, -30.0),
+                        north + egui::vec2(8.0, -15.0),
+                        north + egui::vec2(-8.0, -15.0),
+                    ],
+                    Color32::WHITE,
+                    Stroke::NONE,
+                ));
+                painter.text(
+                    north,
+                    egui::Align2::CENTER_CENTER,
+                    "N",
+                    egui::FontId::proportional(22.0),
+                    Color32::WHITE,
+                );
+                let close = format!("{} or Esc to close · drag to move · scroll to zoom", game.bindings.label("map"));
+                painter.text(
+                    rect.center_bottom() + egui::vec2(0.0, -24.0),
+                    egui::Align2::CENTER_CENTER,
+                    close,
+                    egui::FontId::proportional(15.0),
+                    Color32::WHITE,
+                );
+                let bar_m = nice_length(k * 150.0);
+                let bar = (bar_m / k) as f32;
+                let start = rect.left_bottom() + egui::vec2(30.0, -30.0);
+                painter.line_segment([start, start + egui::vec2(bar, 0.0)], Stroke::new(3.0, Color32::WHITE));
+                let label = if bar_m >= 1000.0 {
+                    format!("{} km", bar_m / 1000.0)
+                } else {
+                    format!("{bar_m} m")
+                };
+                painter.text(
+                    start + egui::vec2(bar / 2.0, -12.0),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(13.0),
+                    Color32::WHITE,
+                );
+            });
+    }
+
+    /// A round length close to `m` meters, for the scale bar.
+    fn nice_length(m: f64) -> f64 {
+        let p = 10f64.powf(m.log10().floor());
+        [1.0, 2.0, 5.0, 10.0]
+            .into_iter()
+            .map(|x| x * p)
+            .find(|v| *v >= m * 0.7)
+            .unwrap_or(p * 10.0)
+    }
+
+    /// Paints the land around you into a picture, a few rows a frame.
+    fn paint_land(ctx: &egui::Context, _painter: &egui::Painter, land: &Land, big: &mut BigMap, me: DVec2) {
+        let reach = if land.generative { 9000.0 } else { crate::land::MAP_HALF + 600.0 };
+        let center = if land.generative {
+            (me / 3000.0).round() * 3000.0
+        } else {
+            DVec2::ZERO
+        };
+        let fresh = big.land.as_ref().is_none_or(|l| l.0 != center || l.2 != land.version);
+        if fresh {
+            big.land = Some((center, reach, land.version, vec![hex(0x1d2a33); PIXELS * PIXELS], 0));
+        }
+        let Some((c, r, _, pixels, done)) = big.land.as_mut() else { return };
+        if *done >= PIXELS * PIXELS && big.texture.is_some() && !fresh {
+            return;
+        }
+        let started = std::time::Instant::now();
+        while *done < PIXELS * PIXELS && started.elapsed() < std::time::Duration::from_millis(8) {
+            let (i, j) = (*done % PIXELS, *done / PIXELS);
+            // Pixel (0, 0) is the top left: +x (left), +z (top).
+            let x = c.x + *r - (i as f64 + 0.5) / PIXELS as f64 * 2.0 * *r;
+            let z = c.y + *r - (j as f64 + 0.5) / PIXELS as f64 * 2.0 * *r;
+            pixels[*done] = land_color(land, x, z);
+            *done += 1;
+        }
+        let image = egui::ColorImage::new([PIXELS, PIXELS], pixels.clone());
+        match &mut big.texture {
+            Some(t) => t.set(image, egui::TextureOptions::LINEAR),
+            None => big.texture = Some(ctx.load_texture("big map land", image, egui::TextureOptions::LINEAR)),
+        }
+    }
+
+    /// Roads, towns and hamlets, with their names.
+    fn draw_land(painter: &egui::Painter, land: &Land, to_screen: &dyn Fn(f64, f64) -> Pos2, k: f64) {
+        let view = painter.clip_rect().expand(200.0);
+        for road in &land.roads {
+            let a = to_screen(road.bounds[0], road.bounds[2]);
+            let b = to_screen(road.bounds[1], road.bounds[3]);
+            if !view.intersects(egui::Rect::from_two_pos(a, b)) {
+                continue;
+            }
+            let step = ((k * 2.0 / 6.0) as usize).clamp(1, 30);
+            let pts: Vec<Pos2> = road.points.iter().step_by(step).map(|q| to_screen(q.x, q.z)).collect();
+            let (width, color) = if road.interstate {
+                (4.5, hex(0xf2c94c))
+            } else {
+                (2.5, hex(0xf4f4f4))
+            };
+            painter.add(Shape::line(pts.clone(), Stroke::new(width + 2.0, hex(0x30343a))));
+            painter.add(Shape::line(pts, Stroke::new(width, color)));
+        }
+        for h in &land.hamlets {
+            let at = to_screen(h.at.x, h.at.y);
+            if view.contains(at) {
+                painter.circle_filled(at, 3.5, hex(0xe8dcc0));
+                if k < 6.0 {
+                    painter.text(
+                        at + egui::vec2(6.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        &h.name,
+                        egui::FontId::proportional(11.0),
+                        hex(0xe8e8e8),
+                    );
+                }
+            }
+        }
+        for t in &land.towns {
+            let a = to_screen(t.at.x - t.half, t.at.y - t.half);
+            let b = to_screen(t.at.x + t.half, t.at.y + t.half);
+            let r = egui::Rect::from_two_pos(a, b);
+            if !view.intersects(r) {
+                continue;
+            }
+            let (fill, size) = match t.size {
+                Size::City | Size::Metropolis => (hex(0xb8b4ad), 17.0),
+                Size::Town => (hex(0xc9c2b8), 14.0),
+                Size::Village => (hex(0xd8d0c4), 12.0),
+                Size::Crossroads => (hex(0xe0e0e0), 11.0),
+            };
+            let r = if r.width() < 6.0 {
+                egui::Rect::from_center_size(r.center(), egui::vec2(6.0, 6.0))
+            } else {
+                r
+            };
+            painter.rect_filled(r, 2.0, fill);
+            if t.size != Size::Crossroads || k < 8.0 {
+                let name = t.label();
+                let pos = r.center_top() + egui::vec2(0.0, -4.0);
+                painter.text(
+                    pos + egui::vec2(1.0, 1.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(size),
+                    Color32::BLACK,
+                );
+                painter.text(
+                    pos,
+                    egui::Align2::CENTER_BOTTOM,
+                    &name,
+                    egui::FontId::proportional(size),
+                    Color32::WHITE,
+                );
+            }
+        }
     }
 }

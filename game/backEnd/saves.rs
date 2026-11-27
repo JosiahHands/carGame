@@ -244,6 +244,9 @@ pub mod settings {
         /// New in 1.4.0: each map's own options (Garage → Maps), by map name.
         #[serde(default)]
         pub maps: std::collections::BTreeMap<String, MapOptions>,
+        /// New in 1.4.0: keys changed on the Controls tab (control id -> key ids).
+        #[serde(default)]
+        pub controls: std::collections::BTreeMap<String, Vec<String>>,
     }
 
     /// A map's own options, on the Maps tab.
@@ -311,6 +314,7 @@ pub mod settings {
                 quality: String::new(),
                 auto_update: false,
                 maps: std::collections::BTreeMap::new(),
+                controls: std::collections::BTreeMap::new(),
             }
         }
     }
@@ -400,7 +404,7 @@ pub mod settings {
         }
         if let (Some(saved), Some(target)) = (saved, merged.as_object_mut()) {
             for (key, value) in saved.as_object().into_iter().flatten() {
-                if key == "maps" {
+                if key == "maps" || key == "controls" {
                     continue;
                 }
                 // Only keep saved values of the right type, so a broken save can't break the game.
@@ -422,6 +426,19 @@ pub mod settings {
             }
         }
         s.maps = maps;
+        // Changed keys: lists of key names (unknown ones are dropped when used).
+        if let Some(entries) = storage
+            .get_json(STORAGE_KEY)
+            .and_then(|v| v.get("controls").cloned())
+            .and_then(|v| v.as_object().cloned())
+        {
+            for (id, keys) in entries {
+                if let Some(list) = keys.as_array() {
+                    s.controls
+                        .insert(id, list.iter().filter_map(Value::as_str).map(str::to_string).collect());
+                }
+            }
+        }
         let clamp = |v: f64, min: f64, max: f64| if v == 0.0 || v.is_nan() { min } else { v.clamp(min, max) };
         s.resolution = clamp(s.resolution, 0.5, 1.0);
         s.view_distance = clamp(s.view_distance, 150.0, 600.0);

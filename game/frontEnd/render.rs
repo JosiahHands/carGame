@@ -1646,6 +1646,14 @@ pub mod world_build {
             if let Some(t) = town {
                 self.build_town(b, t);
             }
+            let hamlet = self.land.as_ref().and_then(|l| {
+                l.hamlets
+                    .iter()
+                    .position(|h| !h.built && h.at.distance(bevy::math::DVec2::new(x, z)) < 1300.0)
+            });
+            if let Some(h) = hamlet {
+                self.build_hamlet(b, h);
+            }
             let here = crate::land::tile_of(x, z);
             let mut wanted = Vec::new();
             for dx in -4..=4 {
@@ -1715,6 +1723,7 @@ pub mod world_build {
                 return;
             }
             let village = town.size == crate::land::Size::Village;
+            let metropolis = town.size == crate::land::Size::Metropolis;
             let inner = BLOCK_INNER;
             let sidewalk = Self::tex_mat(b, b.mats.concrete_tex.clone(), Vec2::splat((inner / 4.0) as f32), 0.95);
             let mut slabs = MeshData::default();
@@ -1726,8 +1735,14 @@ pub mod world_build {
                 let plane = bevy::shape::Plane3d::default().mesh().size(inner as f32, inner as f32).build();
                 slabs.add_mesh(&plane, &Transform::from_xyz(bx as f32, 0.015, bz as f32), [1.0; 4]);
                 let r = rand.next();
-                let park = if village { r < 0.3 } else { r < 0.22 };
-                let lot = !village && !park && r < 0.36;
+                let park = if village {
+                    r < 0.3
+                } else if metropolis {
+                    r < 0.07
+                } else {
+                    r < 0.22
+                };
+                let lot = !village && !park && r < if metropolis { 0.1 } else { 0.36 };
                 if park {
                     let lawn = bevy::shape::Plane3d::default()
                         .mesh()
@@ -1751,6 +1766,11 @@ pub mod world_build {
                             }
                             let (w, d, h) = if village {
                                 (9.0 + rand.next() * 6.0, 9.0 + rand.next() * 6.0, 4.5 + rand.next() * 5.0)
+                            } else if metropolis {
+                                // Towers, tallest in the middle of the city.
+                                let middle = 1.0 - ((bx - cx).hypot(bz - cz) / town.half).min(1.0);
+                                let tall = 30.0 + rand.next().powf(1.4) * (90.0 + 170.0 * middle);
+                                (18.0 + rand.next() * 10.0, 18.0 + rand.next() * 10.0, tall)
                             } else {
                                 (
                                     12.0 + rand.next() * 12.0,
@@ -1789,7 +1809,9 @@ pub mod world_build {
             let mut rand = Seeded::new(crate::land::hash(key.0 as i64, key.1 as i64, 60) as f64);
             let w = land.biomes(x0 + tile / 2.0, z0 + tile / 2.0);
             // Trees.
-            let count = (5.0 * w[0] + 75.0 * w[1] + 30.0 * w[2] + 4.0 * w[3] + 16.0 * w[4]).round() as usize;
+            // Woods here and there on the farmland, deep forest in the west.
+            let woods = crate::land::smoothstep(0.15, 0.4, crate::land::fbm(x0 / 900.0, z0 / 900.0, 61, 2));
+            let count = (5.0 * w[0] + 90.0 * w[0] * woods + 125.0 * w[1] + 40.0 * w[2] + 4.0 * w[3] + 16.0 * w[4]).round() as usize;
             let mut by_kind: [Vec<DVec3>; 4] = Default::default();
             for _ in 0..count {
                 let (x, z) = (x0 + rand.next() * tile, z0 + rand.next() * tile);
@@ -1801,8 +1823,8 @@ pub mod world_build {
                 if biome == crate::land::Biome::Mountains && h > 175.0 + rand.next() * 40.0 {
                     continue; // above the tree line
                 }
-                // Hedgerows on the farmland edges, not trees in the middle of fields.
-                if biome == crate::land::Biome::Plains && rand.next() < 0.5 {
+                // On the farmland, trees grow in the woods, and only here and there in the fields.
+                if biome == crate::land::Biome::Plains && rand.next() > 0.5 + woods * 0.5 {
                     continue;
                 }
                 let kind = tree_for(biome, h);
@@ -2022,6 +2044,37 @@ pub mod world_build {
                 let e = self.spawn(b, scenery.build(), b.mats.vertex_colored.clone(), Transform::default());
                 b.commands.entity(e).insert(far);
             }
+        }
+
+        /// A few houses either side of the highway, a barn and some trees.
+        fn build_hamlet(&mut self, b: &mut Build, index: usize) {
+            let Some(land) = self.land.as_mut() else { return };
+            land.hamlets[index].built = true;
+            let h = land.hamlets[index].clone();
+            let mut rand = Seeded::new((h.at.x * 7.0 + h.at.y * 13.0).abs().floor());
+            let right = bevy::math::DVec2::new(-h.dir.y, h.dir.x);
+            let houses = 3 + (rand.next() * 4.0) as usize;
+            let mut trees = Vec::new();
+            std::mem::swap(&mut self.rand, &mut rand);
+            for k in 0..houses {
+                let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+                let along = (k as f64 - houses as f64 / 2.0) * 16.0 + (self.rand.next() - 0.5) * 4.0;
+                let at = h.at + h.dir * along + right * side * (17.0 + self.rand.next() * 6.0);
+                let (w, d, ht) = (
+                    7.5 + self.rand.next() * 4.0,
+                    7.0 + self.rand.next() * 3.0,
+                    4.0 + self.rand.next() * 3.0,
+                );
+                self.add_building(b, at.x, at.y, w, d, ht);
+                let behind = at + right * side * 12.0 + h.dir * (self.rand.next() - 0.5) * 10.0;
+                trees.push(DVec3::new(behind.x, 0.0, behind.y));
+            }
+            let barn = h.at - h.dir * (houses as f64 * 9.0 + 14.0) + right * 22.0;
+            self.add_building(b, barn.x, barn.y, 12.0, 16.0, 8.0);
+            let lamps = [h.at + right * 9.0, h.at - right * 9.0 + h.dir * 20.0];
+            self.add_lamps(&lamps.map(|p| DVec3::new(p.x, 0.0, p.y)), 1.0);
+            self.add_trees_of(&trees, Trees::Round);
+            std::mem::swap(&mut self.rand, &mut rand);
         }
 
         /// A square block nobody can drive through (a barn, a cabin), `half` meters each way.
@@ -2506,8 +2559,31 @@ pub mod world_render {
         }
         let end = (start + ROAD_PIECE).min(r.points.len() - 1);
         let (from, to) = (&land.towns[r.from], &land.towns[r.to]);
-        let half = (crate::land::ROAD_WIDTH / 2.0) as f32;
+        // A highway is one strip; an interstate, two carriageways either side of a median.
+        let strips: &[(f32, f32)] = if r.interstate {
+            &[(2.2, 11.8), (-11.8, -2.2)]
+        } else {
+            &[(-7.0, 7.0)]
+        };
         let mut m = MeshData::default();
+        for &(inner, outer) in strips {
+            road_strip(&mut m, r, start, end, from, to, inner, outer);
+        }
+        (!m.is_empty()).then_some(m)
+    }
+
+    /// One strip of asphalt along points `start..=end`, from `inner` to `outer` meters right of the middle.
+    #[allow(clippy::too_many_arguments)]
+    fn road_strip(
+        m: &mut MeshData,
+        r: &crate::land::Road,
+        start: usize,
+        end: usize,
+        from: &crate::land::Town,
+        to: &crate::land::Town,
+        inner: f32,
+        outer: f32,
+    ) {
         let mut last: Option<(u32, u32)> = None;
         for p in &r.points[start..=end] {
             // The towns draw their own streets (the highway reaches 8 m into
@@ -2521,8 +2597,8 @@ pub mod world_render {
             let v = (p.along / 12.0) as f32;
             let y = 0.06;
             let l = m.positions.len() as u32;
-            m.positions.push([x + rx * half, y, z + rz * half]);
-            m.positions.push([x - rx * half, y, z - rz * half]);
+            m.positions.push([x + rx * outer, y, z + rz * outer]);
+            m.positions.push([x + rx * inner, y, z + rz * inner]);
             m.uvs.push([0.0, v]);
             m.uvs.push([1.0, v]);
             m.normals.push([0.0, 1.0, 0.0]);
@@ -2533,7 +2609,6 @@ pub mod world_render {
             }
             last = Some((l, l + 1));
         }
-        (!m.is_empty()).then_some(m)
     }
 
     /// Streams the open world's ground and highways in and out around the car.

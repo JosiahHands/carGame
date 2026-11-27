@@ -170,6 +170,8 @@ pub struct Target {
     pub spin: DVec3,
     pub burn_until: f64,
     pub traffic: bool,
+    /// A wreck sliding along the ground after being pushed.
+    pub slide: DVec3,
     // Lamps and trees
     pub prop: usize,
     pub size: f64,
@@ -206,6 +208,7 @@ impl Target {
             spin: DVec3::ZERO,
             burn_until: 0.0,
             traffic: false,
+            slide: DVec3::ZERO,
             prop: 0,
             size: 1.0,
         }
@@ -648,6 +651,29 @@ impl World {
         c.knocked_at = clock;
         c.vel = velocity;
         c.spin = DVec3::new(rng::centered() * 14.0, rng::centered() * 6.0, rng::centered() * 14.0);
+    }
+
+    /// Whether target `t` is a wreck lying on the ground (it can be pushed about).
+    pub fn is_wreck(&self, t: usize) -> bool {
+        let w = &self.targets[t];
+        w.kind == TargetKind::Car && !w.alive && w.rig.is_some() && !w.flying && w.destroyed_at.is_finite()
+    }
+
+    /// Pushes a wreck along (velocity, m/s); a hard shove flips it over.
+    pub fn shove(&mut self, t: usize, velocity: DVec3) {
+        if !self.is_wreck(t) {
+            return;
+        }
+        self.keep_watch(t);
+        let w = &mut self.targets[t];
+        if velocity.length() > 14.0 {
+            w.flying = true;
+            w.velocity = DVec3::new(velocity.x, 3.0 + velocity.length() * 0.15, velocity.z);
+            w.spin = DVec3::new(rng::centered() * 5.0, rng::centered() * 3.0, rng::centered() * 5.0);
+            self.boxes[w.shape].solid = false;
+        } else {
+            w.slide = DVec3::new(velocity.x, 0.0, velocity.z);
+        }
     }
 
     /// A car driving into a lamp or tree fast enough (40 km/h) knocks it straight over.
@@ -1141,6 +1167,7 @@ impl World {
             t.destroyed_at.is_finite()
                 && (!t.alive
                     || t.flying
+                    || t.slide.length_squared() > 0.01
                     || clock < t.burn_until
                     || (t.kind == TargetKind::Building && (t.state != BuildingState::Standing || t.hp < t.max_hp)))
         });
@@ -1267,6 +1294,28 @@ impl World {
                     }
                 }
                 self.push_car_transform(i);
+            }
+            // Pushed: it slides and scrapes to a stop.
+            let t = &self.targets[i];
+            if !t.flying && t.slide.length_squared() > 0.01 {
+                let speed = t.slide.length();
+                let slowed = (speed - 9.0 * dt).max(0.0) / speed;
+                let step = t.slide * dt;
+                let (x, z) = (t.pos.x + step.x, t.pos.z + step.z);
+                let y = match &self.land {
+                    Some(land) => land.ground(x, z),
+                    None => self.track.as_ref().map_or(0.0, |tr| tr.height_at(x, z)),
+                };
+                let t = &mut self.targets[i];
+                t.pos = DVec3::new(x, y, z);
+                t.rot.y += speed * dt * 0.08;
+                t.slide *= slowed;
+                self.boxes[t.shape].base = y;
+                self.fit_car_box(i);
+                self.push_car_transform(i);
+                if rng::random() < dt * speed {
+                    self.effects.dust(x, z, 1.0, 1.0, 2, 0.4);
+                }
             }
             let t = &self.targets[i];
             if self.clock < t.burn_until {
@@ -1432,6 +1481,30 @@ mod tests {
         let ground = world.land.as_deref().unwrap().ground(low.0, low.1);
         assert_eq!(world.height_at(low.0, low.1), ground);
         assert!(world.height_at(0.0, 0.0) > 1.0);
+    }
+
+    #[test]
+    fn a_shoved_wreck_slides_and_stops() {
+        let mut world = World::empty();
+        world.boxes.push(BoxShape {
+            min_x: -1.0,
+            max_x: 1.0,
+            min_z: -2.0,
+            max_z: 2.0,
+            height: 1.4,
+            solid: true,
+            target: Some(0),
+            base: 0.0,
+        });
+        let mut t = Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0);
+        t.alive = false;
+        t.destroyed_at = 0.0;
+        world.targets.push(t);
+        // A wreck needs a model to be pushed about; without one it can't be.
+        assert!(!world.is_wreck(0));
+        world.targets[0].rig = None;
+        world.shove(0, DVec3::new(0.0, 0.0, 8.0));
+        assert_eq!(world.targets[0].slide, DVec3::ZERO);
     }
 
     #[test]

@@ -138,6 +138,9 @@ struct Model {
     body_width: f32,
     arch_radius: f32,
     max_y: f32,
+    /// The back of the body, and its lowest point.
+    rear_z: f32,
+    min_y: f32,
 }
 
 #[derive(Resource, Default)]
@@ -221,11 +224,15 @@ fn load_models(
             continue;
         };
         let num = |k: &str| extras.get(k).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32;
-        let max_y = extras
-            .get("max")
-            .and_then(|m| m.get(1))
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(1.4) as f32;
+        let corner = |k: &str, i: usize, or: f32| {
+            extras
+                .get(k)
+                .and_then(|m| m.get(i))
+                .and_then(serde_json::Value::as_f64)
+                .map_or(or, |v| v as f32)
+        };
+        let max_y = corner("max", 1, 1.4);
+        let (rear_z, min_y) = (corner("min", 2, -2.2), corner("min", 1, 0.15));
         let mut collect = |root: &GltfNode| {
             let mut out = Vec::new();
             let mut stack = vec![(root.clone(), Transform::IDENTITY)];
@@ -292,6 +299,8 @@ fn load_models(
                 body_width: num("bodyWidth"),
                 arch_radius: num("archRadius"),
                 max_y,
+                rear_z,
+                min_y,
             },
         );
     }
@@ -332,6 +341,7 @@ fn dress_cars(
     cars: Query<(Entity, &CarLook), Without<Ghost>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut shift: ResMut<game::carmodel::ExhaustShift>,
 ) {
     let o = options(&packs);
     let want = o.on && o.real_models && !state.models.is_empty();
@@ -346,11 +356,16 @@ fn dress_cars(
         if let Ok(mut e) = commands.get_entity(body) {
             e.despawn();
         }
+        shift.0.remove(&car);
         if let Ok((_, look)) = cars.get(car) {
             for e in &look.0.shell {
                 if let Ok(mut ec) = commands.get_entity(*e) {
                     ec.insert(Visibility::Inherited);
                 }
+            }
+            // The pipes go back where the game's own body has them.
+            if let Ok(mut ec) = commands.get_entity(look.0.exhaust) {
+                ec.insert(Transform::default());
             }
         }
     }
@@ -420,6 +435,17 @@ fn dress_cars(
             if let Ok(mut ec) = commands.get_entity(*e) {
                 ec.insert(Visibility::Hidden);
             }
+        }
+        // Pipes out the back: just inside the bottom of the new rear bumper,
+        // sticking out a few centimeters, so they never float behind it.
+        if let Some(tip) = rig.pipe_tip {
+            let rear = place.translation.z + model.rear_z * sz;
+            let bottom = y + model.min_y * sy;
+            let moved = Vec3::new(0.0, bottom + 0.14 - tip.x, rear - 0.07 - tip.y);
+            if let Ok(mut ec) = commands.get_entity(rig.exhaust) {
+                ec.insert(Transform::from_translation(moved));
+            }
+            shift.0.insert(car, moved);
         }
         state.dressed.insert(car, body);
     }

@@ -214,13 +214,19 @@ in Settings.
 
 ## The open world
 
-In free roam, the City map is a 10 km square world. Highways leave the city on
-all four sides and wind out to 24 other places: towns, villages and crossroads
-with filling stations. Each direction has its own country: snowy mountains to the
-north (Snowcap), red desert mesas to the east (Red Rock), lakes to the south
-(Harbor Lake, Willow Bay) and pine forest to the west (Pinewood), with farmland,
-wind farms and barns in between. Every town has its own people on the sidewalks
-and traffic on its main streets. The made map ends in a ring of mountains.
+In free roam, the City map is a 10 km square world. Interstates (two lanes each
+way, with a grass median) leave the city north, south, east and west, and winding
+highways join 24 other places: Bayport, a coastal city of skyscrapers ten blocks
+across, towns, villages and crossroads with filling stations, and little hamlets of
+a few houses along the way. Each direction has its own country: snowy mountains to
+the north (Snowcap), red desert mesas to the west (Red Rock), deep pine forest to
+the east (Pinewood), and lakes, beaches and the sea to the south (Harbor Lake,
+Bayport), with farmland, woods, wind farms and barns in between. Every town has
+its own people on the sidewalks and traffic on its main streets. The made map ends
+in a ring of mountains, and the sea.
+
+Press **M** for the map: the whole world, north up, with every road and town.
+Drag it to look around and scroll to zoom.
 
 Garage → Maps has the City's own options:
 
@@ -233,11 +239,17 @@ Garage → Maps has the City's own options:
 
 Every map also has **Start at night** and **Weather** (its own, clear, rain or snow).
 
+**Controls.** Garage → Controls lists every control: click a key and press the one
+you want instead. Sound on and off is U (M is the map now), and fullscreen is F11.
+
 **On foot.** Press F (D-pad up) to get out of the car. Walk with W and S, turn
 with A and D, run with Shift and jump with Space. Your car stays parked where you
 left it. Press F next to any car to take it: your own, a parked one, or one in
 traffic (its driver jumps out and runs). Other people's cars drive the way they
 were built.
+
+Drive into a burned-out wreck and you shove it along (hard enough, and it flips).
+If you end up out in the deep sea, you're put back on the nearest road.
 
 **Fighting.** On foot, punch with E or a left click (1), or press 2 for a pistol
 that aims at the nearest person in front of you. People are knocked out, never

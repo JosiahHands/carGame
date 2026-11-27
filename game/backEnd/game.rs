@@ -154,6 +154,10 @@ pub struct Game {
     /// The new-map toast is shown once the first map is up.
     loaded_once: bool,
     pub controls: Controls,
+    /// Which keys do what (Garage → Controls).
+    pub bindings: crate::input::Bindings,
+    /// The full-screen map is open (M).
+    pub map_open: bool,
     /// What happened this frame, for the packs (cleared at the start of each frame).
     pub happened: Vec<crate::packs::Happening>,
     /// You, out of the car (free roam).
@@ -293,6 +297,7 @@ pub struct Ctx<'w, 's> {
     pub graphics: ResMut<'w, Graphics>,
     pub focus: ResMut<'w, Focus>,
     pub packs: ResMut<'w, crate::packs::Packs>,
+    pub exhaust_shift: Res<'w, crate::carmodel::ExhaustShift>,
 }
 
 impl<'w, 's> Ctx<'w, 's> {
@@ -406,6 +411,11 @@ impl<'w, 's> Ctx<'w, 's> {
     }
 
     pub fn set_mode(&mut self, next: Mode) {
+        if self.game.map_open {
+            self.game.map_open = false;
+            self.game.paused = false;
+        }
+        self.game.garage.listening = None;
         if next == Mode::Garage || next == Mode::Menu {
             // Where you were (on foot or not), before the garage puts you back in your own car.
             if self.game.mode == Mode::Drive {
@@ -886,7 +896,7 @@ impl<'w, 's> Ctx<'w, 's> {
             } else if let Some(&r) = land.roads_near(x, z, 300.0).first() {
                 let road = &land.roads[r];
                 let (along, _, _) = road.nearest(x, z);
-                let (rx, rz, rh) = road.pose(along, crate::land::LANE);
+                let (rx, rz, rh) = road.pose(along, road.lanes()[0]);
                 (sx, sz, sh) = (rx, rz, rh);
             }
         } else if self.world.map == "city" {
@@ -1253,6 +1263,9 @@ impl<'w, 's> Ctx<'w, 's> {
                 self.save_settings();
                 self.load_map();
             }
+            G::ControlsChanged => {
+                ctx_bindings_reload(self);
+            }
             G::NightChanged => {
                 // The time of day you picked wins over the one you left off at.
                 let night = self.game.settings.map_options(&self.game.settings.map).night;
@@ -1603,6 +1616,8 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         first_start,
         loaded_once: false,
         controls: Controls::default(),
+        bindings: crate::input::Bindings::new(&settings.controls),
+        map_open: false,
         happened: Vec::new(),
         on_foot: None,
         own_car: None,
@@ -1673,7 +1688,7 @@ pub fn load_and_build(mut ctx: Ctx) {
                 match parts.as_slice() {
                     ["road", n, f] => {
                         let r = land.roads.get(n.parse::<usize>().ok()?)?;
-                        let (x, z, h) = r.pose(r.length * f.parse::<f64>().ok()?, crate::land::LANE);
+                        let (x, z, h) = r.pose(r.length * f.parse::<f64>().ok()?, r.lanes()[0]);
                         Some(format!("{x},{z},{h}"))
                     }
                     ["town", name] => land
@@ -1691,6 +1706,11 @@ pub fn load_and_build(mut ctx: Ctx) {
                 ctx.place_car(n[0], n[1], n.get(2).copied().unwrap_or(0.0));
                 ctx.load_npcs();
             }
+        }
+        // ...with the full-screen map open (CAR_GAME_BIGMAP=1).
+        if std::env::var("CAR_GAME_BIGMAP").as_deref() == Ok("1") {
+            ctx.game.map_open = true;
+            ctx.game.paused = true;
         }
         if std::env::var("CAR_GAME_FOOT").as_deref() == Ok("1") {
             ctx.rebuild_car(None);
@@ -1763,11 +1783,32 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
         fps.1 = 0.0;
     }
     let typing = ctx.game.typing;
-    for action in crate::input::actions(&input.keys, &input.pads, typing) {
+    // Picking a new key on the Controls tab: the next key pressed (Esc to keep the old one).
+    if let Some((id, slot)) = ctx.game.garage.listening.clone() {
+        if let Some(&key) = input.keys.get_just_pressed().next() {
+            ctx.game.garage.listening = None;
+            if key != KeyCode::Escape {
+                if crate::input::key_id(key).is_none() {
+                    ctx.toast("That key can't be used", 1600.0);
+                } else {
+                    let moved = ctx.game.bindings.set(&id, slot, key);
+                    for other in moved {
+                        let label = crate::input::BINDINGS.iter().find(|b| b.id == other).map_or(other, |b| b.label);
+                        ctx.toast(format!("{} no longer does: {label}", crate::input::key_label(key)), 2600.0);
+                    }
+                    ctx.game.settings.controls = ctx.game.bindings.changes();
+                    ctx.save_settings();
+                }
+            }
+        }
+        return;
+    }
+    let bindings = ctx.game.bindings.clone();
+    for action in crate::input::actions(&input.keys, &input.pads, typing, &bindings) {
         handle_action(&mut ctx, action, &mut windows);
     }
     let on_game = !ctx.game.pointer_on_ui;
-    let mut controls = crate::input::read(&input.keys, &input.mouse, &input.pads, typing, on_game);
+    let mut controls = crate::input::read(&input.keys, &input.mouse, &input.pads, typing, on_game, &bindings);
     if let Some(auto) = crate::dev::autopilot() {
         controls.car.throttle = 1.0;
         controls.car.steer = auto;
@@ -1790,7 +1831,7 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
             } else {
                 -1.0
             };
-            let (tx, tz, _) = road.pose((along + way * 30.0).clamp(0.0, road.length), way * crate::land::LANE);
+            let (tx, tz, _) = road.pose((along + way * 30.0).clamp(0.0, road.length), way * road.lanes()[0]);
             let goal = (tx - p.x).atan2(tz - p.z);
             let turn = (goal - p.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
             controls.car.steer = (turn * 2.5).clamp(-1.0, 1.0);
@@ -1977,6 +2018,12 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     }
 }
 
+/// The keys from the settings again (after "Back to the standard keys").
+fn ctx_bindings_reload(ctx: &mut Ctx) {
+    ctx.game.bindings = crate::input::Bindings::new(&ctx.game.settings.controls);
+    ctx.save_settings();
+}
+
 /// Remembers where you were in the open world when the game closes.
 pub fn save_on_exit(mut exits: MessageReader<bevy::app::AppExit>, mut ctx: Ctx) {
     if exits.read().next().is_some() {
@@ -2020,6 +2067,23 @@ pub fn handle_action(ctx: &mut Ctx, action: Action, windows: &mut Query<&mut Win
     if ctx.game.event.is_some() && ctx.game.menu.visible() && action != Action::Mute && action != Action::Fullscreen {
         if action == Action::Settings && ctx.game.paused {
             ctx.resume_event();
+        }
+        return;
+    }
+    if action == Action::Map && mode == Mode::Drive {
+        if ctx.game.event.is_some() {
+            ctx.toast("The map isn't open during events", 1600.0);
+        } else {
+            ctx.game.map_open = !ctx.game.map_open;
+            ctx.game.paused = ctx.game.map_open;
+        }
+        return;
+    }
+    if ctx.game.map_open && !matches!(action, Action::Mute | Action::Fullscreen) {
+        // Only Esc (or the map key, above) closes the map; nothing else happens under it.
+        if action == Action::Settings {
+            ctx.game.map_open = false;
+            ctx.game.paused = false;
         }
         return;
     }
@@ -2799,18 +2863,37 @@ fn land_frame(ctx: &mut Ctx, dt: f64) {
     let p = &ctx.game.physics;
     let (x, z) = (p.x, p.z);
     ctx.prepare_land(x, z, std::time::Duration::from_millis(3));
-    let town = ctx
-        .world
-        .land
-        .as_deref()
-        .and_then(|l| l.town_at(x, z, 0.0).map(|t| (t, l.towns[t].label())));
-    match town {
+    // Towns, and the hamlets along the highways (numbered after the towns).
+    let place = ctx.world.land.as_deref().and_then(|l| {
+        l.town_at(x, z, 0.0).map(|t| (t, l.towns[t].label())).or_else(|| {
+            l.hamlets
+                .iter()
+                .position(|h| h.at.distance(DVec2::new(x, z)) < crate::land::HAMLET_RADIUS)
+                .map(|h| (l.towns.len() + 100_000 + h, l.hamlets[h].name.clone()))
+        })
+    });
+    match place {
         Some((t, name)) if ctx.game.in_town != Some(t) => {
             ctx.game.in_town = Some(t);
             ctx.toast(format!("Welcome to {name}"), 2200.0);
         }
         None => ctx.game.in_town = None,
         _ => {}
+    }
+    // Out in the deep sea: back to the nearest road.
+    let y = ctx.game.on_foot.as_ref().map_or(ctx.game.physics.y, |m| m.pos.y);
+    if y < -2.5 {
+        let road = ctx.world.land.as_deref().and_then(|l| {
+            l.roads_near(x, z, 1500.0)
+                .into_iter()
+                .map(|r| (r, l.roads[r].nearest(x, z)))
+                .min_by(|a, b| a.1.2.total_cmp(&b.1.2))
+                .map(|(r, (along, _, _))| l.roads[r].pose(along, l.roads[r].lanes()[0]))
+        });
+        let (rx, rz, rh) = road.unwrap_or((ctx.world.spawn.x, ctx.world.spawn.z, ctx.world.spawn.heading));
+        ctx.back_in_own_car();
+        ctx.place_car(rx, rz, rh);
+        ctx.toast("Too deep! Back on the road", 2200.0);
     }
     ctx.game.resume_due -= dt;
     if ctx.game.resume_due <= 0.0 {
@@ -3274,7 +3357,9 @@ fn car_effects(ctx: &mut Ctx, dt: f64, throttle: f64) {
     g.trail_due = g.trail_due.min(40.0);
     let start_distance = g.odometer;
     g.odometer += p.speed() * dt;
-    let tips: Vec<DVec3> = car.exhausts.iter().map(|e| to_world(e.as_dvec3())).collect();
+    // A pack's body may have moved the pipes onto its own bumper.
+    let shift = ctx.exhaust_shift.0.get(&car.root).copied().unwrap_or_default().as_dvec3();
+    let tips: Vec<DVec3> = car.exhausts.iter().map(|e| to_world(e.as_dvec3() + shift)).collect();
     if g.last_tips.len() != tips.len() {
         g.last_tips = tips.clone();
     }
@@ -3415,6 +3500,7 @@ mod tests {
         .init_resource::<Assets<StandardMaterial>>()
         .init_resource::<CameraRig>()
         .init_resource::<crate::packs::Packs>()
+        .init_resource::<crate::carmodel::ExhaustShift>()
         .add_systems(Startup, setup_game);
         app.world_mut().run_schedule(Startup);
         app.world_mut()

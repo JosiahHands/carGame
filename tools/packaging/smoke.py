@@ -106,6 +106,8 @@ def cases(full):
     if full:
         yield "open-world-highway", {"env": city | {"CAR_GAME_AT": "road:1:0.5", "CAR_GAME_AUTOPILOT": "0"}}
         yield "open-world-town", {"env": city | {"CAR_GAME_AT": "town:Red Rock", "CAR_GAME_AUTOPILOT": "0"}, "packs": ["npc"]}
+        yield "big-map", {"env": city | {"CAR_GAME_BIGMAP": "1"}}
+        yield "bayport-and-controls", {"env": city | {"CAR_GAME_AT": "town:Bayport", "CAR_GAME_GARAGE": "controls"}}
         yield "generative-map", {
             "env": city | {"CAR_GAME_AT": "9000,300,1.57", "CAR_GAME_AUTOPILOT": "0"},
             "settings": {"maps": {"city": {"generative": True, "weather": "rain"}}},

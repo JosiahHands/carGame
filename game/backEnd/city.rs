@@ -72,6 +72,8 @@ pub mod traffic {
         along: f64,
         /// +1 driving from the road's start to its end, -1 the other way.
         way: f64,
+        /// Which lane: meters right of the road's middle.
+        lane: f64,
         speed: f64,
         cruise: f64,
         heading: f64,
@@ -127,6 +129,7 @@ pub mod traffic {
                         road: 0,
                         along: 0.0,
                         way: 1.0,
+                        lane: crate::land::LANE,
                         speed: 0.0,
                         cruise: 22.0 + rng::random() * 7.0,
                         heading: 0.0,
@@ -242,11 +245,12 @@ pub mod traffic {
                     c.road = road;
                     c.along = along;
                     c.way = way;
+                    c.lane = rng::pick(land.roads[road].lanes());
                     c.speed = c.cruise * 0.8;
                     c.idle = false;
                     c.stunned = 0.0;
                     c.waiting = 0.0;
-                    let (x, z, heading) = lane_pose(&land.roads[road], along, way);
+                    let (x, z, heading) = lane_pose(&land.roads[road], along, way, c.lane);
                     c.heading = heading;
                     let t = c.target;
                     world.targets[t].home = crate::world::Spot { x, z, heading };
@@ -293,7 +297,7 @@ pub mod traffic {
                 let mut player_ahead = false;
                 for (j, o) in self.road_cars.iter().enumerate() {
                     // A wreck has flown off its lane: it's a box in the world, not a car to follow.
-                    if j == i || o.idle || o.road != c.road || o.way != c.way || !world.targets[o.target].alive {
+                    if j == i || o.idle || o.road != c.road || o.way != c.way || o.lane != c.lane || !world.targets[o.target].alive {
                         continue;
                     }
                     let ahead = (o.along - c.along) * c.way;
@@ -314,6 +318,9 @@ pub mod traffic {
                     0.0
                 } else if in_town {
                     c.cruise.min(12.0)
+                } else if road.interstate {
+                    // Faster on the interstate, and faster still in the outer lane.
+                    c.cruise * if c.lane > 6.0 { 1.15 } else { 1.35 }
                 } else {
                     c.cruise
                 };
@@ -338,6 +345,7 @@ pub mod traffic {
                         let next = rng::pick(&choices);
                         let r2 = &land.roads[next];
                         c.road = next;
+                        c.lane = rng::pick(r2.lanes());
                         if r2.from == node {
                             c.way = 1.0;
                             c.along = over.min(r2.length);
@@ -356,7 +364,7 @@ pub mod traffic {
                 }
                 let Some(land) = world.land.as_deref() else { return misses };
                 let c = &mut self.road_cars[i];
-                let (x, z, heading) = lane_pose(&land.roads[c.road], c.along, c.way);
+                let (x, z, heading) = lane_pose(&land.roads[c.road], c.along, c.way, c.lane);
                 let turn = (heading - c.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
                 c.heading += turn * (dt * 8.0).min(1.0);
                 let (h, target, speed) = (c.heading, c.target, c.speed);
@@ -670,9 +678,9 @@ pub mod traffic {
 
     /// Where a highway car `along` meters down `road` is, in its lane: (x, z, heading).
     /// The lanes meet in the middle at each end of the road, where it joins the next.
-    fn lane_pose(road: &crate::land::Road, along: f64, way: f64) -> (f64, f64, f64) {
+    fn lane_pose(road: &crate::land::Road, along: f64, way: f64, lane: f64) -> (f64, f64, f64) {
         let to_end = along.min(road.length - along);
-        let lane = crate::land::LANE * crate::land::smoothstep(0.0, 24.0, to_end);
+        let lane = lane * crate::land::smoothstep(0.0, 24.0, to_end);
         let (x, z, heading) = road.pose(along, way * lane);
         (x, z, if way > 0.0 { heading } else { heading + std::f64::consts::PI })
     }

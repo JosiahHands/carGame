@@ -585,6 +585,24 @@ impl CarPhysics {
                     events.smashed += 1;
                     continue;
                 }
+                // A wreck gets shoved along rather than stopping the car dead.
+                if let Some(t) = b.target
+                    && world.is_wreck(t)
+                {
+                    let (dx, dz) = (px - cx, pz - cz);
+                    let d = dx.hypot(dz).max(1e-3);
+                    let (nx, nz) = (dx / d, dz / d);
+                    let toward = self.vx * nx + self.vz * nz;
+                    if toward > 0.5 {
+                        world.shove(t, DVec3::new(nx, 0.0, nz) * toward * 1.15);
+                        self.vx -= nx * toward * 0.35;
+                        self.vz -= nz * toward * 0.35;
+                        // Out of the box, without the bounce of a wall.
+                        self.x -= nx * (r - d).max(0.0);
+                        self.z -= nz * (r - d).max(0.0);
+                        continue;
+                    }
+                }
                 let lost = self.resolve(cx, cz, px, pz, r, dynamics);
                 hit(lost, b.target, events);
             }

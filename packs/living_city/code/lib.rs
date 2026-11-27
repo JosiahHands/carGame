@@ -149,7 +149,7 @@ fn configure(
     ai.poll_download();
     ai.select(model, enabled, gpu);
     let mut options = vec![
-        PackOption::Hint("City free roam · K to talk · L for the journal".into()),
+        PackOption::Hint("City free roam · K to talk · L for the journal (Garage → Controls)".into()),
         choice(
             "think",
             "Use local AI",
@@ -259,10 +259,10 @@ fn simulate(
     }) {
         city.chat = None;
     }
-    if !game.typing && keys.just_pressed(KeyCode::KeyL) {
+    if !game.typing && game.bindings.just_pressed(&keys, "journal") {
         city.journal = !city.journal;
     }
-    if keys.just_pressed(KeyCode::KeyK) && !game.typing {
+    if game.bindings.just_pressed(&keys, "talk") && !game.typing {
         if let Some((who, _)) = city.passenger {
             city.open_chat(who, Contact::Passenger, &mut game);
         } else if let Some(who) = city.nearest(position(&game), 14.0) {
@@ -345,7 +345,12 @@ fn out_of_town(world: &World) -> Vec<city::OutOfTown> {
     land.towns
         .iter()
         .enumerate()
-        .filter(|(_, t)| matches!(t.size, game::land::Size::Town | game::land::Size::Village))
+        .filter(|(_, t)| {
+            matches!(
+                t.size,
+                game::land::Size::Town | game::land::Size::Village | game::land::Size::Metropolis
+            )
+        })
         .filter(|(_, t)| t.at.length() < game::land::MAP_HALF)
         .filter_map(|(i, t)| {
             let route = land.route(0, i)?;

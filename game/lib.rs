@@ -94,6 +94,7 @@ impl Plugin for GamePlugin {
             .init_resource::<camera::CameraRig>()
             .init_resource::<packs::Packs>()
             .init_resource::<updates::Updater>()
+            .init_resource::<carmodel::ExhaustShift>()
             .insert_resource(EguiGlobalSettings {
                 auto_create_primary_context: false,
                 ..default()

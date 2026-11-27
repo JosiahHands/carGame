@@ -1404,9 +1404,10 @@ pub mod garage {
         Settings,
         Packs,
         Updates,
+        Controls,
     }
 
-    const TABS: [(Tab, &str); 13] = [
+    const TABS: [(Tab, &str); 14] = [
         (Tab::Builds, "Builds"),
         (Tab::Maps, "Maps"),
         (Tab::Body, "Body"),
@@ -1420,6 +1421,7 @@ pub mod garage {
         (Tab::Settings, "Settings"),
         (Tab::Packs, "Packs"),
         (Tab::Updates, "Updates"),
+        (Tab::Controls, "Controls"),
     ];
 
     /// How wide the garage panel is, on the right of the window.
@@ -1441,6 +1443,8 @@ pub mod garage {
         MapChanged,
         /// The map's "Start at night" changed (it also changes where you left off).
         NightChanged,
+        /// The keys went back to the standard ones.
+        ControlsChanged,
         Drive,
         Menu,
         Honk,
@@ -1449,6 +1453,8 @@ pub mod garage {
 
     pub struct Garage {
         pub tab: Tab,
+        /// Waiting for a key for this control (id, which of its keys).
+        pub listening: Option<(String, usize)>,
         build_name: String,
         paste: String,
         message: String,
@@ -1459,6 +1465,7 @@ pub mod garage {
         fn default() -> Self {
             Garage {
                 tab: Tab::Builds,
+                listening: None,
                 build_name: String::new(),
                 paste: String::new(),
                 message: String::new(),
@@ -1503,6 +1510,62 @@ pub mod garage {
             }
         });
         changed
+    }
+
+    /// Every control and its keys: click a key, then press the new one.
+    fn controls_tab(ui: &mut egui::Ui, g: &mut Garage, s: &mut Settings, out: &mut Vec<GarageAction>) {
+        use crate::input::{BINDINGS, Bindings, PAD_HELP, key_label};
+        let bindings = Bindings::new(&s.controls);
+        hint(
+            ui,
+            "Click a key and press the one you want instead (Esc keeps it). Each control can have two keys.",
+        );
+        let mut group = "";
+        for b in BINDINGS {
+            if b.group != group {
+                group = b.group;
+                heading(ui, group);
+            }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(b.label).size(13.0).color(MUTED));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let keys = bindings.keys(b.id);
+                    for slot in (0..2).rev() {
+                        let waiting = g.listening.as_ref().is_some_and(|(id, k)| id == b.id && *k == slot);
+                        let text = if waiting {
+                            "press a key…".to_string()
+                        } else if let Some(k) = keys.get(slot) {
+                            key_label(*k).to_string()
+                        } else if slot == keys.len() {
+                            "+".to_string()
+                        } else {
+                            continue;
+                        };
+                        let button = egui::Button::new(RichText::new(text).monospace())
+                            .selected(waiting)
+                            .min_size(egui::vec2(54.0, 22.0));
+                        if ui.add(button).clicked() {
+                            g.listening = if waiting {
+                                None
+                            } else {
+                                Some((b.id.to_string(), slot.min(keys.len())))
+                            };
+                        }
+                    }
+                });
+            });
+        }
+        ui.add_space(6.0);
+        if !s.controls.is_empty() && ui.button("Back to the standard keys").clicked() {
+            s.controls.clear();
+            g.listening = None;
+            out.push(GarageAction::ControlsChanged);
+        }
+        heading(ui, "Controller");
+        for line in PAD_HELP {
+            hint(ui, line);
+        }
+        hint(ui, "Esc always opens the garage and the menu.");
     }
 
     /// The chosen map's own options. Most rebuild the map; fighting and
@@ -2027,6 +2090,10 @@ pub mod garage {
             }
             Tab::Updates => {
                 updates_tab(ui, s, updater, out);
+                return;
+            }
+            Tab::Controls => {
+                controls_tab(ui, g, s, out);
                 return;
             }
         }

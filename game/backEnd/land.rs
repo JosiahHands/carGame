@@ -3,11 +3,17 @@
 //! The land is a lattice of places 2 km apart: the city in the middle, then
 //! towns, villages and crossroads, joined by highways that wind across the
 //! country. Each direction has its own scenery: mountains with snowy peaks to
-//! the north, red desert mesas to the east, lakes to the south and pine
-//! forest to the west, with farmland in between.
+//! the north, red desert mesas to the west (+x: on the left facing north),
+//! lakes and then the sea to the south, and pine forest to the east, with
+//! farmland and woods in between.
+//!
+//! The big roads through the city, east to west and north to south, are
+//! interstates: two lanes each way with a grass median. Hamlets of a few
+//! houses sit along the other highways. The south ends at the sea, with
+//! beaches and Bayport, a big city on the coast.
 //!
 //! The made map reaches 5 km from the city each way, and ends in a ring of
-//! mountains. With the generative map on, there's no end: places, roads and
+//! mountains (and the sea to the south). With the generative map on, there's no end: places, roads and
 //! scenery past the made map are made from the place's own number as you get
 //! near, so the same spot always looks the same.
 //!
@@ -80,10 +86,27 @@ impl Biome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
     City,
+    /// A big city of skyscrapers, ten blocks across.
+    Metropolis,
     Town,
     Village,
     Crossroads,
 }
+
+/// A few houses beside a highway, between places.
+#[derive(Clone, Debug)]
+pub struct Hamlet {
+    pub name: String,
+    pub at: DVec2,
+    /// The road's direction there.
+    pub dir: DVec2,
+    pub built: bool,
+}
+
+/// Hamlets are flat this far around their middle.
+pub const HAMLET_RADIUS: f64 = 50.0;
+/// An interstate's half width (two carriageways and a median); a highway's is 7 m.
+pub const INTERSTATE_HALF: f64 = 12.5;
 
 /// A place on the lattice: the city, a town, a village or a crossroads.
 #[derive(Clone, Debug)]
@@ -151,6 +174,10 @@ pub struct Road {
     pub to: usize,
     pub points: Vec<RoadPoint>,
     pub length: f64,
+    /// Two lanes each way (see `lanes`).
+    pub interstate: bool,
+    /// Half its width.
+    pub half: f64,
     /// Every fourth point, for working out how far the ground is from the road.
     coarse: Vec<DVec2>,
     /// The road's extent: min x, max x, min z, max z.
@@ -158,6 +185,12 @@ pub struct Road {
 }
 
 impl Road {
+    /// Where traffic drives, meters right of the middle: one lane each way,
+    /// or the inner and outer lanes of an interstate's carriageway.
+    pub fn lanes(&self) -> &'static [f64] {
+        if self.interstate { &[4.2, 8.6] } else { &[LANE] }
+    }
+
     /// Where on the road `along` meters from its start, `offset` meters to
     /// the right (as seen driving from start to end): (x, z, heading).
     pub fn pose(&self, along: f64, offset: f64) -> (f64, f64, f64) {
@@ -217,6 +250,7 @@ pub struct Land {
     pub version: u64,
     /// The lattice squares looked at so far.
     seen: HashSet<(i32, i32)>,
+    pub hamlets: Vec<Hamlet>,
 }
 
 /// Trees and scenery are added in squares this big.
@@ -365,7 +399,7 @@ const MADE: [(i32, i32, Size, &str); 25] = [
     (-2, -1, Size::Crossroads, "Mossy Rock"),
     (1, 2, Size::Village, "Eagle Peak"),
     (-1, 2, Size::Crossroads, "Avalanche"),
-    (1, -2, Size::Crossroads, "Oasis"),
+    (1, -2, Size::Metropolis, "Bayport"),
     (-1, -2, Size::Village, "Sandpiper"),
 ];
 
@@ -386,6 +420,7 @@ fn in_map(key: (i32, i32)) -> bool {
 fn streets(size: Size) -> (Vec<f64>, f64) {
     match size {
         Size::City => (crate::world::ROAD_LINES.to_vec(), CITY_EDGE),
+        Size::Metropolis => ((-5..=5).map(|k| k as f64 * 80.0).collect(), 406.0),
         Size::Town => (vec![-160.0, -80.0, 0.0, 80.0, 160.0], 166.0),
         Size::Village => (vec![-80.0, 0.0, 80.0], 86.0),
         Size::Crossroads => (vec![0.0], 14.0),
@@ -406,6 +441,7 @@ impl Land {
             tiles: HashSet::new(),
             version: 0,
             seen: HashSet::new(),
+            hamlets: Vec::new(),
         };
         // The city is always place 0.
         let city = land.make_town((0, 0));
@@ -425,7 +461,9 @@ impl Land {
             (m.2, m.3.to_string())
         } else {
             let r = hash01(key.0 as i64, key.1 as i64, 1);
-            let size = if r < 0.22 {
+            let size = if r < 0.04 {
+                Size::Metropolis
+            } else if r < 0.22 {
                 Size::Town
             } else if r < 0.55 {
                 Size::Village
@@ -568,14 +606,25 @@ impl Land {
         (start, town.at + dir * (town.half + 160.0))
     }
 
+    /// Whether the road between neighbors `a` and `b` is an interstate: the
+    /// rows and columns through the city (and every sixth one out past the
+    /// made map).
+    fn is_interstate(a: (i32, i32), b: (i32, i32)) -> bool {
+        let horizontal = b.1 == a.1;
+        let line = if horizontal { a.1 } else { a.0 };
+        line == 0 || (line.rem_euclid(6) == 0 && !(in_map(a) && in_map(b)))
+    }
+
     fn build_road(&mut self, a: (i32, i32), b: (i32, i32)) {
         let (ta, tb) = (self.town_at[&a], self.town_at[&b]);
         let dir = if b.1 == a.1 { DVec2::X } else { DVec2::Y };
+        let interstate = Self::is_interstate(a, b);
         let (a0, a1) = self.exit(ta, dir);
         let (b0, b1) = self.exit(tb, -dir);
         let span = b1 - a1;
         let perp = DVec2::new(-span.y, span.x).normalize_or_zero();
-        let wobble = |k: i64| (hash01(a.0 as i64 * 31 + b.0 as i64, a.1 as i64 * 17 + b.1 as i64, k) - 0.5) * 2.0 * 260.0;
+        let amp = if interstate { 110.0 } else { 260.0 };
+        let wobble = |k: i64| (hash01(a.0 as i64 * 31 + b.0 as i64, a.1 as i64 * 17 + b.1 as i64, k) - 0.5) * 2.0 * amp;
         let m1 = a1 + span / 3.0 + perp * wobble(6);
         let m2 = a1 + span * 2.0 / 3.0 + perp * wobble(7);
         let controls = [a1, m1, m2, b1];
@@ -637,13 +686,31 @@ impl Land {
         }
         let coarse = points.iter().step_by(4).copied().chain(std::iter::once(points[n - 1])).collect();
         let index = self.roads.len();
+        let half = if interstate { INTERSTATE_HALF } else { ROAD_WIDTH / 2.0 };
+        let margin = half + 7.0;
         for (i, w) in road_points.windows(2).enumerate() {
-            let (lo_x, hi_x) = (w[0].x.min(w[1].x) - ROAD_WIDTH, w[0].x.max(w[1].x) + ROAD_WIDTH);
-            let (lo_z, hi_z) = (w[0].z.min(w[1].z) - ROAD_WIDTH, w[0].z.max(w[1].z) + ROAD_WIDTH);
+            let (lo_x, hi_x) = (w[0].x.min(w[1].x) - margin, w[0].x.max(w[1].x) + margin);
+            let (lo_z, hi_z) = (w[0].z.min(w[1].z) - margin, w[0].z.max(w[1].z) + margin);
             for cx in (lo_x / ROAD_CELL).floor() as i32..=(hi_x / ROAD_CELL).floor() as i32 {
                 for cz in (lo_z / ROAD_CELL).floor() as i32..=(hi_z / ROAD_CELL).floor() as i32 {
                     self.cells.entry((cx, cz)).or_default().push((index as u32, i as u32));
                 }
+            }
+        }
+        // A hamlet halfway along most highways (not the interstates).
+        let roll = hash01(a.0 as i64 * 7 + b.0 as i64, a.1 as i64 * 5 + b.1 as i64, 9);
+        if !interstate && roll < 0.6 && along > 900.0 {
+            let k = ((0.35 + 0.3 * roll / 0.6) * (road_points.len() - 1) as f64) as usize;
+            let p = road_points[k];
+            let name = TOWN_NAMES[(hash(a.0 as i64, b.1 as i64, 10) as usize) % TOWN_NAMES.len()];
+            let near_town = self.towns.iter().any(|t| t.distance(p.x, p.z) < 250.0);
+            if !near_town {
+                self.hamlets.push(Hamlet {
+                    name: format!("{name} Corner"),
+                    at: DVec2::new(p.x, p.z),
+                    dir: DVec2::new(p.dx, p.dz),
+                    built: false,
+                });
             }
         }
         self.roads.push(Road {
@@ -653,6 +720,8 @@ impl Land {
             points: road_points,
             coarse,
             bounds,
+            interstate,
+            half,
         });
         self.towns[ta].roads.push(index);
         self.towns[tb].roads.push(index);
@@ -721,16 +790,18 @@ impl Land {
         out
     }
 
-    /// How far (x, z) is from the middle of the nearest road, looking up to `reach` away.
+    /// How far (x, z) is from the edge of the nearest road (negative on it),
+    /// looking up to `reach` away.
     pub fn road_distance(&self, x: f64, z: f64, reach: f64) -> f64 {
         let mut best = f64::INFINITY;
         for cx in ((x - reach) / ROAD_CELL).floor() as i32..=((x + reach) / ROAD_CELL).floor() as i32 {
             for cz in ((z - reach) / ROAD_CELL).floor() as i32..=((z + reach) / ROAD_CELL).floor() as i32 {
                 let Some(list) = self.cells.get(&(cx, cz)) else { continue };
                 for &(r, i) in list {
-                    let pts = &self.roads[r as usize].points;
+                    let road = &self.roads[r as usize];
+                    let pts = &road.points;
                     let (a, b) = (pts[i as usize], pts[(i as usize + 1).min(pts.len() - 1)]);
-                    best = best.min(segment_distance(x, z, a.x, a.z, b.x, b.z));
+                    best = best.min(segment_distance(x, z, a.x, a.z, b.x, b.z) - road.half);
                 }
             }
         }
@@ -739,7 +810,7 @@ impl Land {
 
     /// Whether (x, z) is on a road or in a town: driving there is at full speed.
     pub fn paved(&self, x: f64, z: f64) -> bool {
-        self.town_at(x, z, 0.0).is_some() || self.road_distance(x, z, ROAD_WIDTH) <= ROAD_WIDTH / 2.0 + 1.0
+        self.town_at(x, z, 0.0).is_some() || self.road_distance(x, z, INTERSTATE_HALF + 2.0) <= 1.0
     }
 
     /// Whether trees and scenery can go at (x, z): off the roads, out of
@@ -748,7 +819,14 @@ impl Land {
         if self.nearest_town(x, z).is_some_and(|(_, d)| d < margin + 12.0) {
             return false;
         }
-        if self.road_distance(x, z, ROAD_WIDTH / 2.0 + margin + 6.0) < ROAD_WIDTH / 2.0 + margin + 6.0 {
+        if self.road_distance(x, z, INTERSTATE_HALF + margin + 6.0) < margin + 6.0 {
+            return false;
+        }
+        if self
+            .hamlets
+            .iter()
+            .any(|h| h.at.distance(DVec2::new(x, z)) < HAMLET_RADIUS + margin)
+        {
             return false;
         }
         if !self.generative && (x.abs() > MAP_HALF - 20.0 || z.abs() > MAP_HALF - 20.0) {
@@ -794,7 +872,8 @@ impl Land {
         for (r, start) in legs {
             let road = &self.roads[r];
             let forward = road.from == start;
-            let offset = if forward { LANE } else { -LANE };
+            let lane = road.lanes()[0];
+            let offset = if forward { lane } else { -lane };
             let n = road.points.len();
             for k in (0..n).step_by(5).chain(std::iter::once(n - 1)) {
                 let p = road.points[if forward { k } else { n - 1 - k }];
@@ -865,30 +944,47 @@ impl Land {
             h += w[4] * (if lake < 0.05 { -3.5 + lake * 4.0 } else { (lake - 0.05) * 30.0 });
         }
         if !self.generative {
-            // The made map ends in a ring of mountains.
-            let rim = smoothstep(MAP_HALF - 700.0, MAP_HALF - 80.0, x.abs().max(z.abs()));
+            // The made map ends in a ring of mountains (but the sea to the south).
+            let rim = smoothstep(MAP_HALF - 700.0, MAP_HALF - 80.0, x.abs().max(z));
             h = h * (1.0 - rim) + rim * (140.0 + 120.0 * ridged(x / 500.0, z / 500.0, 19));
+        }
+        // The sea: beaches, then deep water. (Out past the made map, on the
+        // generative map, the land comes back as islands.)
+        let shore = -3950.0 + 160.0 * noise(x / 900.0, 3.0, 23);
+        let mut sea = smoothstep(shore, shore - 420.0, z);
+        if self.generative {
+            sea *= 1.0 - smoothstep(-6400.0, -7400.0, z);
+        }
+        if sea > 0.0 {
+            // A gentle beach slope near the water's edge, then the deep.
+            let beach = smoothstep(0.0, 0.35, sea);
+            h = h * (1.0 - beach) + beach * (1.2 - 9.0 * smoothstep(0.3, 1.0, sea));
         }
         h
     }
 
     /// How much the roads and towns near (x, z) flatten the ground there (0 flat, 1 wild).
-    fn wildness(&self, x: f64, z: f64, h: f64, roads: &[&Road], towns: &[&Town]) -> f64 {
+    fn wildness(&self, x: f64, z: f64, h: f64, roads: &[&Road], towns: &[&Town], hamlets: &[&Hamlet]) -> f64 {
         let fade = (25.0 + 0.75 * h.abs()).min(FLATTEN_REACH - ROAD_CLEAR);
         let mut d_road = f64::INFINITY;
         for r in roads {
+            // Measured from a highway-wide road's edge, so wider roads are flat wider.
+            let wider = r.half - ROAD_WIDTH / 2.0;
             for w in r.coarse.windows(2) {
-                d_road = d_road.min(segment_distance(x, z, w[0].x, w[0].y, w[1].x, w[1].y));
+                d_road = d_road.min(segment_distance(x, z, w[0].x, w[0].y, w[1].x, w[1].y) - wider);
             }
         }
         let mut d_town = f64::INFINITY;
         for t in towns {
             d_town = d_town.min(t.distance(x, z));
         }
+        for hm in hamlets {
+            d_town = d_town.min((hm.at.distance(DVec2::new(x, z)) - HAMLET_RADIUS).max(0.0));
+        }
         smoothstep(ROAD_CLEAR, ROAD_CLEAR + fade, d_road) * smoothstep(TOWN_CLEAR, TOWN_CLEAR + fade, d_town)
     }
 
-    fn nearby_for(&self, min_x: f64, max_x: f64, min_z: f64, max_z: f64) -> (Vec<&Road>, Vec<&Town>) {
+    fn nearby_for(&self, min_x: f64, max_x: f64, min_z: f64, max_z: f64) -> (Vec<&Road>, Vec<&Town>, Vec<&Hamlet>) {
         let reach = FLATTEN_REACH;
         let roads = self
             .roads
@@ -905,26 +1001,32 @@ impl Land {
                 t.at.x - r < max_x && t.at.x + r > min_x && t.at.y - r < max_z && t.at.y + r > min_z
             })
             .collect();
-        (roads, towns)
+        let r = HAMLET_RADIUS + FLATTEN_REACH;
+        let hamlets = self
+            .hamlets
+            .iter()
+            .filter(|h| h.at.x - r < max_x && h.at.x + r > min_x && h.at.y - r < max_z && h.at.y + r > min_z)
+            .collect();
+        (roads, towns, hamlets)
     }
 
     /// The ground's height at (x, z), worked out from scratch.
     pub fn height(&self, x: f64, z: f64) -> f64 {
-        let (roads, towns) = self.nearby_for(x, x, z, z);
+        let (roads, towns, hamlets) = self.nearby_for(x, x, z, z);
         let h = self.wild_height(x, z);
-        h * self.wildness(x, z, h, &roads, &towns)
+        h * self.wildness(x, z, h, &roads, &towns, &hamlets)
     }
 
     fn grid(&self, key: (i32, i32), cells: usize) -> Vec<f32> {
         let (x0, z0) = (key.0 as f64 * CHUNK, key.1 as f64 * CHUNK);
-        let (roads, towns) = self.nearby_for(x0, x0 + CHUNK, z0, z0 + CHUNK);
+        let (roads, towns, hamlets) = self.nearby_for(x0, x0 + CHUNK, z0, z0 + CHUNK);
         let step = CHUNK / cells as f64;
         let mut out = Vec::with_capacity((cells + 1) * (cells + 1));
         for j in 0..=cells {
             for i in 0..=cells {
                 let (x, z) = (x0 + i as f64 * step, z0 + j as f64 * step);
                 let h = self.wild_height(x, z);
-                out.push((h * self.wildness(x, z, h, &roads, &towns)) as f32);
+                out.push((h * self.wildness(x, z, h, &roads, &towns, &hamlets)) as f32);
             }
         }
         out
@@ -1083,7 +1185,7 @@ pub fn segment_distance(x: f64, z: f64, ax: f64, az: f64, bx: f64, bz: f64) -> f
     (x - (ax + sx * t)).hypot(z - (az + sz * t))
 }
 
-/// The made map's biomes: mountains north, desert east, lakes south, forest west.
+/// The made map's biomes: mountains north (+z), desert west (+x), lakes south, forest east (-x).
 fn made_biomes(x: f64, z: f64) -> [f64; 5] {
     let wx = x + 500.0 * noise(x / 1400.0, z / 1400.0, 31);
     let wz = z + 500.0 * noise(x / 1400.0 + 40.0, z / 1400.0, 32);
