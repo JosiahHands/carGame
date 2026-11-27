@@ -495,7 +495,7 @@ mod ui {
             city.open_chat(who, Contact::Beside, &mut game);
         }
 
-        egui::Area::new(Id::new("city status"))
+        egui::Area::new(Id::new(game::hud::CITY_STATUS_AREA))
             .anchor(Align2::RIGHT_TOP, [-18.0, 225.0])
             .order(egui::Order::Middle)
             .show(&ctx, |ui| {

@@ -37,9 +37,12 @@ game.workspace = true
 real_physics.workspace = true
 photo_real.workspace = true
 living_city.workspace = true
+# The window's icon (the same versions Bevy already uses).
+winit = { version = "=0.30.13", default-features = false }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 [workspace.package]
-version = "1.3.1"
+version = "1.3.2"
 edition = "2024"
 rust-version = "1.97.1"
 publish = false

@@ -6,10 +6,12 @@ use bevy_egui::{EguiContexts, egui};
 use egui::{Color32, RichText};
 
 use crate::event::EventState;
-use crate::game::{Game, Mode, gear_text, shift_light};
+use crate::game::{Game, Mode, Popup, gear_text, shift_light};
 use crate::menu::{GOLD, MUTED};
 use crate::text::{format_time, thousands};
 use crate::world::World;
+
+pub const CITY_STATUS_AREA: &str = "city status";
 
 pub fn panel_frame() -> egui::Frame {
     egui::Frame::NONE
@@ -29,6 +31,77 @@ fn bar(ui: &mut egui::Ui, fraction: f32, color: Color32, width: f32) {
     let mut fill = rect;
     fill.set_width(width * fraction.clamp(0.0, 1.0));
     p.rect_filled(fill, 4.0, color);
+}
+
+fn popup_card(ui: &mut egui::Ui, popup: &Popup, width: f32) {
+    let frame = panel_frame();
+    let content_width = (width - frame.inner_margin.sum().x).max(1.0);
+    frame.show(ui, |ui| {
+        ui.set_width(content_width);
+        ui.spacing_mut().item_spacing = egui::vec2(12.0, 6.0);
+        ui.horizontal_top(|ui| {
+            if !popup.icon.is_empty() && content_width >= 130.0 {
+                ui.add_sized([32.0, 0.0], egui::Label::new(RichText::new(&popup.icon).size(26.0)).extend());
+            }
+            let text_width = ui.available_width().max(1.0);
+            ui.vertical(|ui| {
+                ui.set_width(text_width);
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(&popup.title)
+                            .strong()
+                            .size(16.0)
+                            .line_height(Some(21.0))
+                            .color(Color32::WHITE),
+                    )
+                    .wrap(),
+                );
+                if !popup.text.is_empty() {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&popup.text)
+                                .size(14.0)
+                                .line_height(Some(19.0))
+                                .color(Color32::LIGHT_GRAY),
+                        )
+                        .wrap(),
+                    );
+                }
+            });
+        });
+    });
+}
+
+#[cfg(test)]
+#[test]
+fn popup_text_wraps_with_room_between_title_and_description() {
+    let popup = Popup {
+        icon: "🏆".into(),
+        title: "Trophy unlocked for finishing every city driving challenge".into(),
+        text: "Your new trophy and coin reward are waiting in the career menu.".into(),
+        left: 4.6,
+    };
+    for width in [168.0, 340.0] {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| popup_card(ui, &popup, width));
+        output.textures_delta.clear();
+        let find = |label: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == label => Some(text),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let title = find(&popup.title);
+        let body = find(&popup.text);
+        assert!(title.galley.rows.len() > 1 && body.galley.rows.len() > 1);
+        assert!((title.pos.x - body.pos.x).abs() < 1.0);
+        assert!(body.pos.y >= title.pos.y + title.galley.size().y + 5.0);
+        assert!(title.galley.size().x <= width - 20.0 && body.galley.size().x <= width - 20.0);
+    }
 }
 
 pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Result {
@@ -377,28 +450,56 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
         });
     }
     if game.toast.left > 0.0 && !game.toast.text.is_empty() {
-        area("toast", egui::Align2::CENTER_CENTER, [0.0, -120.0]).show(ctx, |ui| {
-            panel_frame().show(ui, |ui| {
-                ui.label(RichText::new(&game.toast.text).size(22.0).strong().color(Color32::WHITE));
+        let width = (ctx.viewport_rect().width() - 40.0).clamp(1.0, 520.0);
+        area("toast", egui::Align2::CENTER_CENTER, [0.0, -120.0])
+            .default_width(width)
+            .show(ctx, |ui| {
+                panel_frame().show(ui, |ui| {
+                    ui.set_max_width(width);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&game.toast.text)
+                                .size(22.0)
+                                .line_height(Some(28.0))
+                                .strong()
+                                .color(Color32::WHITE),
+                        )
+                        .wrap(),
+                    );
+                });
             });
-        });
     }
     if !game.popups.is_empty() {
-        area("popups", egui::Align2::RIGHT_TOP, [-16.0, 210.0]).show(ctx, |ui| {
-            for p in &game.popups {
-                panel_frame().show(ui, |ui| {
-                    ui.set_max_width(300.0);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&p.icon).size(28.0));
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(&p.title).strong().size(15.0).color(Color32::WHITE));
-                            ui.label(RichText::new(&p.text).size(13.0).color(Color32::LIGHT_GRAY));
-                        });
-                    });
-                });
-                ui.add_space(6.0);
-            }
-        });
+        let viewport = ctx.viewport_rect();
+        // Beside the garage panel, not over it.
+        let right = if game.mode == Mode::Garage { crate::garage::WIDTH } else { 0.0 };
+        let width = (viewport.width() - right - 32.0).clamp(1.0, 340.0);
+        let mut top = if driving && game.settings.minimap {
+            crate::minimap::SIZE + if game.settings.show_fps { 34.0 } else { 16.0 } + 12.0
+        } else {
+            32.0
+        };
+        if driving
+            && let Some(rect) = ctx.memory(|memory| {
+                let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new(CITY_STATUS_AREA));
+                memory
+                    .areas()
+                    .visible_last_frame(&layer)
+                    .then(|| memory.area_rect(layer.id))
+                    .flatten()
+            })
+        {
+            top = top.max(rect.bottom() - viewport.top() + 12.0);
+        }
+        area("popups", egui::Align2::RIGHT_TOP, [-16.0 - right, top])
+            .default_width(width)
+            .show(ctx, |ui| {
+                ui.set_width(width);
+                ui.spacing_mut().item_spacing.y = 8.0;
+                for popup in &game.popups {
+                    popup_card(ui, popup, width);
+                }
+            });
     }
     if game.settings.show_fps {
         area("fps", egui::Align2::RIGHT_TOP, [-10.0, 8.0]).show(ctx, |ui| {

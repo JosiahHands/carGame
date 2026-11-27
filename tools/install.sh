@@ -81,6 +81,12 @@ main() {
     fi
     rm -rf "$stage"
 
+    if [ "$system" = Darwin ]; then
+        # Launchpad, Spotlight and the Dock show the new app (and its icon) straight away.
+        local lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+        if [ -x "$lsregister" ]; then "$lsregister" -f "$destination" >/dev/null 2>&1 || true; fi
+    fi
+
     if [ "$system" = Linux ]; then
         local desktop="$app_root/applications/car-game.desktop"
         mkdir -p "$(dirname "$desktop")"

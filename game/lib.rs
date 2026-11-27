@@ -45,7 +45,7 @@ pub mod world;
 pub use career::rewards;
 pub use city::{pedestrians, traffic};
 pub use event::{freeroam, rivals, skills, spec, timetrial, weapons};
-pub use saves::{config, import, settings, storage};
+pub use saves::{config, import, settings, storage, updates};
 pub use world::{track, venues};
 
 // ---------- the front end ----------
@@ -91,6 +91,7 @@ impl Plugin for GamePlugin {
             .insert_resource(world::World::empty())
             .init_resource::<camera::CameraRig>()
             .init_resource::<packs::Packs>()
+            .init_resource::<updates::Updater>()
             .insert_resource(EguiGlobalSettings {
                 auto_create_primary_context: false,
                 ..default()
@@ -104,7 +105,7 @@ impl Plugin for GamePlugin {
                 scene::ScenePlugin,
             ))
             .configure_sets(Update, (GameSet::Load, GameSet::Frame, GameSet::Camera).chain())
-            .add_systems(Startup, game::setup_game.after(audio_start_marker))
+            .add_systems(Startup, (game::setup_game.after(audio_start_marker), updates::check_at_start))
             .add_systems(
                 Update,
                 (
@@ -112,6 +113,7 @@ impl Plugin for GamePlugin {
                     game::frame.in_set(GameSet::Frame),
                     game::place_camera.in_set(GameSet::Camera),
                     quality::refine.before(GameSet::Load),
+                    updates::close_when_installed,
                 ),
             )
             .add_systems(EguiPrimaryContextPass, (game::menus, hud::hud).chain());

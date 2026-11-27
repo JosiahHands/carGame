@@ -118,6 +118,9 @@ pub struct EventRun {
     pub unbanked_drift: f64,
     pub unbanked_air: f64,
     trap_mark: f64,
+    /// The player's speeds through the speed cameras so far (mph), added up, and how many.
+    trap_total: f64,
+    trap_hits: usize,
     pub track: Option<Arc<RaceTrack>>,
     line: Vec<f64>,
     pub racers: Vec<Racer>,
@@ -168,6 +171,8 @@ impl EventRun {
             unbanked_drift: 0.0,
             unbanked_air: 0.0,
             trap_mark: f64::NEG_INFINITY,
+            trap_total: 0.0,
+            trap_hits: 0,
             track,
             line,
             racers: Vec::new(),
@@ -334,6 +339,7 @@ impl EventRun {
         let step = 1.0 / 120.0;
         let mut time = 0.0;
         let mut trap_speed = 0.0;
+        let mut trap_hits = 0;
         let mut furthest = racer.distance;
         while racer.distance < goal && time < 900.0 {
             let me = racer.position();
@@ -351,7 +357,9 @@ impl EventRun {
                 &mut 0.0,
             );
             if self.spec.kind == EventKind::SpeedTrap && racer.distance > furthest {
-                trap_speed += self.traps_crossed(furthest, racer.distance) as f64 * racer.physics.speed() * MPH;
+                let crossed = self.traps_crossed(furthest, racer.distance);
+                trap_speed += crossed as f64 * (racer.physics.speed() * MPH).round();
+                trap_hits += crossed;
                 furthest = racer.distance;
             }
             time += step;
@@ -364,7 +372,7 @@ impl EventRun {
             let t = (time * 10.0).ceil() / 10.0;
             self.spec.targets = [(t * 1.14).ceil(), (t * 1.06).ceil(), t];
         } else {
-            let s = trap_speed.floor();
+            let s = (trap_speed / trap_hits.max(1) as f64).floor();
             self.spec.targets = [(s * 0.86).floor(), (s * 0.94).floor(), s];
         }
     }
@@ -487,9 +495,12 @@ impl EventRun {
                 let crossed = self.traps_crossed(self.trap_mark, self.racers[0].distance);
                 self.trap_mark = self.racers[0].distance;
                 if crossed > 0 {
+                    // The score is the average speed through the cameras.
                     let mph = (self.racers[0].physics.speed() * MPH).round();
-                    self.score += mph * crossed as f64;
-                    self.notes.push(format!("📸 {mph} mph"));
+                    self.trap_total += mph * crossed as f64;
+                    self.trap_hits += crossed;
+                    self.score = (self.trap_total / self.trap_hits as f64).round();
+                    self.notes.push(format!("📸 {}", crate::text::speed(mph)));
                     sound.chime(false);
                 }
             }
@@ -1064,7 +1075,7 @@ impl EventRun {
             EventKind::TimeAttack => format_time(value),
             EventKind::Takedown => format!("{value} takedown{}", if value == 1.0 { "" } else { "s" }),
             EventKind::Drift => format!("{} pts", thousands(value)),
-            EventKind::SpeedTrap => format!("{} mph", value.round()),
+            EventKind::SpeedTrap => format!("{} avg", crate::text::speed(value.round())),
             EventKind::Destruction => format!("${}", thousands(value)),
             EventKind::Stunt => format!("{value:.1} s air"),
         }
@@ -1130,7 +1141,12 @@ impl EventRun {
             stats.push(("LAP".into(), format!("{lap}/{}", s.laps)));
             stats.push(("TIME".into(), format_time(self.clock)));
             if s.kind == EventKind::SpeedTrap {
-                stats.push(("SCORE".into(), self.format_score(self.score)));
+                let average = if self.trap_hits == 0 {
+                    "–".into()
+                } else {
+                    crate::text::speed(self.score)
+                };
+                stats.push(("AVG SPEED".into(), average));
             } else {
                 stats.push(("★★★".into(), format_time(s.targets[2])));
             }
@@ -1545,7 +1561,7 @@ pub mod spec {
                 EventKind::TimeAttack => "Just you and the clock. Beat the target times.",
                 EventKind::Takedown => "Weapons on. Wreck rivals with guns, rockets and rams. They shoot back!",
                 EventKind::Drift => "Score drift points before the time runs out. Crashing loses the drift.",
-                EventKind::SpeedTrap => "Hit the speed cameras as fast as you can. Your speeds are added up.",
+                EventKind::SpeedTrap => "Hit the speed cameras as fast as you can. You're scored on your average speed through them.",
                 EventKind::Destruction => "Weapons on. Do as much damage to the city as you can.",
                 EventKind::Stunt => "Use the ramps. Every second in the air counts.",
             }
@@ -2042,7 +2058,7 @@ pub mod freeroam {
                         events.push(FreeRoamEvent::Zone {
                             zone: z.clone(),
                             score: mph,
-                            text: format!("{mph} mph"),
+                            text: crate::text::speed(mph),
                         });
                     } else if distance > z.radius + 20.0 {
                         self.cooldown.remove(&z.id);
@@ -2140,20 +2156,16 @@ pub mod freeroam {
     }
 
     pub fn targets_text(z: &Zone) -> String {
-        let unit = match z.kind {
-            ZoneKind::Speed => " mph",
-            ZoneKind::Jump => " s",
-            ZoneKind::Drift => "",
-        };
         z.targets
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                format!(
-                    "{} {}{unit}",
-                    "★".repeat(i + 1),
-                    if z.kind == ZoneKind::Jump { format!("{t}") } else { thousands(*t) }
-                )
+                let target = match z.kind {
+                    ZoneKind::Speed => crate::text::speed(*t),
+                    ZoneKind::Jump => format!("{t} s"),
+                    ZoneKind::Drift => thousands(*t),
+                };
+                format!("{} {target}", "★".repeat(i + 1))
             })
             .collect::<Vec<_>>()
             .join("  ")

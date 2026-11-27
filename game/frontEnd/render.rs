@@ -1454,8 +1454,9 @@ pub mod world_build {
             let mut caps = MeshData::default();
             for i in 0..70 {
                 let a = i as f64 / 70.0 * PI * 2.0;
-                let dist = half + 80.0 + self.rand.next() * 80.0;
+                let spread = self.rand.next() * 80.0;
                 let r = 50.0 + self.rand.next() * 60.0;
+                let dist = hill_distance(a, half, r, spread);
                 let base_h = if peaks {
                     110.0 + self.rand.next() * 150.0
                 } else if mesas {
@@ -1512,6 +1513,15 @@ pub mod world_build {
         }
     }
 
+    /// How far from the middle of the map a horizon hill `r` meters across
+    /// (at its foot) goes, in direction `angle`. The map and its walls are a
+    /// square, so the hill goes past the square's edge in that direction, by
+    /// more than its own radius: never over the corners, where tracks reach.
+    pub fn hill_distance(angle: f64, half: f64, r: f64, spread: f64) -> f64 {
+        let (s, c) = angle.sin_cos();
+        (half + r + 10.0 + spread) / s.abs().max(c.abs())
+    }
+
     /// Ground, roads and pavement: a pack can make them look wet in the rain.
     #[derive(Component)]
     pub struct Wet;
@@ -1565,6 +1575,29 @@ pub mod world_build {
             t.prop = prop;
             t.size = size;
             t
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// No hill reaches inside the map's walls, where the track can go
+        /// right up to the corners.
+        #[test]
+        fn horizon_hills_stay_off_the_map() {
+            let half = 700.0;
+            for i in 0..720 {
+                let a = i as f64 / 720.0 * PI * 2.0;
+                for r in [50.0, 110.0] {
+                    let d = hill_distance(a, half, r, 0.0);
+                    let (x, z) = (a.cos() * d, a.sin() * d);
+                    // The nearest point of the square to the hill's middle.
+                    let (nx, nz) = (x.clamp(-half, half), z.clamp(-half, half));
+                    assert!((x - nx).hypot(z - nz) >= r, "angle {a}: hill overlaps the map");
+                    assert!(d < (half + r + 10.0) * 1.5);
+                }
+            }
         }
     }
 }

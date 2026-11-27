@@ -334,6 +334,7 @@ impl<'w, 's> Ctx<'w, 's> {
         self.rig.base_fov = self.game.settings.fov as f32;
         self.world.effects.amount = settings::effects_amount(&self.game.settings.effects);
         self.game.physics.manual = self.game.settings.transmission == "manual";
+        crate::text::set_metric(!self.game.settings.is_mph());
     }
 
     pub fn place_car(&mut self, x: f64, z: f64, heading: f64) {
@@ -1141,7 +1142,7 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         game.popup(
             "⚙",
             format!("Graphics: {q}"),
-            "Picked for this computer. Change it in Garage → Settings.",
+            "Picked for this computer. Change it in the garage settings.",
         );
     }
     commands.insert_resource(game);
@@ -1169,6 +1170,11 @@ pub fn load_and_build(mut ctx: Ctx) {
         ctx.game.loaded_once = true;
         if ctx.game.mode == Mode::Menu {
             ctx.show_career_car();
+        }
+        // For checking the game unattended: open a garage tab (CAR_GAME_GARAGE=updates).
+        if let Some(tab) = std::env::var("CAR_GAME_GARAGE").ok().and_then(|t| crate::garage::tab_named(&t)) {
+            ctx.menu_action(MenuAction::Garage);
+            ctx.game.garage.tab = tab;
         }
         // For checking the game unattended: start a career level (CAR_GAME_LEVEL=12) or a quick race (CAR_GAME_LEVEL=quick:race:oval).
         if let Ok(level) = std::env::var("CAR_GAME_LEVEL") {
@@ -2412,11 +2418,12 @@ pub fn shift_light(p: &CarPhysics) -> bool {
 }
 
 /// The menus and the garage, drawn with egui, and what they ask for.
-pub fn menus(mut ctx: Ctx, mut contexts: bevy_egui::EguiContexts) -> Result {
+pub fn menus(mut ctx: Ctx, mut contexts: bevy_egui::EguiContexts, updater: Res<crate::updates::Updater>) -> Result {
     let egui_ctx = contexts.ctx_mut()?.clone();
     if ctx.game.screen_shot {
         return Ok(()); // no menus in a photo
     }
+    crate::menu::update_progress(&egui_ctx, &updater);
     let mph = ctx.game.settings.is_mph();
     let clock = ctx.game.real_clock;
     let looks = ctx.game.config.clone();
@@ -2432,7 +2439,16 @@ pub fn menus(mut ctx: Ctx, mut contexts: bevy_egui::EguiContexts) -> Result {
         let actions = {
             let Ctx { game, storage, packs, .. } = &mut ctx;
             let g = &mut **game;
-            crate::garage::show(&egui_ctx, &mut g.garage, &mut g.config, &mut g.settings, storage, packs, &describe)
+            crate::garage::show(
+                &egui_ctx,
+                &mut g.garage,
+                &mut g.config,
+                &mut g.settings,
+                storage,
+                packs,
+                &updater,
+                &describe,
+            )
         };
         for a in actions {
             ctx.garage_action(a);

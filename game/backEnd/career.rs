@@ -405,6 +405,17 @@ pub fn read_career(raw: &Value) -> CareerSave {
                 .map_or(String::new(), |t| t.chars().take(20).collect());
         }
     }
+    // Speed traps used to score every camera's speed added up ("1240 mph"),
+    // and now score the average speed; an old best can't be compared with that.
+    for (i, chapter) in CHAPTERS.iter().enumerate() {
+        for (k, kind) in chapter.kinds.iter().enumerate() {
+            let n = i * 10 + k;
+            if *kind == SpeedTrap && !save.best[n].ends_with(" avg") {
+                save.best[n].clear();
+                save.best_score[n] = 0.0;
+            }
+        }
+    }
     // Saves from before 1.2.3 spelled two upgrades the British way.
     let ups = r.get("upgrades").and_then(Value::as_object).cloned().unwrap_or_default();
     for k in UPGRADE_IDS {
@@ -1269,6 +1280,26 @@ pub fn quick_race_spec(o: &QuickRaceOptions) -> EventSpec {
 mod tests {
     use super::*;
 
+    /// Speed traps used to add every camera's speed up; a best from then can't
+    /// be compared with an average speed, so it's cleared (the stars stay).
+    #[test]
+    fn old_speed_trap_bests_are_cleared() {
+        let mut storage = Storage::in_memory();
+        let mut best = vec![String::new(); LEVELS];
+        let mut best_score = vec![0.0; LEVELS];
+        let mut stars = vec![0; LEVELS];
+        (best[5], best_score[5], stars[5]) = ("1240 mph".to_string(), 1240.0, 2);
+        (best[0], best_score[0]) = ("1st".to_string(), 1.0);
+        storage.set(
+            SAVE_KEY,
+            serde_json::json!({"best": best, "bestScore": best_score, "stars": stars}).to_string(),
+        );
+        let save = load_career(&storage);
+        assert_eq!(make_level(6).spec.kind, SpeedTrap);
+        assert_eq!((save.best[5].as_str(), save.best_score[5], save.stars[5]), ("", 0.0, 2));
+        assert_eq!((save.best[0].as_str(), save.best_score[0]), ("1st", 1.0));
+    }
+
     #[test]
     fn levels_are_the_same_every_time() {
         let a = make_level(37);
@@ -1612,7 +1643,7 @@ pub mod rewards {
                 &mut t,
                 "speed",
                 "Speed freak",
-                &|n| format!("Reach {n} mph"),
+                &|n| format!("Reach {}", crate::text::speed(n)),
                 "⚡",
                 |s| stat(s, "topSpeed"),
                 &[120.0, 200.0, 400.0],
