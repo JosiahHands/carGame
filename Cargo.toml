@@ -39,7 +39,7 @@ photo_real.workspace = true
 living_city.workspace = true
 
 [workspace.package]
-version = "1.3.1"
+version = "1.3.2"
 edition = "2024"
 rust-version = "1.97.1"
 publish = false

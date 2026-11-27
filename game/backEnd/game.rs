@@ -1141,7 +1141,7 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         game.popup(
             "⚙",
             format!("Graphics: {q}"),
-            "Picked for this computer. Change it in Garage → Settings.",
+            "Picked for this computer. Change it in the garage settings.",
         );
     }
     commands.insert_resource(game);
