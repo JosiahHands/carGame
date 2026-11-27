@@ -233,6 +233,7 @@ limit yourself, and turn on the FPS counter to see the difference.
 ## Releasing a new version
 
 Set the workspace version in `Cargo.toml` and include the matching version
-(for example, `v1.3.0`) in the merge commit on `main`. The Native release
+(for example, `v1.3.1`) in the merge commit on `main`. The Native release
 workflow builds the six packages and publishes them together on GitHub Releases.
-The v1.3.0 feature pull request also builds the packages as workflow artifacts.
+A pull request from a matching branch such as `features/v1.3.1` also builds the
+packages as workflow artifacts.
