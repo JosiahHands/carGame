@@ -433,7 +433,6 @@ impl<'w, 's> Ctx<'w, 's> {
     /// world, with the map's own options from the Maps tab (events get the
     /// city as it always was, and the venue's own weather).
     pub fn load_world(&mut self, map: &str, layout: u32, free_roam: bool) {
-        self.save_resume();
         let mut world = std::mem::replace(&mut *self.world, World::empty());
         let options = self.game.settings.map_options(map);
         // `world` is the old map's World (its generation counts on, so the
@@ -461,6 +460,8 @@ impl<'w, 's> Ctx<'w, 's> {
 
     /// Switches to the map chosen in the settings, and puts the car at its start (free roam).
     pub fn load_map(&mut self) {
+        // Where you were on the old map, before anything changes (the night, the map).
+        self.save_resume();
         self.game.trial.stop();
         self.game.weapons.clear();
         let map = self.game.settings.map.clone();
@@ -3353,6 +3354,39 @@ mod tests {
                 assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some() && ctx.game.own_car.is_none());
                 assert!(ctx.game.driving_garage_build && !ctx.game.driving_other);
                 assert!(ctx.world.targets[own].rig.is_none());
+                // Reloading the open world (a new weather, say) counts as a new map.
+                let generation = ctx.world.generation;
+                ctx.load_map();
+                assert!(ctx.world.generation > generation && ctx.world.is_open());
+                ctx.rebuild_car(None);
+                // Resuming on foot puts you exactly where you were, every time.
+                for _ in 0..2 {
+                    ctx.resume_from(crate::freeroam::Resume {
+                        x: -3.0,
+                        z: -20.0,
+                        heading: 0.0,
+                        on_foot: true,
+                        car: None,
+                        night: false,
+                    });
+                    let me = ctx.game.on_foot.as_ref().expect("on foot");
+                    assert!((me.pos.x + 3.0).abs() < 1e-9 && (me.pos.z + 20.0).abs() < 1e-9, "{:?}", me.pos);
+                    ctx.save_resume();
+                    let saved = crate::freeroam::Resume::load(&ctx.storage).unwrap();
+                    assert!(saved.on_foot && (saved.x + 3.0).abs() < 1e-9 && (saved.z + 20.0).abs() < 1e-9);
+                    ctx.back_in_own_car();
+                }
+                // A day event from a night in the open world keeps the saved night.
+                ctx.game.night = true;
+                ctx.world.set_night(true);
+                ctx.save_resume();
+                ctx.menu_action(MenuAction::PlayLevel(Box::new(career::make_level(1))));
+                assert!(crate::freeroam::Resume::load(&ctx.storage).unwrap().night);
+                ctx.quit_event();
+                ctx.menu_action(MenuAction::FreeRoam);
+                ctx.rebuild_car(None);
+                ctx.game.night = false;
+                ctx.world.set_night(false);
                 // The garage puts you back in your own car, wherever you are.
                 ctx.get_in_or_out();
                 ctx.set_mode(Mode::Garage);
