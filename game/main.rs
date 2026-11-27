@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use bevy::prelude::*;
+use bevy::render::RenderPlugin;
 use bevy::window::{PresentMode, WindowResolution};
 
 fn main() -> AppExit {
@@ -23,6 +24,11 @@ fn main() -> AppExit {
                 })
                 .set(AssetPlugin {
                     file_path: game::assets_folder().to_string_lossy().into_owned(),
+                    ..default()
+                })
+                .set(RenderPlugin {
+                    // Software renderers can leave pipelines queued during unattended captures.
+                    synchronous_pipeline_compilation: std::env::var_os("CAR_GAME_SCREENSHOT").is_some(),
                     ..default()
                 }),
         )
