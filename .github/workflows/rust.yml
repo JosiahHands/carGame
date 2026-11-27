@@ -1,12 +1,13 @@
 # Checks the Rust game builds and passes its tests on macOS, Windows
-# and Linux, for every pull request and every push to main or a features/
-# or fix/ branch. Everything builds offline from the stored libraries (libs/ and packs/*/libs/).
+# and Linux, for every pull request and every push to main. (A branch with
+# a pull request is checked once, as the pull request.) Everything builds
+# offline from the stored libraries (libs/ and packs/*/libs/).
 name: Rust
 
 on:
   pull_request:
   push:
-    branches: [main, 'features/**', 'fix/**']
+    branches: [main]
 
 permissions:
   contents: read
@@ -38,6 +39,12 @@ jobs:
           "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
       # rustup reads rust-toolchain.toml and installs that exact Rust.
       - run: rustup show active-toolchain || rustup toolchain install
+      # Cargo judges libraries stored by path (packs/*/libs) by their files'
+      # times, and a checkout makes every file new: without this the cache
+      # is thrown away and everything is compiled again.
+      - name: Fix the stored libraries' file times
+        shell: bash
+        run: find packs/living_city/libs -type f -exec touch -t 200001010000 {} +
       - name: Identify vendored dependencies
         id: vendor
         shell: bash

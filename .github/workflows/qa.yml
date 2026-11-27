@@ -1,0 +1,78 @@
+# The full QA pass on Windows, macOS and Linux: builds the game and plays every
+# smoke case (tools/packaging/smoke.py --full: every map, every event, the open
+# world, on foot) on each system, saving each frame and log. Run it from the
+# Actions tab, or push to a qa/ branch.
+name: QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['qa/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  play:
+    name: Play every case on ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025, name: Windows, binary: car-game.exe }
+          - { os: macos-15, name: macOS, binary: car-game }
+          - { os: ubuntu-24.04, name: Linux, binary: car-game }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries, software graphics and a virtual screen
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 libclang-dev cmake xvfb xauth mesa-vulkan-drivers
+      - name: Windows libclang
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Fix the stored libraries' file times
+        run: find packs/living_city/libs -type f -exec touch -t 200001010000 {} +
+      - name: Identify vendored dependencies
+        id: vendor
+        run: echo "tree=$(git ls-tree HEAD libs packs/living_city/libs | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v5
+        with:
+          path: |
+            builds/release/.fingerprint
+            builds/release/build
+            builds/release/deps
+          key: cargo-qa-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: cargo-qa-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
+      - name: Build the game
+        run: cargo build --release --package car_game --locked --offline
+      - name: Play every case
+        env:
+          WGPU_FORCE_FALLBACK_ADAPTER: ${{ runner.os != 'macOS' && '1' || '' }}
+          WGPU_BACKEND: ${{ runner.os == 'Windows' && 'dx12' || runner.os == 'Linux' && 'vulkan' || '' }}
+        run: |
+          py=python3
+          command -v python3 >/dev/null 2>&1 || py=python
+          run=("$py" tools/packaging/smoke.py "builds/release/${{ matrix.binary }}" qa --full --timeout 600)
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1280x720x24" "${run[@]}"; else "${run[@]}"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-${{ matrix.name }}
+          path: |
+            qa/*/frame.png
+            qa/*/game.log
+          if-no-files-found: ignore

@@ -75,6 +75,9 @@ jobs:
         run: |
           "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
       - run: rustup show active-toolchain || rustup toolchain install
+      # Keeps the cached build fresh (see rust.yml).
+      - name: Fix the stored libraries' file times
+        run: find packs/living_city/libs -type f -exec touch -t 200001010000 {} +
       - name: Identify vendored dependencies
         id: vendor
         run: echo "tree=$(git ls-tree HEAD libs packs/living_city/libs | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
