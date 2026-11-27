@@ -1945,8 +1945,8 @@ pub mod freeroam {
         pub z: f64,
         pub heading: f64,
         pub on_foot: bool,
-        /// The car you were in, if it wasn't your own garage build.
-        pub car: Option<crate::config::CarConfig>,
+        /// The car you were in, if it wasn't your own (checked by sanitize_config when used).
+        pub car: Option<serde_json::Value>,
         pub night: bool,
     }
 

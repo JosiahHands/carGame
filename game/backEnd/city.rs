@@ -168,8 +168,15 @@ pub mod traffic {
             if let Some(i) = self.cars.iter().position(|c| c.target == target) {
                 self.release(i);
                 self.cars.remove(i);
-                // Crossings are held by index: let go of them all and let the cars take them again.
+                // Crossings are held by index, and the indices moved: the cars in a
+                // crossing keep theirs; the rest take theirs again as they arrive.
                 self.crossings.clear();
+                for j in 0..self.cars.len() {
+                    if self.cars[j].on_crossing {
+                        let k = Self::crossing_key(&self.cars[j]);
+                        self.crossings.insert(k, j);
+                    }
+                }
             }
             self.road_cars.retain(|c| c.target != target);
         }
@@ -828,6 +835,10 @@ pub mod pedestrians {
         cheering: f64,
         lean: f64,
         colors: [[f32; 4]; 3],
+        /// Someone who only runs off and then is gone (a driver you pulled
+        /// out of their car): seconds left, and the ground under them.
+        runner: Option<f64>,
+        ground: f64,
         hp: f64,
         /// Seconds left lying knocked out.
         down: f64,
@@ -938,6 +949,8 @@ pub mod pedestrians {
                 cheering: 0.0,
                 lean: 0.0,
                 colors: [linear(rng::pick(&SKIN)), linear(rng::pick(&SHIRTS)), linear(rng::pick(&TROUSERS))],
+                runner: None,
+                ground: 0.0,
                 hp: HEALTH,
                 down: 0.0,
                 fell: 0.0,
@@ -959,15 +972,19 @@ pub mod pedestrians {
             }
         }
 
-        /// Someone climbs out of a car (its driver, when you take it) and runs off.
-        pub fn bail_out(&mut self, x: f64, z: f64, away: f64) {
-            // Their loop is the block nearest; they start off it and run back to it.
-            let (bx, bz) = ((x / 80.0).floor() * 80.0 + 40.0, (z / 80.0).floor() * 80.0 + 40.0);
-            let mut p = Self::person(bx, bz);
+        /// Someone climbs out of a car (its driver, when you take it), runs
+        /// off, and is gone a little later.
+        pub fn bail_out(&mut self, x: f64, z: f64, away: f64, ground: f64) {
+            if self.people.len() >= MAX_ALL {
+                return;
+            }
+            let mut p = Self::person(x, z);
             let at = loop_point(&p);
             p.off = DVec3::new(x - at.0, 0.0, z - at.1);
-            p.fleeing = 6.0;
+            p.fleeing = 14.0;
             p.facing = Some(away);
+            p.runner = Some(14.0);
+            p.ground = ground;
             self.people.push(p);
         }
 
@@ -977,7 +994,7 @@ pub mod pedestrians {
 
         fn at(p: &Person) -> DVec3 {
             let lp = loop_point(p);
-            DVec3::new(lp.0 + p.off.x, p.off.y.max(0.0), lp.1 + p.off.z)
+            DVec3::new(lp.0 + p.off.x, p.ground + p.off.y.max(0.0), lp.1 + p.off.z)
         }
 
         /// Everyone near an explosion runs away from it.
@@ -1128,11 +1145,21 @@ pub mod pedestrians {
 
         /// Moves everyone. `player` is the player on foot, if they are. Returns
         /// the damage people fighting the player did to them.
-        pub fn update(&mut self, dt: f64, car: CarNear, player: Option<DVec3>) -> f64 {
+        pub fn update(&mut self, dt: f64, car: CarNear, player: Option<DVec3>, world: &World) -> f64 {
             self.near = DVec2::new(car.x, car.z);
             if self.people.is_empty() || !self.visible {
                 return 0.0;
             }
+            // Drivers who ran off are gone after a while.
+            for p in &mut self.people {
+                if let Some(left) = p.runner.as_mut() {
+                    *left -= dt;
+                    p.fleeing = p.fleeing.max(0.5);
+                    let lp = loop_point(p);
+                    p.ground = world.height_at(lp.0 + p.off.x, lp.1 + p.off.z);
+                }
+            }
+            self.people.retain(|p| p.runner.is_none_or(|left| left > 0.0));
             self.clock += dt;
             let speed = car.vx.hypot(car.vz);
             let mut damage = 0.0;
@@ -1287,7 +1314,7 @@ pub mod pedestrians {
                     &mut m,
                     &parts,
                     &PersonPose {
-                        at: Vec3::new(x as f32, p.off.y.max(0.0) as f32, z as f32),
+                        at: Vec3::new(x as f32, (p.ground + p.off.y.max(0.0)) as f32, z as f32),
                         heading: heading as f32,
                         step: p.step as f32,
                         stride: match (moving, p.fleeing > 0.0 || p.fighting > 0.0) {
@@ -1544,9 +1571,14 @@ pub mod walk {
             let want = input.throttle * if run { RUN } else { WALK } - input.brake * BACK;
             let accel = if self.airborne { 4.0 } else { 22.0 };
             self.speed += (want - self.speed).clamp(-accel * dt, accel * dt);
+            // In short steps, so a slow frame can't carry you into a wall.
             let v = self.forward() * self.speed;
-            self.pos.x += v.x * dt;
-            self.pos.z += v.y * dt;
+            let steps = ((v.length() * dt) / 0.2).ceil().clamp(1.0, 20.0) as usize;
+            for _ in 0..steps {
+                self.pos.x += v.x * dt / steps as f64;
+                self.pos.z += v.y * dt / steps as f64;
+                self.collide(world);
+            }
             if (input.handbrake || input.jump) && !self.airborne {
                 self.vy = JUMP;
                 self.airborne = true;
@@ -1578,8 +1610,21 @@ pub mod walk {
                 if !b.solid || self.pos.y >= b.base + b.height - 0.05 || self.pos.y + 1.7 < b.base {
                     continue;
                 }
-                let px = self.pos.x.clamp(b.min_x, b.max_x);
-                let pz = self.pos.z.clamp(b.min_z, b.max_z);
+                let (x, z) = (self.pos.x, self.pos.z);
+                if x > b.min_x && x < b.max_x && z > b.min_z && z < b.max_z {
+                    // Inside: out by the nearest face.
+                    let faces = [x - b.min_x, b.max_x - x, z - b.min_z, b.max_z - z];
+                    let k = (0..4).min_by(|&a, &c| faces[a].total_cmp(&faces[c])).unwrap_or(0);
+                    match k {
+                        0 => self.pos.x = b.min_x - RADIUS,
+                        1 => self.pos.x = b.max_x + RADIUS,
+                        2 => self.pos.z = b.min_z - RADIUS,
+                        _ => self.pos.z = b.max_z + RADIUS,
+                    }
+                    continue;
+                }
+                let px = x.clamp(b.min_x, b.max_x);
+                let pz = z.clamp(b.min_z, b.max_z);
                 self.push_from(px, pz, RADIUS);
             }
             for i in circles {
@@ -1832,6 +1877,9 @@ pub mod police {
             self.clock += dt;
             let mut out = Vec::new();
             for o in &mut self.officers {
+                if o.down > 0.0 && o.down <= dt {
+                    o.hp = 100.0; // back on their feet
+                }
                 o.down = (o.down - dt).max(0.0);
                 o.shoot = (o.shoot - dt).max(0.0);
                 o.punch = (o.punch - dt).max(0.0);
@@ -2089,8 +2137,9 @@ mod tests {
         );
         assert!(people.shoot(from + DVec3::Y * 1.4, DVec3::Z, 10.0).is_none_or(|(i, _)| i != 0));
         // A minute later, they're up again.
+        let world = World::empty();
         for _ in 0..600 {
-            people.update(0.1, still_car(from.x, from.z), Some(from));
+            people.update(0.1, still_car(from.x, from.z), Some(from), &world);
         }
         assert!(people.aim_at(from - DVec3::Z * 5.0, DVec2::new(0.0, 1.0), 200.0, -1.0).is_some());
     }
@@ -2190,6 +2239,11 @@ mod tests {
         }
         assert!(me.pos.z < 3.0 - crate::walk::RADIUS + 0.01, "stopped at the wall: {}", me.pos.z);
         assert!(me.pos.z > 2.0, "walked up to it: {}", me.pos.z);
+        // Even one very slow frame running straight at it doesn't carry you inside.
+        let mut runner = OnFoot::new(DVec3::new(0.0, 0.0, 2.0), 0.0);
+        runner.speed = 7.0;
+        runner.step(0.25, &walk, &world);
+        assert!(runner.pos.z <= 3.0 - crate::walk::RADIUS + 0.01, "{}", runner.pos.z);
         // Three hard hits knock you out; you get up after a few seconds.
         assert!(!me.hurt(40.0) && !me.hurt(40.0) && me.hurt(40.0));
         for _ in 0..300 {

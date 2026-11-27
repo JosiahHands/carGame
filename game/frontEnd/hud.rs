@@ -693,7 +693,15 @@ pub mod minimap {
                 painter.add(quad(r.x, r.z, r.width, r.length, r.angle, hex(0xe0a03a)));
             }
         }
-        for t in &world.targets {
+        // Only what's near (the open world has thousands of things), via the box grid.
+        let mut seen: Vec<usize> = world
+            .boxes_near(x, z, range * 1.6)
+            .into_iter()
+            .filter_map(|b| world.boxes.get(b).and_then(|b| b.target))
+            .collect();
+        seen.sort_unstable();
+        seen.dedup();
+        for t in seen.into_iter().filter_map(|i| world.targets.get(i)) {
             if !near(t.x, t.z, 60.0) {
                 continue;
             }

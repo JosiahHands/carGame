@@ -483,9 +483,11 @@ impl Land {
             return;
         }
         self.seen.insert((ci, cj));
+        // Places one further out than the roads, so every road with an end
+        // in range has both its places.
         let range = |c: i32| {
             if self.generative {
-                (c - reach)..=(c + reach)
+                (c - reach - 1)..=(c + reach + 1)
             } else {
                 -MAP_NODES..=MAP_NODES
             }

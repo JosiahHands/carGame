@@ -260,6 +260,7 @@ pub mod world_build {
             self.effects.clear();
             self.land = None;
             self.rubble.clear();
+            self.watch.clear();
             self.built_towns.clear();
         }
 
@@ -1598,6 +1599,9 @@ pub mod world_build {
         }
     }
 
+    /// Rocks and landmarks out in the country are drawn this far away.
+    const SCENERY_SHOWN: f32 = 3000.0;
+
     /// Sidewalk blocks are this big inside their streets.
     const BLOCK_INNER: f64 = 80.0 - ROAD_WIDTH;
 
@@ -1996,6 +2000,7 @@ pub mod world_build {
                     MeshMaterial3d(b.mats.vertex_colored.clone()),
                     Transform::from_translation(at + Vec3::new(0.0, 61.0, 0.0) + face * Vec3::new(0.0, 0.0, 2.8)).with_rotation(face),
                     Spin(0.9 + (t.x.abs() % 0.4) as f32),
+                    bevy::camera::visibility::VisibilityRange::abrupt(0.0, SCENERY_SHOWN),
                     ChildOf(root),
                 ));
             }
@@ -2007,11 +2012,15 @@ pub mod world_build {
                     std::mem::swap(&mut self.rand, &mut rand);
                 }
             }
+            // Far behind you, the country's rocks and landmarks aren't drawn.
+            let far = bevy::camera::visibility::VisibilityRange::abrupt(0.0, SCENERY_SHOWN);
             if !stone.is_empty() {
-                self.spawn(b, stone.flat_shaded().build(), b.mats.vertex_colored.clone(), Transform::default());
+                let e = self.spawn(b, stone.flat_shaded().build(), b.mats.vertex_colored.clone(), Transform::default());
+                b.commands.entity(e).insert(far.clone());
             }
             if !scenery.is_empty() {
-                self.spawn(b, scenery.build(), b.mats.vertex_colored.clone(), Transform::default());
+                let e = self.spawn(b, scenery.build(), b.mats.vertex_colored.clone(), Transform::default());
+                b.commands.entity(e).insert(far);
             }
         }
 
@@ -2393,7 +2402,10 @@ pub mod world_render {
         /// Pieces of highway drawn: (road, piece) and its entity, and where it is.
         roads: HashMap<(usize, usize), (Entity, f64, f64)>,
         mats: Option<(Handle<StandardMaterial>, Handle<StandardMaterial>, Handle<StandardMaterial>)>,
+        /// Where the highways were last looked at, and the land's version then.
         last: Option<(f64, f64, u64)>,
+        /// Where far-off ground was last put away.
+        last_evict: Option<(f64, f64)>,
     }
 
     /// The ground is drawn in detail within this distance, and roughly to `LAND_FAR`.
@@ -2498,8 +2510,9 @@ pub mod world_render {
         let mut m = MeshData::default();
         let mut last: Option<(u32, u32)> = None;
         for p in &r.points[start..=end] {
-            // The towns draw their own streets.
-            if from.contains(p.x, p.z, -2.0) || to.contains(p.x, p.z, -2.0) {
+            // The towns draw their own streets (the highway reaches 8 m into
+            // them, more than a point's spacing, so there's never a gap).
+            if from.contains(p.x, p.z, -8.0) || to.contains(p.x, p.z, -8.0) {
                 last = None;
                 continue;
             }
@@ -2541,6 +2554,7 @@ pub mod world_render {
             lm.far.clear();
             lm.roads.clear();
             lm.last = None;
+            lm.last_evict = None;
         }
         let (Some(land), Some(root)) = (world.land.as_deref(), world.root) else {
             return;
@@ -2583,7 +2597,8 @@ pub mod world_render {
                 }
             }
         };
-        if moved {
+        if lm.last_evict.is_none_or(|l| (x - l.0).hypot(z - l.1) > 24.0) {
+            lm.last_evict = Some((x, z));
             let near_keys: Vec<_> = lm.near.keys().copied().collect();
             for key in near_keys {
                 if distance(key) > LAND_NEAR + 250.0 {

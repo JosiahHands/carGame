@@ -1439,6 +1439,8 @@ pub mod garage {
         SettingsChanged,
         RebuildCity,
         MapChanged,
+        /// The map's "Start at night" changed (it also changes where you left off).
+        NightChanged,
         Drive,
         Menu,
         Honk,
@@ -1526,7 +1528,7 @@ pub mod garage {
                 "On foot (F gets in and out of cars), punch with E or a click, and 2 for the pistol. People are knocked out, never killed, and the police come.",
             );
         }
-        reload |= on_off(ui, "Start at night", &mut o.night);
+        let night = on_off(ui, "Start at night", &mut o.night);
         reload |= choice(
             ui,
             "Weather",
@@ -1535,7 +1537,9 @@ pub mod garage {
         );
         if o != before {
             s.maps.insert(map, o);
-            out.push(if reload {
+            out.push(if night {
+                GarageAction::NightChanged
+            } else if reload {
                 GarageAction::MapChanged
             } else {
                 GarageAction::SettingsChanged

@@ -173,8 +173,15 @@ pub struct Game {
     pub other_cars: Vec<crate::packs::OtherCar>,
     /// Damage the packs' people did to you on foot since last frame.
     pub player_hurt: f64,
-    /// Someone (a pack's resident) lent you their car: their name.
-    pub loan: Option<String>,
+    /// Someone (a pack's resident) lent you their car: their name, and the car.
+    pub loan: Option<(String, CarConfig)>,
+    /// The car you were lent (a parked car in the world): one at a time.
+    pub loaned_car: Option<usize>,
+    /// Driving the car you were lent.
+    driving_loan: bool,
+    /// On foot or in someone else's car, saved for when you next drive
+    /// (the map was loaded in the garage or the menu).
+    pending_resume: Option<crate::freeroam::Resume>,
     /// The town you're in, for its welcome.
     in_town: Option<usize>,
     resume_due: f64,
@@ -427,6 +434,16 @@ impl<'w, 's> Ctx<'w, 's> {
             Mode::Drive if previous != Mode::Drive => self.rig.set_garage(false, pos, heading, false),
             Mode::Drive => {}
         }
+        // Back to driving after the map was loaded in the garage or menu: on
+        // foot, or in the car you were in, as you left it.
+        if next == Mode::Drive
+            && previous != Mode::Drive
+            && self.game.event.is_none()
+            && self.world.is_open()
+            && let Some(r) = self.game.pending_resume.take()
+        {
+            self.resume_from(r);
+        }
     }
 
     /// Builds a map right now. `free_roam` builds the City map as the open
@@ -449,6 +466,9 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.traffic = Traffic::default();
         self.game.people = Pedestrians::default();
         self.game.own_car = None;
+        self.game.loaned_car = None;
+        self.game.driving_loan = false;
+        self.game.pending_resume = None;
         self.game.in_town = None;
         if self.game.on_foot.take().is_some() || self.game.driving_other {
             self.game.driving_other = false;
@@ -504,8 +524,16 @@ impl<'w, 's> Ctx<'w, 's> {
         self.prepare_land(x, z, std::time::Duration::from_millis(600));
         self.place_car(x, z, heading);
         self.load_npcs();
+        self.game.pending_resume = None;
         if let Some(r) = resume {
-            self.resume_from(r);
+            self.game.night = r.night;
+            self.world.set_night(r.night);
+            // In the garage or the menu you stay in your own car until you drive.
+            if self.game.mode == Mode::Drive {
+                self.resume_from(r);
+            } else {
+                self.game.pending_resume = Some(r);
+            }
         }
         sync_car(self, 0.0);
         if matches!(self.game.mode, Mode::Garage | Mode::Menu) {
@@ -598,6 +626,10 @@ impl<'w, 's> Ctx<'w, 's> {
         if let Some(t) = self.world.targets[i].rig.as_mut() {
             t.config = config;
         }
+        if self.game.driving_loan {
+            self.game.loaned_car = Some(i);
+            self.game.driving_loan = false;
+        }
         if own {
             self.game.own_car = Some(i);
             let g = &self.game;
@@ -678,6 +710,7 @@ impl<'w, 's> Ctx<'w, 's> {
                 occupied: true,
             });
             self.game.on_foot = None;
+            self.game.driving_loan = false;
             self.drive_other(car.config.clone(), car.at.x, car.at.z, car.heading);
             return;
         }
@@ -692,11 +725,9 @@ impl<'w, 's> Ctx<'w, 's> {
         let occupied = self.game.traffic.owns(i) || self.game.police.unit.as_ref().is_some_and(|u| u.target == i);
         if self.game.traffic.owns(i) {
             self.game.traffic.forget(i);
-            self.game.people.bail_out(
-                x + heading.cos() * 1.5,
-                z - heading.sin() * 1.5,
-                heading + std::f64::consts::FRAC_PI_2,
-            );
+            let (bx, bz) = (x + heading.cos() * 1.5, z - heading.sin() * 1.5);
+            let ground = self.world.height_at(bx, bz);
+            self.game.people.bail_out(bx, bz, heading + std::f64::consts::FRAC_PI_2, ground);
             self.toast("You took the car · the driver runs off", 1800.0);
         }
         if self.game.police.unit.as_ref().is_some_and(|u| u.target == i) {
@@ -716,6 +747,7 @@ impl<'w, 's> Ctx<'w, 's> {
             occupied,
         });
         let own = self.game.own_car == Some(i);
+        self.game.driving_loan = self.game.loaned_car == Some(i);
         let rig = self.world.targets[i].rig.take();
         self.world.remove_car(i);
         self.game.on_foot = None;
@@ -769,6 +801,7 @@ impl<'w, 's> Ctx<'w, 's> {
         if walking || self.game.driving_other {
             let (career, roaming, all_terrain) = self.game.own_car_career;
             self.game.driving_other = false;
+            self.game.driving_loan = false;
             if career {
                 let c = &self.game.career;
                 self.game.drive_config = career::career_car(&self.game.config, c.car, &c.upgrades);
@@ -796,7 +829,11 @@ impl<'w, 's> Ctx<'w, 's> {
             z: p.z,
             heading: p.heading,
             on_foot: self.game.on_foot.is_some(),
-            car: self.game.driving_other.then(|| self.game.drive_config.clone()),
+            car: self
+                .game
+                .driving_other
+                .then(|| serde_json::to_value(&self.game.drive_config).ok())
+                .flatten(),
             night: self.game.night,
         };
         r.save(&mut self.storage);
@@ -807,7 +844,7 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.night = r.night;
         self.world.set_night(r.night);
         if let Some(car) = r.car {
-            self.drive_other(car, r.x, r.z, r.heading);
+            self.drive_other(config::sanitize_config(&car), r.x, r.z, r.heading);
         }
         if r.on_foot {
             // On the first start the car isn't built yet: build it, to get out of.
@@ -1129,6 +1166,9 @@ impl<'w, 's> Ctx<'w, 's> {
             }
             MenuAction::FreeRoamCareer => {
                 self.leave_events();
+                // Your career car, whatever you were in (or not) when you left.
+                self.game.pending_resume = None;
+                self.back_in_own_car();
                 let c = &self.game.career;
                 self.game.drive_config = career::career_car(&self.game.config, c.car, &c.upgrades);
                 self.game.driving_garage_build = false;
@@ -1210,6 +1250,16 @@ impl<'w, 's> Ctx<'w, 's> {
                 self.toast("Everything has been rebuilt", 1600.0);
             }
             G::MapChanged => {
+                self.save_settings();
+                self.load_map();
+            }
+            G::NightChanged => {
+                // The time of day you picked wins over the one you left off at.
+                let night = self.game.settings.map_options(&self.game.settings.map).night;
+                if let Some(mut r) = crate::freeroam::Resume::load(&self.storage) {
+                    r.night = night;
+                    r.save(&mut self.storage);
+                }
                 self.save_settings();
                 self.load_map();
             }
@@ -1563,6 +1613,9 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         other_cars: Vec::new(),
         player_hurt: 0.0,
         loan: None,
+        loaned_car: None,
+        driving_loan: false,
+        pending_resume: None,
         in_town: None,
         resume_due: 10.0,
         hint_due: 0.0,
@@ -2434,7 +2487,10 @@ fn update_npcs(ctx: &mut Ctx, dt: f64) {
         ctx.toast("Near miss!", 700.0);
     }
     let walker = ctx.game.on_foot.as_ref().map(|m| m.pos);
-    let mut hurt = ctx.game.people.update(dt, near, walker);
+    let mut hurt = {
+        let Ctx { game, world, .. } = &mut *ctx;
+        game.people.update(dt, near, walker, world)
+    };
     // The police, unless Living City brings its own.
     if ctx.packs.is_on("npc") {
         if ctx.game.police.unit.is_some() || ctx.game.police.wanted > 0.0 {
@@ -2482,17 +2538,50 @@ fn update_npcs(ctx: &mut Ctx, dt: f64) {
             ctx.toast("You were knocked out", 3000.0);
         }
     }
+    // A lent car that's gone (not driven by you): you can ask for another.
+    if let Some(i) = ctx.game.loaned_car
+        && !ctx.game.driving_loan
+        && ctx.world.targets.get(i).is_none_or(|t| t.rig.is_none())
+    {
+        ctx.game.loaned_car = None;
+    }
     // Someone lent you their car: it's parked beside you.
-    if let Some(name) = ctx.game.loan.take() {
+    if let Some((name, config)) = ctx.game.loan.take() {
         let p = &ctx.game.physics;
         let (h, x, z) = (p.heading, p.x, p.z);
-        let (sx, sz) = (x + h.cos() * 3.5, z - h.sin() * 3.5);
-        let mut world = std::mem::replace(&mut *ctx.world, World::empty());
-        world.add_parked_car(&mut ctx.build(), sx, sz, h);
-        world.index_new();
-        *ctx.world = world;
-        ctx.toast(format!("{name} lent you their car · F to get in"), 2600.0);
+        let (right, ahead) = (DVec2::new(h.cos(), -h.sin()), DVec2::new(h.sin(), h.cos()));
+        let spot = [right * 3.5, -right * 3.5, ahead * 6.0, -ahead * 6.0, right * 7.0, -right * 7.0]
+            .into_iter()
+            .map(|o| DVec2::new(x, z) + o)
+            .find(|s| clear_for_car(&ctx.world, s.x, s.y));
+        match spot {
+            Some(s) => {
+                let mut world = std::mem::replace(&mut *ctx.world, World::empty());
+                let i = world.add_car_with(&mut ctx.build(), s.x, s.y, h, &config);
+                world.index_new();
+                *ctx.world = world;
+                ctx.game.loaned_car = Some(i);
+                ctx.toast(format!("{name} lent you their car · F to get in"), 2600.0);
+            }
+            None => ctx.toast(format!("No room here for {name}'s car: try somewhere more open"), 2600.0),
+        }
     }
+}
+
+/// Whether a car fits at (x, z): nothing solid within a few meters.
+fn clear_for_car(world: &World, x: f64, z: f64) -> bool {
+    let reach = 3.2;
+    let boxes = world.boxes_near(x, z, reach).into_iter().all(|i| {
+        let b = &world.boxes[i];
+        !b.solid || x < b.min_x - reach || x > b.max_x + reach || z < b.min_z - reach || z > b.max_z + reach
+    });
+    let (circles, walls) = world.nearby(x, z, reach);
+    boxes
+        && circles.iter().all(|&i| {
+            let c = &world.circles[i];
+            !c.solid || (c.x - x).hypot(c.z - z) > c.r + reach * 0.7
+        })
+        && walls.is_empty()
 }
 
 /// You on foot: walking, and fists or the pistol.
@@ -3385,6 +3474,21 @@ mod tests {
                 ctx.quit_event();
                 ctx.menu_action(MenuAction::FreeRoam);
                 ctx.rebuild_car(None);
+                ctx.game.night = false;
+                ctx.world.set_night(false);
+                // On foot, a map reload from the garage keeps you in your own car
+                // there, and you're back on foot when you drive again.
+                ctx.get_in_or_out();
+                assert!(ctx.game.on_foot.is_some());
+                ctx.set_mode(Mode::Garage);
+                ctx.game.settings.maps.entry("city".into()).or_default().night = true;
+                ctx.garage_action(crate::garage::GarageAction::NightChanged);
+                assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some(), "in your car in the garage");
+                assert!(ctx.game.night, "the night you picked wins");
+                ctx.set_mode(Mode::Drive);
+                assert!(ctx.game.on_foot.is_some(), "on foot again, as you left off");
+                ctx.back_in_own_car();
+                ctx.game.settings.maps.clear();
                 ctx.game.night = false;
                 ctx.world.set_night(false);
                 // The garage puts you back in your own car, wherever you are.

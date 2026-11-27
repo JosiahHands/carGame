@@ -59,11 +59,14 @@ jobs:
           restore-keys: cargo-qa-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
       - name: Build the game
         run: cargo build --release --package car_game --locked --offline
+      # Windows and Linux runners have no graphics card: they draw in software.
+      # (macOS runners have one; an empty WGPU_BACKEND would mean no backend at all.)
       - name: Play every case
-        env:
-          WGPU_FORCE_FALLBACK_ADAPTER: ${{ runner.os != 'macOS' && '1' || '' }}
-          WGPU_BACKEND: ${{ runner.os == 'Windows' && 'dx12' || runner.os == 'Linux' && 'vulkan' || '' }}
         run: |
+          case "$RUNNER_OS" in
+            Windows) export WGPU_BACKEND=dx12 WGPU_FORCE_FALLBACK_ADAPTER=1 ;;
+            Linux) export WGPU_BACKEND=vulkan WGPU_FORCE_FALLBACK_ADAPTER=1 ;;
+          esac
           py=python3
           command -v python3 >/dev/null 2>&1 || py=python
           run=("$py" tools/packaging/smoke.py "builds/release/${{ matrix.binary }}" qa --full --timeout 600)

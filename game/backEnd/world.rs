@@ -379,6 +379,9 @@ pub struct World {
     pub car_boxes: Vec<usize>,
     /// Buildings with a rubble pile (they change the ground's height).
     pub(crate) rubble: Vec<usize>,
+    /// Things that need looking at every frame: damaged, falling, rising,
+    /// burning or wrecked (so a big open world costs no more per frame).
+    pub(crate) watch: Vec<usize>,
     /// How many circles, walls and boxes are in the lookup grids so far.
     indexed: (usize, usize, usize),
     /// Towns just built (indices into `land.towns`), for their people to move in.
@@ -431,6 +434,7 @@ impl World {
             box_cells: HashMap::new(),
             car_boxes: Vec::new(),
             rubble: Vec::new(),
+            watch: Vec::new(),
             indexed: (0, 0, 0),
             built_towns: Vec::new(),
         }
@@ -506,6 +510,9 @@ impl World {
             }
         }
         self.indexed = (self.circles.len(), self.walls.len(), self.boxes.len());
+        // Cars taken away for good (min_x is infinite) never come back.
+        let boxes = &self.boxes;
+        self.car_boxes.retain(|&i| boxes[i].min_x.is_finite());
     }
 
     /// The boxes that might be within `reach` meters of (x, z): the still
@@ -858,6 +865,7 @@ impl World {
         if !self.targets[t].alive {
             return;
         }
+        self.keep_watch(t);
         self.targets[t].hp -= amount;
         if self.targets[t].hp <= 0.0 {
             self.destroy(t, direction);
@@ -879,6 +887,8 @@ impl World {
             let t = &mut self.targets[i];
             t.hp = t.max_hp;
         }
+        self.watch
+            .retain(|&i| self.targets[i].alive && self.targets[i].kind == TargetKind::Building);
         self.effects.clear();
     }
 
@@ -898,8 +908,15 @@ impl World {
         }
     }
 
+    fn keep_watch(&mut self, i: usize) {
+        if !self.watch.contains(&i) {
+            self.watch.push(i);
+        }
+    }
+
     /// Destroys something; `direction` is the way it was hit, so things fall away from you.
     fn destroy(&mut self, i: usize, direction: DVec3) {
+        self.keep_watch(i);
         let clock = self.clock;
         let t = &mut self.targets[i];
         t.alive = false;
@@ -933,19 +950,20 @@ impl World {
                 t.spin = DVec3::new(rng::centered() * 6.0, rng::centered() * 4.0, rng::centered() * 6.0);
                 let p = t.pos;
                 self.changes.push(Change::Wreck(i, true));
-                self.effects.explosion(DVec3::new(p.x, 0.8, p.z), 1.6);
+                self.effects.explosion(DVec3::new(p.x, p.y + 0.8, p.z), 1.6);
                 self.effects
-                    .shatter(DVec3::new(p.x, 0.8, p.z), 10, &[0x222222, 0x444444, 0x9cc3d9], 0.5, 8.0);
+                    .shatter(DVec3::new(p.x, p.y + 0.8, p.z), 10, &[0x222222, 0x444444, 0x9cc3d9], 0.5, 8.0);
             }
             TargetKind::Lamp | TargetKind::Tree => {
                 self.circles[t.shape].solid = false;
                 let lamp = t.kind == TargetKind::Lamp;
                 let (x, z, size, prop) = (t.x, t.z, t.size, t.prop);
+                let base = self.circles[t.shape].base;
                 self.set_prop_visible(prop, false);
                 let height = if lamp { 7.0 } else { 2.4 } * size;
                 let fx = &mut self.effects;
                 fx.add_debris(
-                    DVec3::new(x + direction.x, height / 2.0, z + direction.z),
+                    DVec3::new(x + direction.x, base + height / 2.0, z + direction.z),
                     DVec3::new(direction.x * 6.0, 3.0, direction.z * 6.0),
                     if lamp {
                         DVec3::new(0.24 * size, height, 0.24 * size)
@@ -956,9 +974,15 @@ impl World {
                     4.0,
                 );
                 if lamp {
-                    fx.shatter(DVec3::new(x, height, z), 4, &[0xffffff, 0xcccccc], 0.3, 5.0);
+                    fx.shatter(DVec3::new(x, base + height, z), 4, &[0xffffff, 0xcccccc], 0.3, 5.0);
                 } else {
-                    fx.shatter(DVec3::new(x, 3.6 * size, z), 14, &[0x4f8a3a, 0x3f7a2d, 0x5f9a45], 0.9 * size, 5.0);
+                    fx.shatter(
+                        DVec3::new(x, base + 3.6 * size, z),
+                        14,
+                        &[0x4f8a3a, 0x3f7a2d, 0x5f9a45],
+                        0.9 * size,
+                        5.0,
+                    );
                 }
             }
         }
@@ -1098,7 +1122,8 @@ impl World {
         self.update_buildings(dt);
         self.update_wrecks(dt);
         self.update_cones(dt, car_x, car_z);
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &self.targets[i];
             if t.alive || (t.kind == TargetKind::Car && (t.flying || t.rig.is_none())) {
                 continue;
@@ -1109,12 +1134,23 @@ impl World {
                 self.restore(i, true);
             }
         }
+        let clock = self.clock;
+        let targets = &self.targets;
+        self.watch.retain(|&i| {
+            let t = &targets[i];
+            t.destroyed_at.is_finite()
+                && (!t.alive
+                    || t.flying
+                    || clock < t.burn_until
+                    || (t.kind == TargetKind::Building && (t.state != BuildingState::Standing || t.hp < t.max_hp)))
+        });
         self.update_weather(dt, car_x, car_z);
         self.effects.update(dt);
     }
 
     fn update_buildings(&mut self, dt: f64) {
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &mut self.targets[i];
             if t.kind != TargetKind::Building {
                 continue;
@@ -1196,7 +1232,8 @@ impl World {
     }
 
     fn update_wrecks(&mut self, dt: f64) {
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &mut self.targets[i];
             if t.kind != TargetKind::Car || t.alive || t.rig.is_none() {
                 continue;

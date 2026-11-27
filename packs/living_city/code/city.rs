@@ -390,6 +390,15 @@ impl City {
             n.task = if n.asleep { "asleep at home" } else { "starting the day" }.into();
             n.path.clear();
             n.in_car = false;
+            // Everyone starts again in the city: nobody's away, fighting or lying hurt
+            // (anyone in the hospital stays there until the morning).
+            n.away = None;
+            n.away_until = 0.0;
+            n.fighting_until = 0.0;
+            n.down_until = 0.0;
+            if n.hospital_until <= self.clock {
+                n.hurt = 0.0;
+            }
             n.next = self.clock + 3.0 + i as f64 * 0.45;
         }
     }
@@ -1306,6 +1315,11 @@ impl City {
                 }
             }
         }
+        // You got out of the car: your passenger gets out too.
+        if self.passenger.is_some() && game.on_foot.is_some() {
+            let near = self.passenger.is_some_and(|(_, place)| place.at.distance(position(game)) < 40.0);
+            self.drop_passenger(game, near);
+        }
         if let Some((i, place)) = self.passenger {
             let at = position(game);
             self.residents[i].at = at;
@@ -1488,11 +1502,15 @@ impl City {
     pub fn lend_car(&mut self, i: usize, game: &mut Game) {
         let now = self.clock;
         let n = &mut self.residents[i];
+        if game.loaned_car.is_some() || game.loan.is_some() {
+            n.say(now, "You've already got someone's car!".into());
+            return;
+        }
         if n.mind.feeling("driver") > 0.2 && !n.mind.forbids(mind::Vow::Ride, "lend the driver my car") {
             n.mind.remember(now, "I lent the driver my car.", 6.0, &["driver"], "did");
             n.mind.feel("driver", 0.03);
             n.say(now, "Sure, take mine. Bring it back in one piece!".into());
-            game.loan = Some(n.member.name.clone());
+            game.loan = Some((n.member.name.clone(), crate::visual::car_config(i)));
         } else {
             n.say(now, "Lend YOU my car? Not a chance.".into());
             n.mind
