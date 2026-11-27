@@ -52,7 +52,7 @@ main() {
             [ "$arch" = x86_64 ] || fail "Use 64-bit Git Bash on Windows."
             asset=Car-Game-Windows-Setup.exe
             download "$asset"
-            MSYS2_ARG_CONV_EXCL='*' "$work/$asset" /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+            MSYS2_ARG_CONV_EXCL='*' "$work/$asset" /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
             printf 'Car Game is installed. Open it from the Start menu.\n'
             return
             ;;
