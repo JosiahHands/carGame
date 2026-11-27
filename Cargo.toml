@@ -1,4 +1,4 @@
-# Car Game 1.3.0: the game rebuilt in Rust on the Bevy engine.
+# Car Game: the native Rust game on the Bevy engine.
 #
 # game/          the game: game/backEnd (rules and data) and game/frontEnd
 #                (what you see, hear and touch); main.rs starts it
@@ -39,7 +39,7 @@ photo_real.workspace = true
 living_city.workspace = true
 
 [workspace.package]
-version = "1.3.0"
+version = "1.3.1"
 edition = "2024"
 rust-version = "1.97.1"
 publish = false
@@ -76,6 +76,16 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# CI checks the game without running the graphics or audio loops.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+debug = false
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
+
 # The downloads: as fast and as small as practical.
 [profile.release]
 opt-level = 3
@@ -83,6 +93,10 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Let LLVM parallelize large dependencies while keeping ThinLTO for the game.
+[profile.release.package."*"]
+codegen-units = 16
 
 # Libraries only one pack uses live in that pack's own libs/ folder.
 [patch.crates-io]

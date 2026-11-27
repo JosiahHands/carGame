@@ -75,10 +75,18 @@ jobs:
         run: |
           "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - name: Identify vendored dependencies
+        id: vendor
+        run: echo "tree=$(git ls-tree HEAD libs packs/living_city/libs | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+      # Keep the compiled vendored dependencies and their Cargo fingerprints.
+      - uses: actions/cache@v5
         with:
-          workspaces: ". -> builds"
-          key: release-${{ matrix.platform }}
+          path: |
+            builds/release/.fingerprint
+            builds/release/build
+            builds/release/deps
+          key: cargo-release-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: cargo-release-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
       - name: Build the game
         run: cargo build --release --package car_game --locked --offline
       - name: Create archives and installers
@@ -93,6 +101,8 @@ jobs:
           path: upload/*
           if-no-files-found: error
           overwrite: true
+          # The archives and installers are already compressed.
+          compression-level: 0
       - name: Test the Windows installer and run the installed game
         if: runner.os == 'Windows'
         shell: pwsh
@@ -102,7 +112,7 @@ jobs:
         run: |
           $install = Join-Path $env:RUNNER_TEMP 'car-game-test'
           $installer = Start-Process -Wait -PassThru -FilePath 'upload/Car-Game-Windows-Setup.exe' -ArgumentList @(
-            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`""
+            '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`""
           )
           if ($installer.ExitCode -ne 0) { throw "Installer returned $($installer.ExitCode)" }
           Expand-Archive 'upload/Car-Game-Windows.zip' -DestinationPath (Join-Path $env:RUNNER_TEMP 'car-game-portable')
