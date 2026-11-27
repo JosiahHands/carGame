@@ -149,7 +149,7 @@ fn configure(
     ai.poll_download();
     ai.select(model, enabled, gpu);
     let mut options = vec![
-        PackOption::Hint("City free roam · K to talk · L for the journal (Garage → Controls)".into()),
+        PackOption::Hint("City free roam · See Garage → Controls for the Talk and City journal keys".into()),
         choice(
             "think",
             "Use local AI",
@@ -268,7 +268,8 @@ fn simulate(
         } else if let Some(who) = city.nearest(position(&game), 14.0) {
             city.open_chat(who, Contact::Beside, &mut game);
         } else {
-            game.toast("Pull up near someone to talk · L opens the journal", 2000.0);
+            let key = game.bindings.label("journal");
+            game.toast(format!("Pull up near someone to talk · {key} opens the journal"), 2000.0);
         }
     }
     // The driver, on foot, hit someone, or took a resident's car.
@@ -588,9 +589,11 @@ mod ui {
                             city.drop_passenger(&mut game, false);
                         }
                     } else if let Some(who) = city.nearest(at, 14.0) {
-                        ui.label(format!("K · Talk to {}", city.residents[who].member.name));
+                        let key = game.bindings.label("talk");
+                        ui.label(format!("{key} · Talk to {}", city.residents[who].member.name));
                     }
-                    if ui.small_button("L · City journal").clicked() {
+                    let key = game.bindings.label("journal");
+                    if ui.small_button(format!("{key} · City journal")).clicked() {
                         city.journal = !city.journal;
                     }
                 });

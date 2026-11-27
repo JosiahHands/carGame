@@ -1118,7 +1118,7 @@ impl EventRun {
         me.wrong_way = 0.0;
     }
 
-    pub fn hud(&self) -> EventHud {
+    pub fn hud(&self, bindings: &crate::input::Bindings) -> EventHud {
         let s = &self.spec;
         let me = &self.racers[0];
         let mut stats = Vec::new();
@@ -1180,7 +1180,7 @@ impl EventRun {
             if self.player_wrecked > 0.0 {
                 warning = "WRECKED".into();
             } else if me.lost > 1.0 {
-                warning = "RETURN TO THE TRACK · R to reset".into();
+                warning = format!("RETURN TO THE TRACK · {} to reset", bindings.label("reset"));
             } else if me.wrong_way > 1.0 {
                 warning = "WRONG WAY".into();
             }
@@ -2819,14 +2819,22 @@ pub mod weapons {
         let flat_forward = DVec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let mut best: Option<DVec3> = None;
         let mut best_distance = 120.0;
-        for t in &world.targets {
-            if !t.alive || t.kind == TargetKind::Building || (t.kind == TargetKind::Car && t.rig.is_none()) {
+        let (circles, _) = world.nearby(from.x, from.z, best_distance);
+        let mut targets: Vec<_> = world
+            .car_targets()
+            .chain(circles.into_iter().filter_map(|i| world.circles[i].target))
+            .collect();
+        targets.sort_unstable();
+        for i in targets {
+            let t = &world.targets[i];
+            if !t.alive || (t.kind == TargetKind::Car && t.rig.is_none()) {
                 continue;
             }
             let middle = match t.kind {
-                TargetKind::Car => 0.7,
-                TargetKind::Tree => 2.5,
-                _ => 4.0,
+                TargetKind::Car => world.boxes[t.shape].base + 0.7,
+                TargetKind::Tree => world.circles[t.shape].base + 2.5,
+                TargetKind::Lamp => world.circles[t.shape].base + 4.0,
+                TargetKind::Building => continue,
             };
             let to = DVec3::new(t.x - from.x, middle - from.y, t.z - from.z);
             let distance = to.length();

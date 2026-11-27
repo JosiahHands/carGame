@@ -277,7 +277,14 @@ pub mod input {
         /// Puts `key` on binding `id` (in place of its key number `slot`),
         /// taking it off anything else that had it. Returns what lost it.
         pub fn set(&mut self, id: &str, slot: usize, key: KeyCode) -> Vec<&'static str> {
-            if self.keys(id).get(slot) == Some(&key) {
+            let Some(binding) = BINDINGS.iter().find(|b| b.id == id) else {
+                return Vec::new();
+            };
+            let keys = self.0.entry(binding.id).or_default();
+            if let Some(old_slot) = keys.iter().position(|&k| k == key) {
+                if slot < keys.len() {
+                    keys.swap(old_slot, slot);
+                }
                 return Vec::new();
             }
             let mut moved = Vec::new();
@@ -287,15 +294,11 @@ pub mod input {
                     moved.push(*other);
                 }
             }
-            if let Some(b) = BINDINGS.iter().find(|b| b.id == id) {
-                let keys = self.0.entry(b.id).or_default();
-                keys.retain(|k| *k != key);
-                if slot < keys.len() {
-                    keys[slot] = key;
-                } else {
-                    keys.push(key);
-                }
-                keys.truncate(2);
+            let keys = self.0.entry(binding.id).or_default();
+            if let Some(current) = keys.get_mut(slot) {
+                *current = key;
+            } else if keys.len() < 2 {
+                keys.push(key);
             }
             moved
         }
@@ -436,6 +439,8 @@ pub mod input {
             let mut same = Bindings::default();
             assert!(same.set("accelerate", 0, KeyCode::KeyW).is_empty());
             assert_eq!(same.keys("accelerate"), &[KeyCode::KeyW, KeyCode::ArrowUp]);
+            assert!(same.set("accelerate", 0, KeyCode::ArrowUp).is_empty());
+            assert_eq!(same.keys("accelerate"), &[KeyCode::ArrowUp, KeyCode::KeyW]);
             // Every default key has a name to be saved under.
             for binding in BINDINGS {
                 for key in binding.keys {

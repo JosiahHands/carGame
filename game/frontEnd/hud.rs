@@ -1,6 +1,7 @@
 //! The on-screen displays while driving: speed, gear, revs, nitro, the skill
 //! chain, boosts, weapons, the race (position, laps, standings, warnings),
 //! the time trial, free-roam challenges, the minimap and messages.
+use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use egui::{Color32, RichText};
@@ -193,7 +194,9 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>, mut b
                     let fighting = game.settings.map_options(&world.map).fighting;
                     ui.label(
                         RichText::new(if fighting {
-                            format!("{} · 1 fists · 2 pistol", me.weapon.name())
+                            let fists = game.bindings.label("weapon1");
+                            let pistol = game.bindings.label("weapon2");
+                            format!("{} · {fists} fists · {pistol} pistol", me.weapon.name())
                         } else {
                             "Fighting is off".into()
                         })
@@ -202,17 +205,13 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>, mut b
                     );
                 });
             });
-            let near_car = world.targets.iter().any(|t| {
-                t.kind == crate::world::TargetKind::Car
-                    && t.alive
-                    && t.rig
-                        .as_ref()
-                        .is_some_and(|r| (t.x - me.pos.x).hypot(t.z - me.pos.z) < r.length.max(r.width) / 2.0 + 1.8)
-            }) || game.other_cars.iter().any(|c| (c.at.x - me.pos.x).hypot(c.at.z - me.pos.z) < 4.0);
+            let near_car = world.enterable_car(DVec2::new(me.pos.x, me.pos.z)).is_some()
+                || game.other_cars.iter().any(|c| (c.at.x - me.pos.x).hypot(c.at.z - me.pos.z) < 4.0);
             if near_car && me.knocked <= 0.0 {
                 area("getin", egui::Align2::CENTER_BOTTOM, [0.0, -70.0]).show(ctx, |ui| {
                     panel_frame().show(ui, |ui| {
-                        ui.label(RichText::new("F · Get in").size(16.0).strong().color(Color32::WHITE));
+                        let key = game.bindings.label("enterExit");
+                        ui.label(RichText::new(format!("{key} · Get in")).size(16.0).strong().color(Color32::WHITE));
                     });
                 });
             }

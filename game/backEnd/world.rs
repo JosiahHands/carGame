@@ -12,7 +12,7 @@
 //! directly: it lists what changed (`changes`) and world_render.rs shows it.
 use std::collections::HashMap;
 
-use bevy::math::DVec3;
+use bevy::math::{DVec2, DVec3};
 use bevy::prelude::*;
 
 use crate::carmodel::CarRig;
@@ -489,7 +489,8 @@ impl World {
         };
         for i in self.indexed.0..self.circles.len() {
             let c = self.circles[i];
-            for key in squares(c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r) {
+            let r = c.r.max(c.hit_radius);
+            for key in squares(c.x - r, c.x + r, c.z - r, c.z + r) {
                 self.cells.entry(key).or_default().circles.push(i);
             }
         }
@@ -553,7 +554,31 @@ impl World {
         circles.dedup();
         walls.sort_unstable();
         walls.dedup();
+        circles.extend(self.indexed.0..self.circles.len());
+        walls.extend(self.indexed.1..self.walls.len());
         (circles, walls)
+    }
+
+    /// Car targets, including cars added since the grids were last filled.
+    pub(crate) fn car_targets(&self) -> impl Iterator<Item = usize> + '_ {
+        self.car_boxes
+            .iter()
+            .copied()
+            .chain(self.indexed.2..self.boxes.len())
+            .filter_map(|i| self.boxes[i].target)
+            .filter(|&i| self.targets[i].kind == TargetKind::Car)
+    }
+
+    /// The closest live car the player can get into from this position.
+    pub(crate) fn enterable_car(&self, at: DVec2) -> Option<(f64, usize)> {
+        self.car_targets()
+            .filter_map(|i| {
+                let t = &self.targets[i];
+                let rig = t.rig.as_ref()?;
+                let distance = at.distance(DVec2::new(t.x, t.z));
+                (t.alive && !t.flying && distance < rig.length.max(rig.width) / 2.0 + 1.8).then_some((distance, i))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
     }
 
     // ---------- driving ----------
@@ -665,6 +690,9 @@ impl World {
         let t = &self.targets[i];
         let me = self.boxes[t.shape];
         let (min_x, max_x, min_z, max_z) = (me.min_x + dx, me.max_x + dx, me.min_z + dz, me.max_z + dz);
+        if self.land.is_none() && (min_x < -self.half || max_x > self.half || min_z < -self.half || max_z > self.half) {
+            return true;
+        }
         let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
         let reach = (max_x - min_x).max(max_z - min_z);
         let boxes = self.boxes_near(cx, cz, reach).into_iter().any(|b| {
@@ -692,6 +720,7 @@ impl World {
         let w = &mut self.targets[t];
         if velocity.length() > 14.0 {
             w.flying = true;
+            w.slide = DVec3::ZERO;
             w.velocity = DVec3::new(velocity.x, 3.0 + velocity.length() * 0.15, velocity.z);
             w.spin = DVec3::new(rng::centered() * 5.0, rng::centered() * 3.0, rng::centered() * 5.0);
             self.boxes[w.shape].solid = false;
@@ -756,7 +785,14 @@ impl World {
                 consider(origin + direction * t, None, None, true, None);
             }
         }
-        for b in &self.boxes {
+        let end = origin + direction * max_distance;
+        let midpoint = (origin + end) * 0.5;
+        let reach = (end.x - origin.x).abs().max((end.z - origin.z).abs()) * 0.5;
+        let mut boxes = self.boxes_near(midpoint.x, midpoint.z, reach);
+        boxes.sort_unstable();
+        let (circles, walls) = self.nearby(midpoint.x, midpoint.z, reach);
+        for i in boxes {
+            let b = &self.boxes[i];
             if !b.solid {
                 continue;
             }
@@ -769,7 +805,8 @@ impl World {
                 consider(p, b.target, None, false, None);
             }
         }
-        for w in &self.walls {
+        for i in walls {
+            let w = &self.walls[i];
             let sx = w.bx - w.ax;
             let sz = w.bz - w.az;
             let denom = direction.x * sz - direction.z * sx;
@@ -788,7 +825,8 @@ impl World {
                 consider(p, None, None, false, None);
             }
         }
-        for c in &self.circles {
+        for i in circles {
+            let c = &self.circles[i];
             if !c.solid {
                 continue;
             }
@@ -864,13 +902,16 @@ impl World {
             let (min, max) = match t.kind {
                 TargetKind::Building | TargetKind::Car => {
                     let b = &self.boxes[t.shape];
-                    (DVec3::new(b.min_x, 0.0, b.min_z), DVec3::new(b.max_x, b.height, b.max_z))
+                    (
+                        DVec3::new(b.min_x, b.base, b.min_z),
+                        DVec3::new(b.max_x, b.base + b.height, b.max_z),
+                    )
                 }
                 _ => {
                     let c = &self.circles[t.shape];
                     (
-                        DVec3::new(t.x - c.r * 2.0, 0.0, t.z - c.r * 2.0),
-                        DVec3::new(t.x + c.r * 2.0, c.height, t.z + c.r * 2.0),
+                        DVec3::new(t.x - c.r * 2.0, c.base, t.z - c.r * 2.0),
+                        DVec3::new(t.x + c.r * 2.0, c.base + c.height, t.z + c.r * 2.0),
                     )
                 }
             };
@@ -1068,6 +1109,7 @@ impl World {
             }
             TargetKind::Car => {
                 t.flying = false;
+                t.slide = DVec3::ZERO;
                 t.burn_until = 0.0;
                 let (hx, hz) = (t.home.x, t.home.z);
                 let y = self.height_at(hx, hz);
@@ -1549,6 +1591,60 @@ mod tests {
     }
 
     #[test]
+    fn a_blast_reaches_cars_and_trees_at_their_ground_height() {
+        let mut world = World::empty();
+        world.boxes.push(BoxShape {
+            base: 40.0,
+            ..solid(-1.0, 1.0, -2.0, 2.0, Some(0))
+        });
+        world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 100.0, 1000.0, 0));
+        world.circles.push(Circle {
+            x: 4.0,
+            z: 0.0,
+            r: 0.5,
+            height: 4.0,
+            hit_radius: 1.5,
+            solid: true,
+            target: Some(1),
+            base: 40.0,
+        });
+        world.targets.push(Target::new_public(TargetKind::Tree, 4.0, 0.0, 100.0, 1000.0, 0));
+
+        world.explode(DVec3::new(0.0, 1.0, 0.0), 8.0, 50.0);
+        assert!(world.targets.iter().all(|t| t.hp == 100.0));
+        world.explode(DVec3::new(0.0, 40.5, 0.0), 8.0, 50.0);
+        assert!(world.targets.iter().all(|t| t.hp < 100.0));
+    }
+
+    #[test]
+    fn raycast_hits_canopies_across_cell_edges_and_new_boxes() {
+        let mut world = World::empty();
+        world.circles.push(Circle {
+            x: CELL + 0.6,
+            z: 10.0,
+            r: 0.2,
+            height: 4.0,
+            hit_radius: 1.2,
+            solid: true,
+            target: Some(0),
+            base: 40.0,
+        });
+        world.index_new();
+        let origin = DVec3::new(CELL - 0.4, 46.0, 10.0);
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(0));
+        assert!(world.raycast(origin, DVec3::NEG_Y, 1.0).is_none());
+
+        world.boxes.push(BoxShape {
+            base: 44.5,
+            height: 0.5,
+            ..solid(CELL - 1.0, CELL, 9.0, 11.0, Some(1))
+        });
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(1));
+        world.index_new();
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(1));
+    }
+
+    #[test]
     fn a_building_under_the_car_at_a_rebuild_still_comes_back_later() {
         let mut world = World::empty();
         world.boxes.push(solid(-5.0, 5.0, -5.0, 5.0, Some(0)));
@@ -1573,6 +1669,21 @@ mod tests {
         world.index_new();
         assert!(!world.wreck_blocked(0, 0.0, 1.0));
         assert!(world.wreck_blocked(0, 0.0, 2.5));
+        assert!(world.wreck_blocked(0, world.half, 0.0));
+    }
+
+    #[test]
+    fn a_restored_car_loses_its_wreck_momentum() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-1.0, 1.0, -2.0, 2.0, Some(0)));
+        let mut t = Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0);
+        t.alive = false;
+        t.destroyed_at = 0.0;
+        t.slide = DVec3::X * 5.0;
+        world.targets.push(t);
+        world.rebuild_all(100.0, 100.0, 2.0);
+        assert!(world.targets[0].alive);
+        assert_eq!(world.targets[0].slide, DVec3::ZERO);
     }
 
     #[test]

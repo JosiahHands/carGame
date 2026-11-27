@@ -689,7 +689,8 @@ impl City {
                     },
                     20,
                 );
-                game.toast(format!("Message from {} · L to read", self.residents[i].member.name), 2400.0);
+                let key = game.bindings.label("journal");
+                game.toast(format!("Message from {} · {key} to read", self.residents[i].member.name), 2400.0);
             }
             "take a trip out of town" => {
                 if !self.leave_town(i) {

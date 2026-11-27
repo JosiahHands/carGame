@@ -702,7 +702,7 @@ impl Land {
         if !interstate && roll < 0.6 && along > 900.0 {
             let k = ((0.35 + 0.3 * roll / 0.6) * (road_points.len() - 1) as f64) as usize;
             let p = road_points[k];
-            let name = TOWN_NAMES[(hash(a.0 as i64, b.1 as i64, 10) as usize) % TOWN_NAMES.len()];
+            let name = TOWN_NAMES[(hash(p.x.floor() as i64, p.z.floor() as i64, 10) % TOWN_NAMES.len() as u64) as usize];
             let near_town = self.towns.iter().any(|t| t.distance(p.x, p.z) < 250.0);
             if !near_town {
                 self.hamlets.push(Hamlet {

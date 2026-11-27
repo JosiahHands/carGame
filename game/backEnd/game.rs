@@ -691,17 +691,7 @@ impl<'w, 's> Ctx<'w, 's> {
             return;
         }
         let at = DVec2::new(me.pos.x, me.pos.z);
-        let mut best: Option<(f64, usize)> = None;
-        for (i, t) in self.world.targets.iter().enumerate() {
-            if t.kind != TargetKind::Car || !t.alive || t.flying {
-                continue;
-            }
-            let Some(rig) = &t.rig else { continue };
-            let d = at.distance(DVec2::new(t.x, t.z));
-            if d < rig.length.max(rig.width) / 2.0 + 1.8 && best.is_none_or(|b| d < b.0) {
-                best = Some((d, i));
-            }
-        }
+        let best = self.world.enterable_car(at);
         let pack_car = self
             .game
             .other_cars
@@ -725,7 +715,8 @@ impl<'w, 's> Ctx<'w, 's> {
             return;
         }
         let Some((_, i)) = best else {
-            self.toast("No car near enough · walk up to one and press F", 1600.0);
+            let key = self.game.bindings.label("enterExit");
+            self.toast(format!("No car near enough · walk up to one and press {key}"), 1600.0);
             return;
         };
         let (x, z, heading) = {
@@ -2632,7 +2623,8 @@ fn update_npcs(ctx: &mut Ctx, dt: f64) {
                 world.index_new();
                 *ctx.world = world;
                 ctx.game.loaned_car = Some(i);
-                ctx.toast(format!("{name} lent you their car · F to get in"), 2600.0);
+                let key = ctx.game.bindings.label("enterExit");
+                ctx.toast(format!("{name} lent you their car · {key} to get in"), 2600.0);
             }
             None => ctx.toast(format!("No room here for {name}'s car: try somewhere more open"), 2600.0),
         }
@@ -2870,13 +2862,13 @@ fn land_frame(ctx: &mut Ctx, dt: f64) {
     let p = &ctx.game.physics;
     let (x, z) = (p.x, p.z);
     ctx.prepare_land(x, z, std::time::Duration::from_millis(3));
-    // Towns, and the hamlets along the highways (numbered after the towns).
+    // Town indices count up, and hamlet indices count down so neither shifts as the map grows.
     let place = ctx.world.land.as_deref().and_then(|l| {
         l.town_at(x, z, 0.0).map(|t| (t, l.towns[t].label())).or_else(|| {
             l.hamlets
                 .iter()
                 .position(|h| h.at.distance(DVec2::new(x, z)) < crate::land::HAMLET_RADIUS)
-                .map(|h| (l.towns.len() + 100_000 + h, l.hamlets[h].name.clone()))
+                .map(|h| (usize::MAX - h, l.hamlets[h].name.clone()))
         })
     });
     match place {
@@ -2992,7 +2984,7 @@ fn update_event(ctx: &mut Ctx, dt: f64) {
     ctx.game.event_hud_timer -= dt;
     if ctx.game.event_hud_timer <= 0.0 {
         ctx.game.event_hud_timer = 0.1;
-        let hud = ctx.game.event.as_ref().unwrap().hud();
+        let hud = ctx.game.event.as_ref().unwrap().hud(&ctx.game.bindings);
         ctx.game.event_hud = hud;
     }
     if done && !ctx.game.results_shown {
