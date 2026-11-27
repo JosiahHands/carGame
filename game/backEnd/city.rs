@@ -2102,9 +2102,12 @@ mod tests {
         people.add_town(&[DVec2::new(0.0, 0.0)]);
         let target = people.position(1);
         let origin = target + DVec3::new(-8.0, 1.4, 0.0);
+        // People stand at random spots round the block: the first hit is
+        // this person or someone in front of them, and a shot the other way
+        // never hits them.
         let hit = people.shoot(origin, DVec3::X, 30.0);
-        assert!(hit.is_some_and(|(_, t)| (t - 8.0).abs() < 0.6), "{hit:?}");
-        assert!(people.shoot(origin, -DVec3::X, 30.0).is_none_or(|(_, t)| t > 9.0));
+        assert!(hit.is_some_and(|(_, t)| t <= 8.6), "{hit:?}");
+        assert!(people.shoot(origin, -DVec3::X, 30.0).is_none_or(|(i, _)| i != 1));
     }
 
     #[test]
