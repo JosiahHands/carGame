@@ -28,40 +28,16 @@ aren't signed by Apple or Microsoft, so the first time:
 
 ## Install or update
 
-Choose the commands for your shell. They download the ready-built app from
-the same release as the links above. Press H in the game to see the controls.
-
-### Bash (macOS, Linux, or Git Bash on Windows)
-
-**Install**
+Run this command in Bash, PowerShell, or Command Prompt. It installs the
+latest release or updates an existing installation without setup questions.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.sh | bash
+bash -o pipefail -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.sh | bash"
 ```
 
-**Update**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/update.sh | bash
-```
-
-### PowerShell (Windows)
-
-Run the same command to install or update, then follow the setup prompts.
-
-```powershell
-$setup = Join-Path $env:TEMP 'Car-Game-Windows-Setup.exe'
-curl.exe -fSL "https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows-Setup.exe" -o $setup
-if ($?) { Start-Process -FilePath $setup -Wait }
-```
-
-### Command Prompt (Windows)
-
-Run the same command to install or update, then follow the setup prompts.
-
-```bat
-curl.exe -fSL "https://github.com/JosiahHands/carGame/releases/latest/download/Car-Game-Windows-Setup.exe" -o "%TEMP%\Car-Game-Windows-Setup.exe" && start "" /wait "%TEMP%\Car-Game-Windows-Setup.exe"
-```
+On Windows, the command uses 64-bit [Git for Windows](https://gitforwindows.org/).
+For PowerShell or Command Prompt, make sure `bash` resolves to Git's `bash.exe`,
+usually in `C:\Program Files\Git\bin`. Press H in the game to see the controls.
 
 ## Packs
 
