@@ -1268,8 +1268,12 @@ impl<'w, 's> Ctx<'w, 's> {
             }
             G::NightChanged => {
                 // The time of day you picked wins over the one you left off at.
-                let night = self.game.settings.map_options(&self.game.settings.map).night;
-                if let Some(mut r) = crate::freeroam::Resume::load(&self.storage) {
+                let map = self.game.settings.map.clone();
+                let night = self.game.settings.map_options(&map).night;
+                // Only the City (the open world) has a spot you left off at.
+                if map == "city"
+                    && let Some(mut r) = crate::freeroam::Resume::load(&self.storage)
+                {
                     r.night = night;
                     r.save(&mut self.storage);
                 }
@@ -1784,6 +1788,9 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     }
     let typing = ctx.game.typing;
     // Picking a new key on the Controls tab: the next key pressed (Esc to keep the old one).
+    if ctx.game.mode != Mode::Garage || ctx.game.garage.tab != crate::garage::Tab::Controls {
+        ctx.game.garage.listening = None;
+    }
     if let Some((id, slot)) = ctx.game.garage.listening.clone() {
         if let Some(&key) = input.keys.get_just_pressed().next() {
             ctx.game.garage.listening = None;
@@ -2882,7 +2889,7 @@ fn land_frame(ctx: &mut Ctx, dt: f64) {
     }
     // Out in the deep sea: back to the nearest road.
     let y = ctx.game.on_foot.as_ref().map_or(ctx.game.physics.y, |m| m.pos.y);
-    if y < -2.5 {
+    if y < -2.5 && ctx.world.land.as_deref().is_some_and(|l| l.sea(x, z) > 0.5) {
         let road = ctx.world.land.as_deref().and_then(|l| {
             l.roads_near(x, z, 1500.0)
                 .into_iter()

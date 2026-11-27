@@ -250,7 +250,7 @@ pub mod traffic {
                     c.idle = false;
                     c.stunned = 0.0;
                     c.waiting = 0.0;
-                    let (x, z, heading) = lane_pose(&land.roads[road], along, way, c.lane);
+                    let (x, z, heading) = lane_pose(land, &land.roads[road], along, way, c.lane);
                     c.heading = heading;
                     let t = c.target;
                     world.targets[t].home = crate::world::Spot { x, z, heading };
@@ -364,7 +364,7 @@ pub mod traffic {
                 }
                 let Some(land) = world.land.as_deref() else { return misses };
                 let c = &mut self.road_cars[i];
-                let (x, z, heading) = lane_pose(&land.roads[c.road], c.along, c.way, c.lane);
+                let (x, z, heading) = lane_pose(land, &land.roads[c.road], c.along, c.way, c.lane);
                 let turn = (heading - c.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
                 c.heading += turn * (dt * 8.0).min(1.0);
                 let (h, target, speed) = (c.heading, c.target, c.speed);
@@ -678,7 +678,12 @@ pub mod traffic {
 
     /// Where a highway car `along` meters down `road` is, in its lane: (x, z, heading).
     /// The lanes meet in the middle at each end of the road, where it joins the next.
-    fn lane_pose(road: &crate::land::Road, along: f64, way: f64, lane: f64) -> (f64, f64, f64) {
+    fn lane_pose(land: &crate::land::Land, road: &crate::land::Road, along: f64, way: f64, lane: f64) -> (f64, f64, f64) {
+        // Interstate lanes merge to a street lane before the towns, whose streets are narrower...
+        let (cx, cz, _) = road.pose(along, 0.0);
+        let town = land.towns[road.from].distance(cx, cz).min(land.towns[road.to].distance(cx, cz));
+        let lane = crate::land::LANE.min(lane) + (lane - crate::land::LANE).max(0.0) * crate::land::smoothstep(0.0, 60.0, town);
+        // ...and the lanes meet in the middle at each end of the road, where it joins the next.
         let to_end = along.min(road.length - along);
         let lane = lane * crate::land::smoothstep(0.0, 24.0, to_end);
         let (x, z, heading) = road.pose(along, way * lane);

@@ -659,6 +659,30 @@ impl World {
         w.kind == TargetKind::Car && !w.alive && w.rig.is_some() && !w.flying && w.destroyed_at.is_finite()
     }
 
+    /// Whether moving wreck `i` by (dx, dz) would run it into a building, a
+    /// car, a wall or a post.
+    fn wreck_blocked(&self, i: usize, dx: f64, dz: f64) -> bool {
+        let t = &self.targets[i];
+        let me = self.boxes[t.shape];
+        let (min_x, max_x, min_z, max_z) = (me.min_x + dx, me.max_x + dx, me.min_z + dz, me.max_z + dz);
+        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
+        let reach = (max_x - min_x).max(max_z - min_z);
+        let boxes = self.boxes_near(cx, cz, reach).into_iter().any(|b| {
+            let o = &self.boxes[b];
+            b != t.shape && o.solid && min_x < o.max_x && max_x > o.min_x && min_z < o.max_z && max_z > o.min_z
+        });
+        let (circles, walls) = self.nearby(cx, cz, reach);
+        boxes
+            || circles.iter().any(|&c| {
+                let c = &self.circles[c];
+                c.solid && c.x + c.r > min_x && c.x - c.r < max_x && c.z + c.r > min_z && c.z - c.r < max_z
+            })
+            || walls.iter().any(|&w| {
+                let w = &self.walls[w];
+                crate::land::segment_distance(cx, cz, w.ax, w.az, w.bx, w.bz) < reach / 2.0
+            })
+    }
+
     /// Pushes a wreck along (velocity, m/s); a hard shove flips it over.
     pub fn shove(&mut self, t: usize, velocity: DVec3) {
         if !self.is_wreck(t) {
@@ -913,8 +937,7 @@ impl World {
             let t = &mut self.targets[i];
             t.hp = t.max_hp;
         }
-        self.watch
-            .retain(|&i| self.targets[i].alive && self.targets[i].kind == TargetKind::Building);
+        // Anything skipped (under the car) stays watched, to come back later.
         self.effects.clear();
     }
 
@@ -1302,6 +1325,11 @@ impl World {
                 let slowed = (speed - 9.0 * dt).max(0.0) / speed;
                 let step = t.slide * dt;
                 let (x, z) = (t.pos.x + step.x, t.pos.z + step.z);
+                if self.wreck_blocked(i, step.x, step.z) {
+                    // It hits something solid: it stops there.
+                    self.targets[i].slide = DVec3::ZERO;
+                    continue;
+                }
                 let y = match &self.land {
                     Some(land) => land.ground(x, z),
                     None => self.track.as_ref().map_or(0.0, |tr| tr.height_at(x, z)),
@@ -1505,6 +1533,46 @@ mod tests {
         world.targets[0].rig = None;
         world.shove(0, DVec3::new(0.0, 0.0, 8.0));
         assert_eq!(world.targets[0].slide, DVec3::ZERO);
+    }
+
+    fn solid(min_x: f64, max_x: f64, min_z: f64, max_z: f64, target: Option<usize>) -> BoxShape {
+        BoxShape {
+            min_x,
+            max_x,
+            min_z,
+            max_z,
+            height: 10.0,
+            solid: true,
+            target,
+            base: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_building_under_the_car_at_a_rebuild_still_comes_back_later() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-5.0, 5.0, -5.0, 5.0, Some(0)));
+        let mut t = Target::new_public(TargetKind::Building, 0.0, 0.0, 100.0, 1000.0, 0);
+        (t.width, t.depth, t.height) = (10.0, 10.0, 10.0);
+        world.targets.push(t);
+        world.damage(0, 1e6, DVec3::X);
+        world.rebuild_all(0.0, 0.0, 2.0);
+        assert!(!world.targets[0].alive, "skipped: the car is on it");
+        for _ in 0..120 {
+            world.update(1.0, 500.0, 500.0, 2.0);
+        }
+        assert!(world.targets[0].alive && world.targets[0].state == BuildingState::Standing);
+    }
+
+    #[test]
+    fn a_sliding_wreck_stops_at_a_wall() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-1.0, 1.0, -2.0, 2.0, Some(0)));
+        world.boxes.push(solid(-5.0, 5.0, 4.0, 5.0, None));
+        world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0));
+        world.index_new();
+        assert!(!world.wreck_blocked(0, 0.0, 1.0));
+        assert!(world.wreck_blocked(0, 0.0, 2.5));
     }
 
     #[test]

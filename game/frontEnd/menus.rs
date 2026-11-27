@@ -1726,6 +1726,7 @@ pub mod garage {
                         if ui.selectable_label(g.tab == t, label).clicked() {
                             g.tab = t;
                             g.copied = false;
+                            g.listening = None;
                         }
                     }
                 });

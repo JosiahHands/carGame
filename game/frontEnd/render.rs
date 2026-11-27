@@ -2035,13 +2035,32 @@ pub mod world_build {
                 }
             }
             // Far behind you, the country's rocks and landmarks aren't drawn.
+            // (Each mesh is placed at the tile's middle, so the distance is measured from there.)
             let far = bevy::camera::visibility::VisibilityRange::abrupt(0.0, SCENERY_SHOWN);
+            let middle = Vec3::new((x0 + tile / 2.0) as f32, 0.0, (z0 + tile / 2.0) as f32);
+            let local = |mut m: MeshData| {
+                for p in &mut m.positions {
+                    p[0] -= middle.x;
+                    p[2] -= middle.z;
+                }
+                m
+            };
             if !stone.is_empty() {
-                let e = self.spawn(b, stone.flat_shaded().build(), b.mats.vertex_colored.clone(), Transform::default());
+                let e = self.spawn(
+                    b,
+                    local(stone.flat_shaded()).build(),
+                    b.mats.vertex_colored.clone(),
+                    Transform::from_translation(middle),
+                );
                 b.commands.entity(e).insert(far.clone());
             }
             if !scenery.is_empty() {
-                let e = self.spawn(b, scenery.build(), b.mats.vertex_colored.clone(), Transform::default());
+                let e = self.spawn(
+                    b,
+                    local(scenery).build(),
+                    b.mats.vertex_colored.clone(),
+                    Transform::from_translation(middle),
+                );
                 b.commands.entity(e).insert(far);
             }
         }

@@ -277,6 +277,9 @@ pub mod input {
         /// Puts `key` on binding `id` (in place of its key number `slot`),
         /// taking it off anything else that had it. Returns what lost it.
         pub fn set(&mut self, id: &str, slot: usize, key: KeyCode) -> Vec<&'static str> {
+            if self.keys(id).get(slot) == Some(&key) {
+                return Vec::new();
+            }
             let mut moved = Vec::new();
             for (other, keys) in &mut self.0 {
                 if *other != id && keys.contains(&key) {
@@ -429,6 +432,10 @@ pub mod input {
             assert_eq!(again.keys("mute"), &[KeyCode::KeyM]);
             assert!(again.keys("map").is_empty());
             assert_eq!(again.keys("accelerate"), &[KeyCode::KeyW, KeyCode::ArrowUp]);
+            // Pressing the key a control already has, in its place, changes nothing.
+            let mut same = Bindings::default();
+            assert!(same.set("accelerate", 0, KeyCode::KeyW).is_empty());
+            assert_eq!(same.keys("accelerate"), &[KeyCode::KeyW, KeyCode::ArrowUp]);
             // Every default key has a name to be saved under.
             for binding in BINDINGS {
                 for key in binding.keys {

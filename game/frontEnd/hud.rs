@@ -912,7 +912,7 @@ pub mod bigmap {
                 let to_screen = |x: f64, z: f64| Pos2::new(mid.x - ((x - cx) / k) as f32, mid.y - ((z - cz) / k) as f32);
                 painter.rect_filled(rect, 0.0, hex(0x1d2a33));
                 if let Some(land) = world.land.as_deref() {
-                    paint_land(ctx, &painter, land, big, me);
+                    paint_land(ctx, &painter, land, big, me, world.generation);
                     if let (Some(tex), Some((c, reach, _, _, _))) = (&big.texture, &big.land) {
                         let a = to_screen(c.x + reach, c.y + reach);
                         let b = to_screen(c.x - reach, c.y - reach);
@@ -1020,16 +1020,18 @@ pub mod bigmap {
     }
 
     /// Paints the land around you into a picture, a few rows a frame.
-    fn paint_land(ctx: &egui::Context, _painter: &egui::Painter, land: &Land, big: &mut BigMap, me: DVec2) {
+    fn paint_land(ctx: &egui::Context, _painter: &egui::Painter, land: &Land, big: &mut BigMap, me: DVec2, generation: u64) {
         let reach = if land.generative { 9000.0 } else { crate::land::MAP_HALF + 600.0 };
         let center = if land.generative {
             (me / 3000.0).round() * 3000.0
         } else {
             DVec2::ZERO
         };
-        let fresh = big.land.as_ref().is_none_or(|l| l.0 != center || l.2 != land.version);
+        // A new map (another world, or the generative map switched) paints afresh.
+        let key = land.version ^ generation.rotate_left(32);
+        let fresh = big.land.as_ref().is_none_or(|l| l.0 != center || l.2 != key);
         if fresh {
-            big.land = Some((center, reach, land.version, vec![hex(0x1d2a33); PIXELS * PIXELS], 0));
+            big.land = Some((center, reach, key, vec![hex(0x1d2a33); PIXELS * PIXELS], 0));
         }
         let Some((c, r, _, pixels, done)) = big.land.as_mut() else { return };
         if *done >= PIXELS * PIXELS && big.texture.is_some() && !fresh {

@@ -948,19 +948,25 @@ impl Land {
             let rim = smoothstep(MAP_HALF - 700.0, MAP_HALF - 80.0, x.abs().max(z));
             h = h * (1.0 - rim) + rim * (140.0 + 120.0 * ridged(x / 500.0, z / 500.0, 19));
         }
-        // The sea: beaches, then deep water. (Out past the made map, on the
-        // generative map, the land comes back as islands.)
-        let shore = -3950.0 + 160.0 * noise(x / 900.0, 3.0, 23);
-        let mut sea = smoothstep(shore, shore - 420.0, z);
-        if self.generative {
-            sea *= 1.0 - smoothstep(-6400.0, -7400.0, z);
-        }
+        let sea = self.sea(x, z);
         if sea > 0.0 {
             // A gentle beach slope near the water's edge, then the deep.
             let beach = smoothstep(0.0, 0.35, sea);
             h = h * (1.0 - beach) + beach * (1.2 - 9.0 * smoothstep(0.3, 1.0, sea));
         }
         h
+    }
+
+    /// How far out to sea (x, z) is: 0 on land, 1 in the deep. The sea is
+    /// along the south of the made map (and on the generative map, the land
+    /// comes back as islands further out).
+    pub fn sea(&self, x: f64, z: f64) -> f64 {
+        let shore = -3950.0 + 160.0 * noise(x / 900.0, 3.0, 23);
+        let mut sea = smoothstep(shore, shore - 420.0, z);
+        if self.generative {
+            sea *= 1.0 - smoothstep(-6400.0, -7400.0, z);
+        }
+        sea
     }
 
     /// How much the roads and towns near (x, z) flatten the ground there (0 flat, 1 wild).
