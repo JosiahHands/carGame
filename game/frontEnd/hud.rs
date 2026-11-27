@@ -471,7 +471,9 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
     }
     if !game.popups.is_empty() {
         let viewport = ctx.viewport_rect();
-        let width = (viewport.width() - 32.0).clamp(1.0, 340.0);
+        // Beside the garage panel, not over it.
+        let right = if game.mode == Mode::Garage { crate::garage::WIDTH } else { 0.0 };
+        let width = (viewport.width() - right - 32.0).clamp(1.0, 340.0);
         let mut top = if driving && game.settings.minimap {
             crate::minimap::SIZE + if game.settings.show_fps { 34.0 } else { 16.0 } + 12.0
         } else {
@@ -489,7 +491,7 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
         {
             top = top.max(rect.bottom() - viewport.top() + 12.0);
         }
-        area("popups", egui::Align2::RIGHT_TOP, [-16.0, top])
+        area("popups", egui::Align2::RIGHT_TOP, [-16.0 - right, top])
             .default_width(width)
             .show(ctx, |ui| {
                 ui.set_width(width);

@@ -42,8 +42,16 @@ Name: "{autodesktop}\Car Game"; Filename: "{app}\car-game.exe"; WorkingDir: "{ap
 
 [Run]
 Filename: "{app}\car-game.exe"; Description: "Play Car Game"; Flags: nowait postinstall skipifsilent
+; The game's own updater (Garage, Updates tab) installs silently with /LAUNCH=1,
+; and the game starts again on the new version.
+Filename: "{app}\car-game.exe"; Flags: nowait; Check: LaunchAfterUpdate
 
 [Code]
+function LaunchAfterUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:launch|0}') = '1';
+end;
+
 function HadDesktopShortcut: Boolean;
 begin
   Result := FileExists(ExpandConstant('{autodesktop}\Car Game.lnk'));

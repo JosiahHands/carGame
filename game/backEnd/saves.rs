@@ -1,5 +1,6 @@
 //! Everything that is kept between games: the save file, the settings, the
-//! car builds, and bringing progress over from the old 1.2.x app.
+//! car builds, bringing progress over from the old 1.2.x app, and updating
+//! the game to a new version.
 
 pub mod storage {
     //! The game's saves: named entries of JSON text, like the browser storage the
@@ -236,6 +237,10 @@ pub mod settings {
         /// New in 1.3.0: the quality preset picked for this computer on the first start ("" until then).
         #[serde(default)]
         pub quality: String,
+        /// New in 1.3.2: check for a new version each time the game starts and
+        /// install it. Off unless the player turns it on (Garage → Updates).
+        #[serde(default)]
+        pub auto_update: bool,
     }
 
     impl Default for Settings {
@@ -260,6 +265,7 @@ pub mod settings {
                 traffic: "normal".into(),
                 pedestrians: true,
                 quality: String::new(),
+                auto_update: false,
             }
         }
     }
@@ -1266,6 +1272,481 @@ pub mod import {
             assert_eq!(saves.get("carGame.career.v1").map(String::as_str), Some("{\"coins\":1234}"));
             assert_eq!(saves.len(), 1);
             let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
+
+pub mod updates {
+    //! Updating the game to a new version from its GitHub releases: checking
+    //! whether there's a newer one, downloading it, putting it in place of this
+    //! copy, then starting it once this one has closed. Garage → Updates does
+    //! this when asked, or (if the player turns it on) each time the game starts.
+    //!
+    //! The downloads are made with curl, which macOS, Windows 10 and later and
+    //! Linux systems all come with. Saves are kept in the player's data folder,
+    //! not next to the game, so a new version carries on with the same progress.
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::sync::{Arc, Mutex};
+
+    use bevy::prelude::*;
+
+    const RELEASES: &str = "https://github.com/JosiahHands/carGame/releases";
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Status {
+        /// Nothing checked yet.
+        Idle,
+        Checking,
+        UpToDate,
+        /// A newer version (like "1.3.3") can be installed.
+        Available(String),
+        /// Downloading a version into `file`, `size` bytes in all (if known).
+        Downloading {
+            version: String,
+            file: PathBuf,
+            size: Option<u64>,
+        },
+        Installing(String),
+        /// Installed: the game closes, and the new version starts.
+        Restarting(String),
+        Failed(String),
+    }
+
+    /// How this copy of the game was installed, which says how to replace it.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Install {
+        /// macOS: the Car Game.app bundle.
+        MacApp(PathBuf),
+        /// Windows: the folder car-game.exe is in. The installer installs over it.
+        Windows(PathBuf),
+        /// Linux: the "Car Game" folder from the zip.
+        LinuxFolder(PathBuf),
+        /// Linux: the AppImage file.
+        AppImage(PathBuf),
+    }
+
+    /// What to start once this copy of the game has closed.
+    #[derive(Debug)]
+    enum Launch {
+        Program(PathBuf),
+        MacApp(PathBuf),
+        /// The new version's installer, which starts the game when it's done.
+        WindowsSetup {
+            setup: PathBuf,
+            dir: PathBuf,
+        },
+    }
+
+    static LAUNCH: Mutex<Option<Launch>> = Mutex::new(None);
+
+    /// Checks for and installs updates in the background; the menus show its status.
+    #[derive(Resource, Clone)]
+    pub struct Updater {
+        status: Arc<Mutex<Status>>,
+    }
+
+    impl Default for Updater {
+        fn default() -> Self {
+            Updater {
+                status: Arc::new(Mutex::new(Status::Idle)),
+            }
+        }
+    }
+
+    impl Updater {
+        pub fn status(&self) -> Status {
+            self.status.lock().map(|s| s.clone()).unwrap_or(Status::Idle)
+        }
+
+        fn set(&self, status: Status) {
+            if let Ok(mut s) = self.status.lock() {
+                *s = status;
+            }
+        }
+
+        /// Checking, downloading or installing.
+        pub fn busy(&self) -> bool {
+            matches!(
+                self.status(),
+                Status::Checking | Status::Downloading { .. } | Status::Installing(_) | Status::Restarting(_)
+            )
+        }
+
+        /// Looks for a newer version, and with `then_install` installs it if there is one.
+        pub fn check(&self, then_install: bool) {
+            if self.busy() {
+                return;
+            }
+            self.set(Status::Checking);
+            let me = self.clone();
+            std::thread::spawn(move || match latest_version() {
+                Ok(v) if newer(&v, crate::VERSION) && then_install && installation().is_some() => me.run_install(v),
+                Ok(v) if newer(&v, crate::VERSION) => me.set(Status::Available(v)),
+                Ok(_) => me.set(Status::UpToDate),
+                Err(e) => me.set(Status::Failed(e)),
+            });
+        }
+
+        /// Downloads and installs `version`; the game then restarts on it.
+        pub fn install(&self, version: String) {
+            if self.busy() {
+                return;
+            }
+            self.set(Status::Installing(version.clone()));
+            let me = self.clone();
+            std::thread::spawn(move || me.run_install(version));
+        }
+
+        fn run_install(&self, version: String) {
+            match install(&version, self) {
+                Ok(launch) => {
+                    if let Ok(mut l) = LAUNCH.lock() {
+                        *l = Some(launch);
+                    }
+                    self.set(Status::Restarting(version));
+                }
+                Err(e) => self.set(Status::Failed(e)),
+            }
+        }
+
+        /// While downloading: the bytes downloaded so far, and how many there are in all.
+        pub fn progress(&self) -> Option<(u64, Option<u64>)> {
+            match self.status() {
+                Status::Downloading { file, size, .. } => Some((std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0), size)),
+                _ => None,
+            }
+        }
+    }
+
+    /// True if version `a` ("1.3.10") is newer than `b` ("1.3.9").
+    pub fn newer(a: &str, b: &str) -> bool {
+        let parts = |v: &str| -> Vec<u64> {
+            v.trim_start_matches('v')
+                .split(['-', '+'])
+                .next()
+                .unwrap_or("")
+                .split('.')
+                .map(|n| n.parse().unwrap_or(0))
+                .collect()
+        };
+        let (a, b) = (parts(a), parts(b));
+        for i in 0..a.len().max(b.len()) {
+            let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
+            if x != y {
+                return x > y;
+            }
+        }
+        false
+    }
+
+    /// The version a releases/latest redirect points to, from its headers.
+    pub fn version_from_headers(headers: &str) -> Option<String> {
+        let location = headers
+            .lines()
+            .filter_map(|l| l.split_once(':'))
+            .filter(|(name, _)| name.trim().eq_ignore_ascii_case("location"))
+            .map(|(_, value)| value.trim())
+            .next_back()?;
+        let tag = location.rsplit_once("/releases/tag/")?.1;
+        let version = tag.trim_start_matches('v').trim_end_matches('/');
+        let valid = !version.is_empty() && version.split('.').all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+        valid.then(|| version.to_string())
+    }
+
+    fn curl() -> Command {
+        let mut command = Command::new("curl");
+        command.stdin(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // The game has no console, so don't open one for curl.
+            command.creation_flags(0x0800_0000);
+        }
+        command
+    }
+
+    /// Runs a command to the end; the error says what couldn't be done.
+    fn run(command: &mut Command, what: &str) -> Result<String, String> {
+        match command.stdout(Stdio::piped()).stderr(Stdio::piped()).output() {
+            Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+            Ok(out) => {
+                let error = String::from_utf8_lossy(&out.stderr);
+                let error = error.trim().lines().last().unwrap_or("").trim_start_matches("curl: ");
+                Err(if error.is_empty() {
+                    format!("Couldn't {what}.")
+                } else {
+                    format!("Couldn't {what}: {error}")
+                })
+            }
+            Err(e) => Err(format!("Couldn't {what}: {e}")),
+        }
+    }
+
+    /// The newest released version, like "1.3.3".
+    fn latest_version() -> Result<String, String> {
+        let headers = run(
+            curl()
+                .args(["-sSfI", "--max-time", "20", "--proto", "=https"])
+                .arg(format!("{RELEASES}/latest")),
+            "check for updates (is the computer online?)",
+        )?;
+        version_from_headers(&headers).ok_or_else(|| "Couldn't find the latest version.".to_string())
+    }
+
+    /// The size of a download, if the server says.
+    fn download_size(url: &str) -> Option<u64> {
+        let headers = run(curl().args(["-sSfIL", "--max-time", "20", "--proto-redir", "=https"]).arg(url), "").ok()?;
+        headers
+            .lines()
+            .filter_map(|l| l.split_once(':'))
+            .filter(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
+            .filter_map(|(_, value)| value.trim().parse().ok())
+            .next_back()
+    }
+
+    /// How this copy of the game was installed, or None if it wasn't installed
+    /// from a download (it was built from the source code), so it can't update itself.
+    pub fn installation() -> Option<Install> {
+        let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+        let dir = exe.parent()?;
+        if cfg!(target_os = "macos") {
+            let app = dir.parent()?.parent()?;
+            let bundled = dir.ends_with("Contents/MacOS") && app.extension().is_some_and(|e| e == "app");
+            (bundled && dir.join("../Resources/assets").is_dir()).then(|| Install::MacApp(app.to_path_buf()))
+        } else if cfg!(windows) {
+            (dir.join("assets").is_dir() && dir.join("icon.ico").is_file()).then(|| Install::Windows(dir.to_path_buf()))
+        } else if let Some(image) = std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_file()) {
+            Some(Install::AppImage(image))
+        } else {
+            let zip = exe.file_name().is_some_and(|n| n == "car-game-bin") && dir.join("car-game").is_file();
+            (zip && dir.join("assets").is_dir()).then(|| Install::LinuxFolder(dir.to_path_buf()))
+        }
+    }
+
+    /// A folder for unpacking an update next to the installed game (so it can
+    /// be moved into place), removed afterwards.
+    struct Stage(PathBuf);
+
+    impl Stage {
+        fn next_to(installed: &Path) -> Result<Stage, String> {
+            let parent = installed.parent().ok_or("The game's folder couldn't be found.")?;
+            let stage = parent.join(format!(".car-game-update-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&stage);
+            std::fs::create_dir_all(&stage).map_err(|e| {
+                format!(
+                    "Couldn't write to {} ({e}). Try updating with the install command.",
+                    parent.display()
+                )
+            })?;
+            Ok(Stage(stage))
+        }
+    }
+
+    impl Drop for Stage {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Puts `new` in place of `old`, keeping `old` if that fails.
+    fn replace(old: &Path, new: &Path, stage: &Stage) -> Result<(), String> {
+        let previous = stage.0.join("previous");
+        std::fs::rename(old, &previous).map_err(|e| format!("Couldn't replace the game ({e})."))?;
+        if let Err(e) = std::fs::rename(new, old) {
+            let _ = std::fs::rename(&previous, old);
+            return Err(format!("Couldn't replace the game ({e})."));
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn make_runnable(file: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o755));
+    }
+
+    #[cfg(not(unix))]
+    fn make_runnable(_file: &Path) {}
+
+    fn mac_download() -> &'static str {
+        let arm = cfg!(target_arch = "aarch64")
+            || Command::new("sysctl")
+                .args(["-n", "hw.optional.arm64"])
+                .output()
+                .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "1");
+        if arm {
+            "Car-Game-macOS-Apple-Silicon.zip"
+        } else {
+            "Car-Game-macOS-Intel.zip"
+        }
+    }
+
+    /// Downloads `version` and puts it in place of this copy (on Windows, gets
+    /// its installer ready); then says what to start.
+    fn install(version: &str, updater: &Updater) -> Result<Launch, String> {
+        let installed = installation()
+            .ok_or("This copy of the game was built from the source code, so it can't update itself. Download the new version instead.")?;
+        let download = |name: &str, file: &Path| -> Result<(), String> {
+            let url = format!("{RELEASES}/download/v{version}/{name}");
+            updater.set(Status::Downloading {
+                version: version.into(),
+                file: file.into(),
+                size: download_size(&url),
+            });
+            let mut command = curl();
+            command
+                .args(["-fsSL", "--retry", "3", "--proto", "=https", "--proto-redir", "=https", "-o"])
+                .arg(file)
+                .arg(&url);
+            run(&mut command, "download the update")?;
+            updater.set(Status::Installing(version.into()));
+            Ok(())
+        };
+        let missing = "The download was missing the game.".to_string();
+        match installed {
+            Install::MacApp(app) => {
+                let stage = Stage::next_to(&app)?;
+                let zip = stage.0.join("update.zip");
+                download(mac_download(), &zip)?;
+                run(
+                    Command::new("ditto").args(["-x", "-k"]).arg(&zip).arg(&stage.0),
+                    "unpack the update",
+                )?;
+                let new = stage.0.join("Car Game.app");
+                if !new.join("Contents/MacOS/car-game").is_file() {
+                    return Err(missing);
+                }
+                let _ = Command::new("xattr").args(["-dr", "com.apple.quarantine"]).arg(&new).output();
+                replace(&app, &new, &stage)?;
+                // Launchpad, Spotlight and the Dock see the new version straight away.
+                let _ = Command::new(
+                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                )
+                .arg("-f")
+                .arg(&app)
+                .output();
+                Ok(Launch::MacApp(app))
+            }
+            Install::LinuxFolder(folder) => {
+                let stage = Stage::next_to(&folder)?;
+                let zip = stage.0.join("update.zip");
+                download("Car-Game-Linux.zip", &zip)?;
+                run(
+                    Command::new("unzip").arg("-q").arg(&zip).arg("-d").arg(&stage.0),
+                    "unpack the update (is unzip installed?)",
+                )?;
+                let new = stage.0.join("Car Game");
+                if !new.join("car-game-bin").is_file() {
+                    return Err(missing);
+                }
+                make_runnable(&new.join("car-game"));
+                make_runnable(&new.join("car-game-bin"));
+                replace(&folder, &new, &stage)?;
+                Ok(Launch::Program(folder.join("car-game")))
+            }
+            Install::AppImage(image) => {
+                let new = image.with_file_name(".car-game-update.AppImage");
+                let result = download("Car-Game-Linux.AppImage", &new).and_then(|()| {
+                    make_runnable(&new);
+                    std::fs::rename(&new, &image).map_err(|e| format!("Couldn't replace the game ({e})."))
+                });
+                if result.is_err() {
+                    let _ = std::fs::remove_file(&new);
+                }
+                result.map(|()| Launch::Program(image))
+            }
+            Install::Windows(dir) => {
+                let folder = std::env::temp_dir().join("car-game-update");
+                std::fs::create_dir_all(&folder).map_err(|e| format!("Couldn't download the update ({e})."))?;
+                let setup = folder.join("Car-Game-Windows-Setup.exe");
+                download("Car-Game-Windows-Setup.exe", &setup)?;
+                Ok(Launch::WindowsSetup { setup, dir })
+            }
+        }
+    }
+
+    /// Checks for an update as the game starts, when the player has asked for that.
+    pub fn check_at_start(updater: Res<Updater>, storage: Res<crate::storage::Storage>) {
+        let unattended = std::env::var_os("CAR_GAME_SCREENSHOT").is_some();
+        if crate::settings::load_settings(&storage).auto_update && !unattended && installation().is_some() {
+            updater.check(true);
+        }
+    }
+
+    /// Closes the game once an update is installed; [`start_new_version`] then starts it.
+    pub fn close_when_installed(updater: Res<Updater>, mut exit: MessageWriter<AppExit>, mut sent: Local<bool>) {
+        if !*sent && matches!(updater.status(), Status::Restarting(_)) {
+            *sent = true;
+            exit.write(AppExit::Success);
+        }
+    }
+
+    /// Starts the newly installed version, after the game has closed (and saved).
+    pub fn start_new_version() {
+        let Some(launch) = LAUNCH.lock().ok().and_then(|mut l| l.take()) else {
+            return;
+        };
+        let mut command = match &launch {
+            Launch::Program(program) => Command::new(program),
+            Launch::MacApp(app) => {
+                let mut c = Command::new("open");
+                c.arg("-n").arg(app);
+                c
+            }
+            Launch::WindowsSetup { setup, dir } => {
+                let mut c = Command::new(setup);
+                c.args([
+                    "/SP-",
+                    "/VERYSILENT",
+                    "/SUPPRESSMSGBOXES",
+                    "/NORESTART",
+                    "/CLOSEAPPLICATIONS",
+                    "/LAUNCH=1",
+                ])
+                .arg(format!("/DIR={}", dir.display()));
+                c
+            }
+        };
+        if let Err(e) = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+            eprintln!("Couldn't start the new version ({launch:?}): {e}");
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn compares_versions_by_number() {
+            assert!(newer("1.3.3", "1.3.2"));
+            assert!(newer("1.3.10", "1.3.9"));
+            assert!(newer("2.0", "1.9.9"));
+            assert!(newer("v1.4.0", "1.3.2"));
+            assert!(!newer("1.3.2", "1.3.2"));
+            assert!(!newer("1.3.2", "1.3.10"));
+            assert!(!newer("1.3.2-beta", "1.3.2"));
+        }
+
+        #[test]
+        fn finds_the_version_in_the_latest_release_redirect() {
+            let headers = "HTTP/2 302\r\ndate: x\r\nLocation: https://github.com/JosiahHands/carGame/releases/tag/v1.3.3\r\n\r\n";
+            assert_eq!(version_from_headers(headers).as_deref(), Some("1.3.3"));
+            // No releases yet: the redirect goes to the releases page.
+            assert_eq!(
+                version_from_headers("HTTP/2 302\r\nlocation: https://github.com/JosiahHands/carGame/releases\r\n"),
+                None
+            );
+            assert_eq!(
+                version_from_headers("location: https://github.com/x/releases/tag/nightly\r\n"),
+                None
+            );
+        }
+
+        #[test]
+        fn a_copy_built_from_source_cant_update_itself() {
+            // Tests run from builds/, not an installed download.
+            assert_eq!(installation(), None);
         }
     }
 }

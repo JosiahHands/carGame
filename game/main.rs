@@ -11,7 +11,7 @@ use bevy::render::RenderPlugin;
 use bevy::window::{PresentMode, PrimaryWindow, WindowResolution};
 
 fn main() -> AppExit {
-    App::new()
+    let exit = App::new()
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
@@ -40,7 +40,10 @@ fn main() -> AppExit {
             photo_real::PhotoRealPack,
             living_city::LivingCityPack,
         ))
-        .run()
+        .run();
+    // After an update: the new version starts once this one has closed and saved.
+    game::updates::start_new_version();
+    exit
 }
 
 /// Gives the game's window its icon, once the window is open: Windows shows

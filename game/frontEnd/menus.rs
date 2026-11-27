@@ -166,6 +166,47 @@ pub fn button(ui: &mut egui::Ui, text: &str, primary: bool, enabled: bool) -> bo
     ui.add_enabled(enabled, b).clicked()
 }
 
+/// While an update downloads and installs: a box over everything saying so.
+pub fn update_progress(ctx: &egui::Context, updater: &crate::updates::Updater) {
+    use crate::updates::Status;
+    let (version, line) = match updater.status() {
+        Status::Downloading { version, .. } => {
+            let line = match updater.progress() {
+                Some((done, Some(size))) if size > 0 => format!("Downloading… {} of {} MB", done / 1_000_000, size.div_ceil(1_000_000)),
+                Some((done, _)) => format!("Downloading… {} MB", done / 1_000_000),
+                None => "Downloading…".to_string(),
+            };
+            (version, line)
+        }
+        Status::Installing(version) => (version, "Installing…".to_string()),
+        Status::Restarting(version) => (version, "Starting the new version…".to_string()),
+        _ => return,
+    };
+    egui::Modal::new(egui::Id::new("car-game-updating")).show(ctx, |ui| {
+        ui.set_width(340.0);
+        ui.label(RichText::new(format!("Updating Car Game to {version}")).strong().size(19.0));
+        ui.add_space(6.0);
+        if let Some((done, Some(size))) = updater.progress().filter(|p| p.1.is_some_and(|s| s > 0)) {
+            ui.add(
+                egui::ProgressBar::new((done as f32 / size as f32).min(1.0))
+                    .desired_height(8.0)
+                    .fill(GOLD),
+            );
+        }
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(line);
+        });
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Your progress is kept. The game opens again on its own when it's done.")
+                .size(12.0)
+                .color(MUTED),
+        );
+    });
+    ctx.request_repaint();
+}
+
 /// A row of choices; returns the one clicked.
 pub fn choices<T: PartialEq + Clone>(ui: &mut egui::Ui, label: &str, options: &[(T, String)], current: &T) -> Option<T> {
     let mut picked = None;
@@ -728,9 +769,10 @@ pub fn targets_text(spec: &EventSpec, started: bool) -> String {
         }
         EventKind::SpeedTrap => {
             if started {
-                format!("★ {} mph · ★★ {} mph · ★★★ {} mph", t[0], t[1], t[2])
+                let speed = crate::text::speed;
+                format!("Average ★ {} · ★★ {} · ★★★ {}", speed(t[0]), speed(t[1]), speed(t[2]))
             } else {
-                "Target speeds are set by a pace car at the start".into()
+                "Target average speeds are set by a pace car at the start".into()
             }
         }
         kind => {
@@ -1081,7 +1123,10 @@ fn stats_tab(ui: &mut egui::Ui, menu: &mut Menu, save: &CareerSave) {
         fact("Drift boosts", stat("driftBoost"));
         fact("Seconds in a slipstream", stat("draft"));
         fact("Seconds in the air", stat("air"));
-        fact("Top speed in an event", format!("{} mph", stat("topSpeed")));
+        fact(
+            "Top speed in an event",
+            crate::text::speed(save.stats.get("topSpeed").copied().unwrap_or(0.0)),
+        );
         fact("Gold wrenches", format!("{} / {WRENCHES}", save.found.len()));
         fact(
             "Free-roam challenge stars",
@@ -1341,6 +1386,7 @@ pub mod garage {
     use crate::storage::Storage;
     use crate::text::{format_time, thousands};
     use crate::timetrial::best_lap_for;
+    use crate::updates::{Status, Updater};
     use crate::venues::venues;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1357,9 +1403,10 @@ pub mod garage {
         Physics,
         Settings,
         Packs,
+        Updates,
     }
 
-    const TABS: [(Tab, &str); 12] = [
+    const TABS: [(Tab, &str); 13] = [
         (Tab::Builds, "Builds"),
         (Tab::Maps, "Maps"),
         (Tab::Body, "Body"),
@@ -1372,7 +1419,16 @@ pub mod garage {
         (Tab::Physics, "Physics"),
         (Tab::Settings, "Settings"),
         (Tab::Packs, "Packs"),
+        (Tab::Updates, "Updates"),
     ];
+
+    /// How wide the garage panel is, on the right of the window.
+    pub const WIDTH: f32 = 400.0;
+
+    /// The tab with this name ("updates", "sound & fx"), any case.
+    pub fn tab_named(name: &str) -> Option<Tab> {
+        TABS.iter().find(|(_, label)| label.eq_ignore_ascii_case(name)).map(|(t, _)| *t)
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     pub enum GarageAction {
@@ -1536,12 +1592,13 @@ pub mod garage {
         s: &mut Settings,
         storage: &mut Storage,
         packs: &mut Packs,
+        updater: &Updater,
         describe: &str,
     ) -> Vec<GarageAction> {
         let mut out = Vec::new();
         let mut root = crate::menu::root_ui(ctx, "garage-root");
         egui::Panel::right("garage")
-            .exact_size(400.0)
+            .exact_size(WIDTH)
             .resizable(false)
             .frame(
                 egui::Frame::NONE
@@ -1587,7 +1644,7 @@ pub mod garage {
                 });
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| tab(ui, g, c, s, storage, packs, &mut out));
+                    .show(ui, |ui| tab(ui, g, c, s, storage, packs, updater, &mut out));
             });
         out
     }
@@ -1599,6 +1656,7 @@ pub mod garage {
         s: &mut Settings,
         storage: &mut Storage,
         packs: &mut Packs,
+        updater: &Updater,
         out: &mut Vec<GarageAction>,
     ) {
         let mph = s.is_mph();
@@ -1922,6 +1980,10 @@ pub mod garage {
                 }
                 return;
             }
+            Tab::Updates => {
+                updates_tab(ui, s, updater, out);
+                return;
+            }
         }
         if look {
             out.push(GarageAction::Look);
@@ -2026,6 +2088,59 @@ pub mod garage {
         });
         if !g.message.is_empty() {
             hint(ui, &g.message);
+        }
+    }
+
+    fn updates_tab(ui: &mut egui::Ui, s: &mut Settings, updater: &Updater, out: &mut Vec<GarageAction>) {
+        heading(ui, "Updates");
+        ui.label(format!("You're playing Car Game v{}.", crate::VERSION));
+        ui.add_space(6.0);
+        if on_off(ui, "Update automatically", &mut s.auto_update) {
+            out.push(GarageAction::SettingsChanged);
+        }
+        hint(
+            ui,
+            "When this is on, each time the game starts it checks for a new version. If there is one, it's \
+             downloaded and installed, and the new version starts. Your progress and settings are kept.",
+        );
+        ui.add_space(10.0);
+        let installable = crate::updates::installation().is_some();
+        let busy = updater.busy();
+        match updater.status() {
+            Status::Idle => {}
+            Status::Checking => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Checking for updates…");
+                });
+            }
+            Status::UpToDate => {
+                ui.label(RichText::new("✔ You have the latest version.").color(Color32::from_rgb(120, 220, 140)));
+            }
+            Status::Available(version) => {
+                ui.label(RichText::new(format!("Version {version} is available.")).strong().size(15.0));
+                if installable {
+                    hint(ui, "The game closes while it updates, then opens again on the new version.");
+                    if button(ui, &format!("Update to {version}"), true, !busy) {
+                        updater.install(version);
+                    }
+                } else {
+                    hint(
+                        ui,
+                        "This copy of the game was built from the source code, so it can't update itself. \
+                         Download the new version from the game's releases page instead.",
+                    );
+                }
+            }
+            Status::Downloading { version, .. } | Status::Installing(version) | Status::Restarting(version) => {
+                ui.label(format!("Updating to {version}…"));
+            }
+            Status::Failed(error) => {
+                ui.label(RichText::new(error).color(Color32::from_rgb(240, 140, 120)));
+            }
+        }
+        if !matches!(updater.status(), Status::Available(_)) && button(ui, "Check for updates", false, !busy) {
+            updater.check(false);
         }
     }
 

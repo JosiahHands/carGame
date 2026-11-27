@@ -205,6 +205,22 @@ pub mod text {
         if negative { format!("-{out}") } else { out }
     }
 
+    static METRIC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Show speeds in km/h (the player's Units setting) rather than mph.
+    pub fn set_metric(metric: bool) {
+        METRIC.store(metric, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A speed in the player's units: 60 mph -> "60 mph" or "97 km/h".
+    pub fn speed(mph: f64) -> String {
+        if METRIC.load(std::sync::atomic::Ordering::Relaxed) {
+            format!("{} km/h", thousands(mph * 1.609_344))
+        } else {
+            format!("{} mph", thousands(mph))
+        }
+    }
+
     /// 83.456 seconds -> "1:23.46".
     pub fn format_time(seconds: f64) -> String {
         let minutes = (seconds / 60.0).floor();
