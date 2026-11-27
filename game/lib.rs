@@ -119,7 +119,7 @@ impl Plugin for GamePlugin {
                 ),
             )
             .add_systems(EguiPrimaryContextPass, (game::menus, hud::hud).chain())
-            .add_systems(Last, game::save_on_exit);
+            .add_systems(Last, game::save_on_exit.in_set(bevy::app::OnAppExitSystems));
     }
 }
 

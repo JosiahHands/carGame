@@ -285,7 +285,8 @@ pub mod traffic {
                 let mut gap = f64::INFINITY;
                 let mut player_ahead = false;
                 for (j, o) in self.road_cars.iter().enumerate() {
-                    if j == i || o.idle || o.road != c.road || o.way != c.way {
+                    // A wreck has flown off its lane: it's a box in the world, not a car to follow.
+                    if j == i || o.idle || o.road != c.road || o.way != c.way || !world.targets[o.target].alive {
                         continue;
                     }
                     let ahead = (o.along - c.along) * c.way;
@@ -1662,11 +1663,13 @@ pub mod police {
     //! three stars they fire back. Stand still next to one and you're
     //! busted (and fined). Get far enough away, or out of sight long
     //! enough, and you lose them.
-    use bevy::math::{DVec2, DVec3, Vec3};
+    use bevy::math::{DVec2, DVec3};
 
     use crate::meshes::linear;
     use crate::pedestrians::{Arms, PersonPose, SKIN, person_hit};
+    use crate::physics::CarInput;
     use crate::rng;
+    use crate::walk::OnFoot;
     use crate::world::World;
 
     #[derive(Clone, Debug)]
@@ -1682,15 +1685,27 @@ pub mod police {
 
     #[derive(Clone, Debug)]
     pub struct Officer {
-        pub at: DVec3,
-        pub heading: f64,
+        /// They walk and run like you do, and can't go through walls.
+        pub body: OnFoot,
         pub hp: f64,
         /// Seconds left knocked out.
         pub down: f64,
-        step: f64,
         shoot: f64,
         punch: f64,
         skin: u32,
+    }
+
+    impl Officer {
+        pub fn at(&self) -> DVec3 {
+            self.body.pos
+        }
+    }
+
+    /// Whether nothing (a building, a hill) is between two points.
+    fn clear_line(world: &World, from: DVec3, to: DVec3) -> bool {
+        let ray = to - from;
+        let d = ray.length();
+        d < 0.5 || world.raycast(from, ray / d, d).is_none_or(|h| h.distance >= d - 0.6)
     }
 
     /// What the police did this frame.
@@ -1763,12 +1778,12 @@ pub mod police {
                 if o.down > 0.0 {
                     continue;
                 }
-                let to = DVec2::new(o.at.x - at.x, o.at.z - at.z);
+                let to = DVec2::new(o.body.pos.x - at.x, o.body.pos.z - at.z);
                 let d = to.length();
                 if d > reach || (d > 0.3 && to.dot(dir) / d < 0.35) {
                     continue;
                 }
-                out.push((o.at, Self::hurt_officer(o, damage)));
+                out.push((o.body.pos, Self::hurt_officer(o, damage)));
             }
             out
         }
@@ -1788,7 +1803,7 @@ pub mod police {
                 .iter()
                 .enumerate()
                 .filter(|(_, o)| o.down <= 0.0)
-                .filter_map(|(i, o)| person_hit(origin, dir, o.at, 1.0).filter(|&t| t <= max).map(|t| (i, t)))
+                .filter_map(|(i, o)| person_hit(origin, dir, o.body.pos, 1.0).filter(|&t| t <= max).map(|t| (i, t)))
                 .min_by(|a, b| a.1.total_cmp(&b.1))
         }
 
@@ -1803,9 +1818,9 @@ pub mod police {
                 .iter()
                 .filter(|o| o.down <= 0.0)
                 .filter_map(|o| {
-                    let to = DVec2::new(o.at.x - at.x, o.at.z - at.z);
+                    let to = DVec2::new(o.body.pos.x - at.x, o.body.pos.z - at.z);
                     let d = to.length();
-                    (d > 0.5 && d < range && to.dot(dir) / d >= cone).then_some((d, o.at + DVec3::Y * 1.25))
+                    (d > 0.5 && d < range && to.dot(dir) / d >= cone).then_some((d, o.body.pos + DVec3::Y * 1.25))
                 })
                 .min_by(|a, b| a.0.total_cmp(&b.0))
                 .map(|b| b.1)
@@ -1870,7 +1885,7 @@ pub mod police {
                 || self
                     .officers
                     .iter()
-                    .any(|o| o.down <= 0.0 && DVec2::new(o.at.x, o.at.z).distance(me) < 60.0);
+                    .any(|o| o.down <= 0.0 && DVec2::new(o.body.pos.x, o.body.pos.z).distance(me) < 60.0);
             if seen {
                 self.unseen = 0.0;
             }
@@ -1926,7 +1941,7 @@ pub mod police {
                 && self
                     .officers
                     .iter()
-                    .all(|o| o.down > 0.0 || DVec2::new(o.at.x, o.at.z).distance(car_at) < 3.0)
+                    .all(|o| o.down > 0.0 || DVec2::new(o.body.pos.x, o.body.pos.z).distance(car_at) < 3.0)
             {
                 // You drove off: back in the car, after you.
                 unit.parked = false;
@@ -1939,23 +1954,27 @@ pub mod police {
                 if o.down > 0.0 {
                     continue;
                 }
-                let to = DVec2::new(player.x - o.at.x, player.z - o.at.z);
+                let to = DVec2::new(player.x - o.body.pos.x, player.z - o.body.pos.z);
                 let d = to.length();
-                o.heading = to.x.atan2(to.y);
-                if armed && (4.0..28.0).contains(&d) && o.shoot <= 0.0 && on_foot {
+                let sees = clear_line(world, o.body.pos + DVec3::Y * 1.4, player + DVec3::Y * 1.2);
+                let goal = to.x.atan2(to.y);
+                let turn = (goal - o.body.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
+                let shooting = armed && sees && (4.0..28.0).contains(&d) && on_foot;
+                let input = CarInput {
+                    throttle: if d > 1.1 && !shooting { 1.0 } else { 0.0 },
+                    boost: d > 6.0,
+                    steer: (turn * 3.0).clamp(-1.0, 1.0),
+                    ..Default::default()
+                };
+                o.body.step(dt, &input, world);
+                if shooting && o.shoot <= 0.0 {
                     o.shoot = 1.3 + rng::random() * 0.6;
+                    o.body.aiming = 1.5;
                     out.push(Report::Shot);
                     if rng::random() < 0.55 {
                         self.damage += 7.0;
                     }
-                } else if d > 1.1 {
-                    let pace = if d > 6.0 { 5.4 } else { 3.0 };
-                    let go = to / d.max(0.01) * pace * dt;
-                    o.at.x += go.x;
-                    o.at.z += go.y;
-                    o.at.y = world.height_at(o.at.x, o.at.z);
-                    o.step += pace * dt * 2.7;
-                } else {
+                } else if d <= 1.4 && sees {
                     arrested = true;
                 }
             }
@@ -1995,11 +2014,9 @@ pub mod police {
         fn spawn_officers(&mut self, at: DVec3, n: usize) {
             for k in 0..n {
                 self.officers.push(Officer {
-                    at: at + DVec3::new(k as f64 * 0.9, 0.0, 0.0),
-                    heading: 0.0,
+                    body: OnFoot::new(at + DVec3::new(k as f64 * 0.9, 0.0, 0.0), 0.0),
                     hp: 100.0,
                     down: 0.0,
-                    step: 0.0,
                     shoot: 1.0,
                     punch: 0.0,
                     skin: rng::pick(&SKIN),
@@ -2012,27 +2029,18 @@ pub mod police {
             self.officers
                 .iter()
                 .map(|o| {
-                    let moving = o.down <= 0.0;
-                    PersonPose {
-                        at: Vec3::new(o.at.x as f32, o.at.y as f32, o.at.z as f32),
-                        heading: o.heading as f32,
-                        step: o.step as f32,
-                        stride: if moving { 0.8 } else { 0.0 },
-                        lying: if o.down > 0.0 { 1.0 } else { 0.0 },
-                        dive: 0.0,
-                        arms: if o.down > 0.0 {
-                            Arms::Up(2.8)
-                        } else if self.wanted >= 3.0 {
-                            Arms::Aim
-                        } else {
-                            Arms::Swing
-                        },
-                        colors: [linear(o.skin), linear(0x1d2c4a), linear(0x141c2b)],
-                        pistol: self.wanted >= 3.0 && o.down <= 0.0,
-                        scale: 1.0,
-                        cap: Some(linear(0x16233a)),
-                        bounce: 0.04,
+                    let mut pose = o.body.pose();
+                    if o.down > 0.0 {
+                        pose.lying = 1.0;
+                        pose.stride = 0.0;
+                        pose.arms = Arms::Up(2.8);
+                    } else if self.wanted >= 3.0 && o.body.aiming > 0.0 {
+                        pose.arms = Arms::Aim;
                     }
+                    pose.colors = [linear(o.skin), linear(0x1d2c4a), linear(0x141c2b)];
+                    pose.pistol = self.wanted >= 3.0 && o.down <= 0.0;
+                    pose.cap = Some(linear(0x16233a));
+                    pose
                 })
                 .collect()
         }

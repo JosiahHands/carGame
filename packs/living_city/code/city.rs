@@ -147,6 +147,11 @@ impl Resident {
         self.asleep || self.in_car || (self.hospital_until > now && self.down_until <= now)
     }
 
+    /// Up and about: not hidden, and not lying knocked out.
+    pub fn available(&self, now: f64) -> bool {
+        !self.hidden(now) && self.down_until <= now && self.hospital_until <= now
+    }
+
     fn say(&mut self, now: f64, text: String) {
         if !text.is_empty() {
             self.speech = text;
@@ -412,15 +417,20 @@ impl City {
         self.residents
             .iter()
             .enumerate()
-            .filter(|(_, n)| !n.asleep && !n.in_car && n.at.distance_squared(at) <= reach * reach)
+            .filter(|(_, n)| n.available(self.clock) && n.at.distance_squared(at) <= reach * reach)
             .min_by(|(_, a), (_, b)| a.at.distance_squared(at).total_cmp(&b.at.distance_squared(at)))
             .map(|(i, _)| i)
     }
 
     pub fn open_chat(&mut self, who: usize, contact: Contact, game: &mut Game) {
+        let now = self.clock;
         let n = &mut self.residents[who];
         if n.asleep {
             game.toast(format!("{} is asleep at home", n.member.name), 1800.0);
+            return;
+        }
+        if n.down_until > now || n.hospital_until > now {
+            game.toast(format!("{} is in no state to talk", n.member.name), 1800.0);
             return;
         }
         if contact == Contact::Beside && (n.in_car || n.at.distance(position(game)) > 60.0 || game.physics.vx.hypot(game.physics.vz) > 7.0)
@@ -595,6 +605,10 @@ impl City {
 
     fn act(&mut self, i: usize, decision: Decision, game: &mut Game) {
         let now = self.clock;
+        // Knocked out or in the hospital since deciding: it'll have to wait.
+        if self.residents[i].down_until > now || self.residents[i].hospital_until > now {
+            return;
+        }
         // Away in another town, most things wait until they're back.
         if let Some(t) = self.residents[i].away
             && !["text the driver", "report the driver to the police"].contains(&decision.action.as_str())
@@ -798,7 +812,7 @@ impl City {
         }
         self.conversation_due = now + 2.0;
         let chatting = self.chat.as_ref().map(|c| c.who);
-        let ready = |i: usize, n: &Resident| !n.asleep && !n.in_car && Some(i) != chatting && n.path.is_empty() && now - n.last_talk > 35.0;
+        let ready = |i: usize, n: &Resident| n.available(now) && Some(i) != chatting && n.path.is_empty() && now - n.last_talk > 35.0;
         let pair = self.residents.iter().enumerate().find_map(|(i, n)| {
             if !ready(i, n) {
                 return None;
@@ -844,8 +858,8 @@ impl City {
         let len = self.residents.len();
         let Some(i) = (0..len).map(|n| (n + self.cursor) % len).find(|&i| {
             let n = &self.residents[i];
-            !n.asleep
-                && !n.in_car
+            n.available(now)
+                && n.fighting_until <= now
                 && n.path.is_empty()
                 && n.next <= now
                 && self.chat.as_ref().is_none_or(|c| c.who != i)
@@ -986,8 +1000,7 @@ impl City {
         let (at, heading) = crate::roads::curb(officer.at);
         let partner = self.resident("guy").filter(|&j| {
             let n = &self.residents[j];
-            !n.asleep
-                && !n.in_car
+            n.available(self.clock)
                 && n.at.distance_squared(officer.at) < 18.0_f64.powi(2)
                 && !n.mind.forbids(mind::Vow::Chase, "ride with BUDDY on a chase")
         });
@@ -1226,14 +1239,12 @@ impl City {
 
     fn start_trip(&mut self, driver: usize, rider: Option<usize>, place: Place) -> bool {
         let n = &self.residents[driver];
-        if self.trips.len() >= 3 || n.in_car || n.at.distance(place.at) < 35.0 {
+        if self.trips.len() >= 3 || !n.available(self.clock) || n.at.distance(place.at) < 35.0 {
             return false;
         }
         let (at, heading) = crate::roads::curb(n.at);
         let (end, _) = crate::roads::curb(place.at);
-        let rider = rider.filter(|&i| {
-            i != driver && !self.residents[i].in_car && !self.residents[i].asleep && self.residents[i].at.distance(n.at) < 15.0
-        });
+        let rider = rider.filter(|&i| i != driver && self.residents[i].available(self.clock) && self.residents[i].at.distance(n.at) < 15.0);
         self.trips.push(Trip {
             at,
             heading,
@@ -1307,7 +1318,7 @@ impl City {
     /// Drives out to another town for a few hours.
     fn leave_town(&mut self, i: usize) -> bool {
         let n = &self.residents[i];
-        if self.towns.is_empty() || self.trips.len() >= 3 || n.in_car || n.away.is_some() {
+        if self.towns.is_empty() || self.trips.len() >= 3 || !n.available(self.clock) || n.away.is_some() {
             return false;
         }
         let t = (random() * self.towns.len() as f64) as usize % self.towns.len();
@@ -1389,6 +1400,9 @@ impl City {
         if n.hurt >= 100.0 {
             n.down_until = now + 8.0;
             n.fighting_until = 0.0;
+            if self.chat.as_ref().is_some_and(|c| c.who == i) {
+                self.chat = None;
+            }
             n.task = "knocked out".into();
             n.mind.remember(
                 now,
@@ -2297,11 +2311,27 @@ pub mod visual {
         }
     }
 
+    /// Residents' car colors (by driver).
+    const CAR_PAINT: [u32; 4] = [0x8f334e, 0xc1692e, 0x378995, 0x6f7166];
+
+    /// A resident's car as a garage build, for when the driver takes it:
+    /// a plain hatchback or van in the same paint as on the street.
+    pub fn car_config(driver: usize) -> game::config::CarConfig {
+        game::config::CarConfig {
+            body: if driver.is_multiple_of(3) { "van" } else { "hatch" }.into(),
+            paint_color: format!("#{:06x}", CAR_PAINT[driver % 4]),
+            finish: "gloss".into(),
+            pattern: "none".into(),
+            stripes: "none".into(),
+            spoiler: "none".into(),
+            roof_guns: false,
+            plate: "LOCAL".into(),
+            ..Default::default()
+        }
+    }
+
     pub fn spawn_car(commands: &mut Commands, visuals: &mut Visuals, materials: &mut Assets<StandardMaterial>, driver: Option<usize>) {
-        let paint = visuals.color(
-            materials,
-            driver.map_or(0xf4f3f3, |i| [0x8f334e, 0xc1692e, 0x378995, 0x6f7166][i % 4]),
-        );
+        let paint = visuals.color(materials, driver.map_or(0xf4f3f3, |i| CAR_PAINT[i % 4]));
         let dark = visuals.color(materials, 0x1c2732);
         let lights = visuals.color(materials, 0xf8dfaf);
         let red = visuals.color(materials, 0xf3333d);

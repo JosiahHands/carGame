@@ -158,8 +158,12 @@ pub struct Game {
     pub happened: Vec<crate::packs::Happening>,
     /// You, out of the car (free roam).
     pub on_foot: Option<crate::walk::OnFoot>,
-    /// Your own garage car, parked where you got out of it (a car in the world).
+    /// Your own car (the garage build or your career car), parked where you
+    /// got out of it (a car in the world).
     pub own_car: Option<usize>,
+    /// Whether that parked car is your career car, if it was free roam in
+    /// your career car then, and if it's all-terrain.
+    own_car_career: (bool, bool, bool),
     /// Driving someone else's car (none of your weapons are in it).
     pub driving_other: bool,
     /// The police, when Living City isn't on.
@@ -313,6 +317,7 @@ impl<'w, 's> Ctx<'w, 's> {
         if self.game.on_foot.is_some() {
             return false; // no car to build while you're walking
         }
+        self.game.rebuild = false;
         if let Some(old) = self.game.car.take() {
             old.despawn(&mut self.commands);
         }
@@ -395,7 +400,10 @@ impl<'w, 's> Ctx<'w, 's> {
 
     pub fn set_mode(&mut self, next: Mode) {
         if next == Mode::Garage || next == Mode::Menu {
-            // The garage works on your own car: back in it, where you are.
+            // Where you were (on foot or not), before the garage puts you back in your own car.
+            if self.game.mode == Mode::Drive {
+                self.save_resume();
+            }
             self.back_in_own_car();
         }
         let previous = self.game.mode;
@@ -428,10 +436,10 @@ impl<'w, 's> Ctx<'w, 's> {
         self.save_resume();
         let mut world = std::mem::replace(&mut *self.world, World::empty());
         let options = self.game.settings.map_options(map);
+        // `world` is the old map's World (its generation counts on, so the
+        // screen knows everything is new); `self.world` is a blank stand-in.
         world.night = self.game.night;
         world.effects.amount = settings::effects_amount(&self.game.settings.effects);
-        world.view_distance = self.world.view_distance;
-        world.generation = self.world.generation;
         world.open = free_roam && map == "city";
         world.generative = options.generative;
         world.weather_choice = if free_roam { options.weather_choice() } else { None };
@@ -580,10 +588,10 @@ impl<'w, 's> Ctx<'w, 's> {
         let p = &self.game.physics;
         let (x, z, heading, y) = (p.x, p.z, p.heading, p.y);
         let (width, length) = (rig.width, rig.length);
-        let own = self.game.driving_garage_build && !self.game.driving_other;
+        let own = !self.game.driving_other;
         let config = self.game.drive_config.clone();
         let mut world = std::mem::replace(&mut *self.world, World::empty());
-        let i = world.park_car(&mut self.build(), rig, x, z, heading);
+        let i = world.park_car(&mut self.build(), rig, x, z, heading, y);
         world.index_new();
         *self.world = world;
         if let Some(t) = self.world.targets[i].rig.as_mut() {
@@ -591,6 +599,8 @@ impl<'w, 's> Ctx<'w, 's> {
         }
         if own {
             self.game.own_car = Some(i);
+            let g = &self.game;
+            self.game.own_car_career = (!g.driving_garage_build, g.roaming_in_career_car, g.physics.all_terrain);
         }
         self.game.weapons.clear();
         self.game.weapons.set_loadout(career::NO_WEAPONS);
@@ -653,7 +663,7 @@ impl<'w, 's> Ctx<'w, 's> {
             .game
             .other_cars
             .iter()
-            .map(|c| (at.distance(DVec2::new(c.at.x, c.at.z)), *c))
+            .map(|c| (at.distance(DVec2::new(c.at.x, c.at.z)), c.clone()))
             .filter(|(d, _)| *d < 4.0)
             .min_by(|a, b| a.0.total_cmp(&b.0));
         if let Some((d, car)) = pack_car
@@ -666,9 +676,8 @@ impl<'w, 's> Ctx<'w, 's> {
                 z: car.at.z,
                 occupied: true,
             });
-            let config = config::random_config(&CarConfig::default());
             self.game.on_foot = None;
-            self.drive_other(config, car.at.x, car.at.z, car.heading);
+            self.drive_other(car.config.clone(), car.at.x, car.at.z, car.heading);
             return;
         }
         let Some((_, i)) = best else {
@@ -711,15 +720,21 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.on_foot = None;
         let Some(rig) = rig else { return };
         self.commands.entity(rig.root).remove::<ChildOf>();
+        let (career, roaming, all_terrain) = self.game.own_car_career;
         if own {
             self.game.own_car = None;
-            self.game.drive_config = self.game.config.clone();
-            self.game.driving_garage_build = true;
+            self.game.drive_config = if career { rig.config.clone() } else { self.game.config.clone() };
+            self.game.driving_garage_build = !career;
             self.game.driving_other = false;
+            self.game.roaming_in_career_car = career && roaming;
+            self.game.physics.all_terrain = career && all_terrain;
         } else {
             self.game.drive_config = rig.config.clone();
             self.game.driving_garage_build = false;
             self.game.driving_other = true;
+            // Challenge stars only count in your career car, and only it is all-terrain.
+            self.game.roaming_in_career_car = false;
+            self.game.physics.all_terrain = false;
         }
         self.game.car = Some(rig);
         self.fit_to_car();
@@ -734,6 +749,8 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.drive_config = config;
         self.game.driving_garage_build = false;
         self.game.driving_other = true;
+        self.game.roaming_in_career_car = false;
+        self.game.physics.all_terrain = false;
         self.rebuild_car(None);
         self.place_car(x, z, heading);
         sync_car(self, 0.0);
@@ -749,9 +766,17 @@ impl<'w, 's> Ctx<'w, 's> {
             self.world.remove_car(i);
         }
         if walking || self.game.driving_other {
+            let (career, roaming, all_terrain) = self.game.own_car_career;
             self.game.driving_other = false;
-            self.game.drive_config = self.game.config.clone();
-            self.game.driving_garage_build = true;
+            if career {
+                let c = &self.game.career;
+                self.game.drive_config = career::career_car(&self.game.config, c.car, &c.upgrades);
+            } else {
+                self.game.drive_config = self.game.config.clone();
+            }
+            self.game.driving_garage_build = !career;
+            self.game.roaming_in_career_car = career && roaming;
+            self.game.physics.all_terrain = career && all_terrain;
             self.rebuild_car(None);
             let p = &self.game.physics;
             let (x, z, h) = (p.x, p.z, p.heading);
@@ -761,7 +786,7 @@ impl<'w, 's> Ctx<'w, 's> {
 
     /// Saves where you are in the open world, for "Start where I left off".
     pub fn save_resume(&mut self) {
-        if !self.world.is_open() || self.game.event.is_some() {
+        if !self.world.is_open() || self.game.event.is_some() || !matches!(self.game.mode, Mode::Drive | Mode::Photo) {
             return;
         }
         let p = &self.game.physics;
@@ -784,7 +809,21 @@ impl<'w, 's> Ctx<'w, 's> {
             self.drive_other(car, r.x, r.z, r.heading);
         }
         if r.on_foot {
+            // On the first start the car isn't built yet: build it, to get out of.
+            if self.game.car.is_none() {
+                self.rebuild_car(None);
+            }
+            // Your car parked beside you, and you just where you were.
+            let side = DVec2::new(r.heading.cos(), -r.heading.sin()) * -2.2;
+            self.place_car(r.x + side.x, r.z + side.y, r.heading);
             self.get_out();
+            let y = self.world.height_at(r.x, r.z);
+            if let Some(me) = self.game.on_foot.as_mut() {
+                me.pos = DVec3::new(r.x, y, r.z);
+                me.heading = r.heading;
+                let p = &mut self.game.physics;
+                (p.x, p.y, p.z) = (r.x, y, r.z);
+            }
         }
     }
 
@@ -886,6 +925,7 @@ impl<'w, 's> Ctx<'w, 's> {
 
     /// Loads the venue, puts everyone on the grid and starts the countdown.
     pub fn start_event(&mut self, spec: EventSpec, car: CarConfig, level: Option<Level>, all_terrain: bool) {
+        self.save_resume();
         self.dispose_event();
         self.resume_event();
         self.clear_traffic();
@@ -898,7 +938,8 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.weapons.clear();
         self.world.effects.clear();
         self.game.night = spec.night;
-        if self.world.map != spec.map || self.world.layout != spec.layout || self.world.is_open() {
+        // Free roam's own weather for the map doesn't carry into events.
+        if self.world.map != spec.map || self.world.layout != spec.layout || self.world.is_open() || self.world.weather_choice.is_some() {
             self.load_world(&spec.map, spec.layout, false);
             let found = self.game.career.found.clone();
             self.game.free_roam.load(&self.world, &found);
@@ -1024,12 +1065,18 @@ impl<'w, 's> Ctx<'w, 's> {
             g.driving_garage_build = true;
             self.rebuild_car(None);
         }
-        if self.game.night {
-            self.game.night = false;
-            self.world.set_night(false);
+        let map = self.game.settings.map.clone();
+        let options = self.game.settings.map_options(&map);
+        if self.game.night != options.night {
+            self.game.night = options.night;
+            self.world.set_night(options.night);
         }
-        let wants_open = self.game.settings.map == "city";
-        if self.world.map != self.game.settings.map || self.world.layout != 0 || self.world.is_open() != wants_open {
+        let wants_open = map == "city";
+        if self.world.map != map
+            || self.world.layout != 0
+            || self.world.is_open() != wants_open
+            || self.world.weather_choice != options.weather_choice()
+        {
             self.load_map();
         } else {
             self.world.rebuild_all(1e6, 1e6, 0.0);
@@ -1508,6 +1555,7 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         happened: Vec::new(),
         on_foot: None,
         own_car: None,
+        own_car_career: (false, false, false),
         driving_other: false,
         police: crate::police::Police::default(),
         others: Vec::new(),
@@ -1669,6 +1717,34 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     if let Some(auto) = crate::dev::autopilot() {
         controls.car.throttle = 1.0;
         controls.car.steer = auto;
+    }
+    // For checking the game unattended: follow the highways (CAR_GAME_AUTOPILOT=road),
+    // logging the frame rate and where the car is each second.
+    if std::env::var("CAR_GAME_AUTOPILOT").as_deref() == Ok("road")
+        && let Some(land) = ctx.world.land.as_deref()
+    {
+        let p = &ctx.game.physics;
+        let best = land
+            .roads_near(p.x, p.z, 80.0)
+            .into_iter()
+            .map(|r| (r, land.roads[r].nearest(p.x, p.z)))
+            .min_by(|a, b| a.1.2.total_cmp(&b.1.2));
+        if let Some((r, (along, _, _))) = best {
+            let road = &land.roads[r];
+            let way = if (road.pose(along, 0.0).2 - p.heading).cos() >= 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let (tx, tz, _) = road.pose((along + way * 30.0).clamp(0.0, road.length), way * crate::land::LANE);
+            let goal = (tx - p.x).atan2(tz - p.z);
+            let turn = (goal - p.heading + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI;
+            controls.car.steer = (turn * 2.5).clamp(-1.0, 1.0);
+            controls.car.throttle = if p.speed() > 32.0 { 0.0 } else { 1.0 };
+        }
+        if ctx.game.fps.0 == 0 {
+            info!("autopilot fps {} at {:.0},{:.0} speed {:.0}", ctx.game.fps.2, p.x, p.z, p.speed());
+        }
     }
     // For checking the game unattended: hold fire (CAR_GAME_FIRE=1), on foot with the pistol (=pistol).
     if let Ok(fire) = std::env::var("CAR_GAME_FIRE") {
@@ -3277,6 +3353,20 @@ mod tests {
                 assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some() && ctx.game.own_car.is_none());
                 assert!(ctx.game.driving_garage_build && !ctx.game.driving_other);
                 assert!(ctx.world.targets[own].rig.is_none());
+                // The garage puts you back in your own car, wherever you are.
+                ctx.get_in_or_out();
+                ctx.set_mode(Mode::Garage);
+                assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some() && ctx.game.own_car.is_none());
+                ctx.set_mode(Mode::Drive);
+                // An event from on foot: the city on its own, in the event's car.
+                ctx.get_in_or_out();
+                assert!(ctx.game.on_foot.is_some());
+                let generation = ctx.world.generation;
+                ctx.menu_action(MenuAction::PlayLevel(Box::new(career::make_level(1))));
+                assert!(ctx.world.generation > generation, "a new map counts as new to the screen");
+                assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some() && ctx.game.own_car.is_none());
+                assert!(!ctx.world.is_open());
+                ctx.quit_event();
 
                 ctx.menu_action(MenuAction::PlayLevel(Box::new(career::make_level(1))));
                 ctx.pause_event();

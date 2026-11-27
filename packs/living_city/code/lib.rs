@@ -49,7 +49,7 @@ impl Plugin for LivingCityPack {
                 .before(GameSet::Camera),
         )
         .add_systems(EguiPrimaryContextPass, ui::overlays.after(game::hud::hud))
-        .add_systems(Last, save_at_exit);
+        .add_systems(Last, save_at_exit.in_set(bevy::app::OnAppExitSystems));
     }
 }
 
@@ -320,6 +320,7 @@ fn simulate(
             index: t.driver,
             at: DVec3::new(t.at.x, world.height_at(t.at.x, t.at.y), t.at.y),
             heading: t.heading,
+            config: visual::car_config(t.driver),
         });
     }
     if let Some(chase) = &city.chase {

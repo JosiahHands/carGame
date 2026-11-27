@@ -655,7 +655,8 @@ pub mod world_build {
         /// A parked car built from `config`. Returns its target index.
         pub fn add_car_with(&mut self, b: &mut Build, x: f64, z: f64, heading: f64, config: &CarConfig) -> usize {
             let rig = build_car(&mut b.car_ctx(), config, false, false);
-            self.park_car(b, rig, x, z, heading)
+            let y = self.height_at(x, z);
+            self.park_car(b, rig, x, z, heading, y)
         }
 
         /// A patrol car (see police.rs).
@@ -680,11 +681,11 @@ pub mod world_build {
 
         /// Leaves a car (and its model) parked in the world, like any other
         /// parked car: where the player got out of it. Returns its target index.
-        pub fn park_car(&mut self, b: &mut Build, rig: crate::carmodel::CarRig, x: f64, z: f64, heading: f64) -> usize {
+        /// `y` is the height it stands at (on a banked track or a ramp, say).
+        pub fn park_car(&mut self, b: &mut Build, rig: crate::carmodel::CarRig, x: f64, z: f64, heading: f64, y: f64) -> usize {
             if let Some(root) = self.root {
                 b.commands.entity(rig.root).insert(ChildOf(root));
             }
-            let y = self.land.as_ref().map_or(0.0, |l| l.ground(x, z));
             let shape = self.boxes.len();
             let index = self.targets.len();
             self.boxes.push(BoxShape {
@@ -2389,8 +2390,8 @@ pub mod world_render {
         /// Chunks drawn in detail (8 m) and far off (32 m): the ground, and any water.
         near: HashMap<(i32, i32), Vec<Entity>>,
         far: HashMap<(i32, i32), Vec<Entity>>,
-        /// Pieces of highway drawn so far: (road, piece).
-        roads: HashSet<(usize, usize)>,
+        /// Pieces of highway drawn: (road, piece) and its entity, and where it is.
+        roads: HashMap<(usize, usize), (Entity, f64, f64)>,
         mats: Option<(Handle<StandardMaterial>, Handle<StandardMaterial>, Handle<StandardMaterial>)>,
         last: Option<(f64, f64, u64)>,
     }
@@ -2660,29 +2661,45 @@ pub mod world_render {
         }
         if moved || started.elapsed() < budget {
             lm.last = Some((x, z, land.version));
-            // Highways within 2.5 km; once drawn, they stay.
+            // Highways within 2.5 km; put away again past 3.2 km.
+            let far: Vec<(usize, usize)> = lm
+                .roads
+                .iter()
+                .filter(|(_, v)| (v.1 - x).hypot(v.2 - z) > 3200.0)
+                .map(|(k, _)| *k)
+                .collect();
+            for key in far {
+                if let Some((e, _, _)) = lm.roads.remove(&key)
+                    && let Ok(mut ec) = commands.get_entity(e)
+                {
+                    ec.despawn();
+                }
+            }
             for road in land.roads_near(x, z, 2500.0) {
                 let r = &land.roads[road];
                 let pieces = r.points.len().div_ceil(ROAD_PIECE);
                 for piece in 0..pieces {
-                    if lm.roads.contains(&(road, piece)) {
+                    if lm.roads.contains_key(&(road, piece)) {
                         continue;
                     }
                     let p = r.points[(piece * ROAD_PIECE).min(r.points.len() - 1)];
                     if (p.x - x).hypot(p.z - z) > 2500.0 {
                         continue;
                     }
-                    lm.roads.insert((road, piece));
-                    if let Some(m) = road_piece(land, road, piece) {
-                        commands.spawn((
-                            Mesh3d(meshes.add(m.build())),
-                            MeshMaterial3d(road_mat.clone()),
-                            Transform::default(),
-                            NotShadowCaster,
-                            Wet,
-                            ChildOf(root),
-                        ));
-                    }
+                    let e = match road_piece(land, road, piece) {
+                        Some(m) => commands
+                            .spawn((
+                                Mesh3d(meshes.add(m.build())),
+                                MeshMaterial3d(road_mat.clone()),
+                                Transform::default(),
+                                NotShadowCaster,
+                                Wet,
+                                ChildOf(root),
+                            ))
+                            .id(),
+                        None => commands.spawn((Transform::default(), ChildOf(root))).id(),
+                    };
+                    lm.roads.insert((road, piece), (e, p.x, p.z));
                     if started.elapsed() > budget {
                         return;
                     }

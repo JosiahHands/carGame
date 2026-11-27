@@ -605,12 +605,14 @@ pub mod packs {
     }
 
     /// A car a pack is driving, that the player can take (`Game.other_cars`).
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Debug)]
     pub struct OtherCar {
         pub owner: &'static str,
         pub index: usize,
         pub at: bevy::math::DVec3,
         pub heading: f64,
+        /// How it looks and drives, once it's yours.
+        pub config: crate::config::CarConfig,
     }
 }
 

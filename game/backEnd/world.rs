@@ -575,10 +575,11 @@ impl World {
         }
         for &i in &self.rubble {
             let t = &self.targets[i];
-            if t.rubble_height <= 0.0 {
+            let shape = rubble_shape(x - t.x, z - t.z, t.width, t.depth);
+            if t.rubble_height <= 0.0 || shape <= 0.0 {
                 continue;
             }
-            best = best.max(t.rubble_height * rubble_shape(x - t.x, z - t.z, t.width, t.depth));
+            best = best.max(t.rubble_height * shape);
         }
         best
     }
@@ -995,8 +996,10 @@ impl World {
             TargetKind::Car => {
                 t.flying = false;
                 t.burn_until = 0.0;
-                let y = self.land.as_ref().map_or(0.0, |l| l.ground(t.home.x, t.home.z));
-                t.pos = DVec3::new(t.home.x, y, t.home.z);
+                let (hx, hz) = (t.home.x, t.home.z);
+                let y = self.height_at(hx, hz);
+                let t = &mut self.targets[i];
+                t.pos = DVec3::new(hx, y, hz);
                 t.rot = DVec3::new(0.0, t.home.heading, 0.0);
                 self.boxes[t.shape].base = y;
                 self.changes.push(Change::Wreck(i, false));
@@ -1051,9 +1054,10 @@ impl World {
 
     /// Moves a traffic car (and its collision box) to a new spot.
     pub fn move_car(&mut self, i: usize, x: f64, z: f64, heading: f64) {
-        let y = match &self.land {
-            Some(land) => land.ground(x, z),
-            None => 0.0,
+        let y = if self.land.is_some() || self.track.is_some() {
+            self.height_at(x, z)
+        } else {
+            0.0
         };
         let t = &mut self.targets[i];
         t.pos = DVec3::new(x, y, z);
@@ -1363,6 +1367,35 @@ pub fn rubble_shape(dx: f64, dz: f64, width: f64, depth: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rubble_only_raises_the_ground_under_its_own_pile() {
+        let mut world = World::empty();
+        world.land = Some(Box::new(crate::land::Land::new(false)));
+        let land = world.land.as_deref().unwrap();
+        // Somewhere in the lakes, under the water.
+        let low = (0..400)
+            .map(|k| (-1500.0 + (k % 20) as f64 * 150.0, -2600.0 - (k / 20) as f64 * 100.0))
+            .find(|&(x, z)| land.height(x, z) < -1.0)
+            .expect("a lake bed");
+        world.boxes.push(BoxShape {
+            min_x: -10.0,
+            max_x: 10.0,
+            min_z: -10.0,
+            max_z: 10.0,
+            height: 20.0,
+            solid: false,
+            target: Some(0),
+            base: 0.0,
+        });
+        let mut t = Target::new_public(TargetKind::Building, 0.0, 0.0, 100.0, 1000.0, 0);
+        (t.width, t.depth, t.rubble_height) = (20.0, 20.0, RUBBLE_HEIGHT);
+        world.targets.push(t);
+        world.rubble.push(0);
+        let ground = world.land.as_deref().unwrap().ground(low.0, low.1);
+        assert_eq!(world.height_at(low.0, low.1), ground);
+        assert!(world.height_at(0.0, 0.0) > 1.0);
+    }
 
     #[test]
     fn same_map_event_reset_never_restores_removed_traffic() {
