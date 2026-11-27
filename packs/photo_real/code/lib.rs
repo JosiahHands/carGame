@@ -593,7 +593,7 @@ fn sky_and_sun(
     }
     let night = world.is_night();
     let theme = if world.map == "city" { None } else { Some(world.theme()) };
-    let weather = theme.map_or(Weather::Clear, |t| t.weather);
+    let weather = world.weather_kind();
     let desert = theme.is_some_and(|t| t.ground == Ground::Sand);
     let sun_share = match weather {
         Weather::Rain => 0.45,
@@ -635,11 +635,7 @@ fn wet_roads(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let o = options(&packs);
-    let weather = if world.map == "city" {
-        Weather::Clear
-    } else {
-        world.theme().weather
-    };
+    let weather = world.weather_kind();
     let wetness = match weather {
         Weather::Rain => 1.0,
         Weather::Snow => 0.35,
@@ -751,11 +747,7 @@ fn beams(
         return;
     }
     let Some(car) = car else { return };
-    let weather = if world.map == "city" {
-        Weather::Clear
-    } else {
-        world.theme().weather
-    };
+    let weather = world.weather_kind();
     let strength = o.beams
         * match weather {
             Weather::Rain => 1.8,
@@ -809,7 +801,7 @@ fn lens(
     }
     let ctx = contexts.ctx_mut()?;
     let dt = time.delta_secs();
-    let raining = o.lens_rain && game.mode == Mode::Drive && world.map != "city" && world.theme().weather == Weather::Rain;
+    let raining = o.lens_rain && game.mode == Mode::Drive && world.weather_kind() == Weather::Rain;
     state.lens_rain = (state.lens_rain + if raining { dt / 4.0 } else { -dt / 2.0 }).clamp(0.0, 1.0);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("lens")));
     let r = ctx.viewport_rect();

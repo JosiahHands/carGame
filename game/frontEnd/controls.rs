@@ -28,6 +28,7 @@ pub mod input {
         Horn,
         ShiftUp,
         ShiftDown,
+        EnterExit,
     }
 
     const ACTION_KEYS: &[(KeyCode, Action)] = &[
@@ -37,7 +38,8 @@ pub mod input {
         (KeyCode::KeyM, Action::Mute),
         (KeyCode::KeyR, Action::Reset),
         (KeyCode::KeyH, Action::Help),
-        (KeyCode::KeyF, Action::Fullscreen),
+        (KeyCode::KeyF, Action::EnterExit),
+        (KeyCode::F11, Action::Fullscreen),
         (KeyCode::Escape, Action::Settings),
         (KeyCode::KeyP, Action::Photo),
         (KeyCode::Enter, Action::Snapshot),
@@ -69,7 +71,7 @@ pub mod input {
         }
         // Standard layout: Y = camera, Start = garage, Back = reset, X = night,
         // LB = next weapon, D-pad down = slow motion, right stick click = horn,
-        // D-pad right / left = gear up / down.
+        // D-pad right / left = gear up / down, D-pad up = get in or out of a car.
         if let Some(pad) = pads.iter().next() {
             let map = [
                 (GamepadButton::North, Action::Camera),
@@ -81,6 +83,7 @@ pub mod input {
                 (GamepadButton::RightThumb, Action::Horn),
                 (GamepadButton::DPadRight, Action::ShiftUp),
                 (GamepadButton::DPadLeft, Action::ShiftDown),
+                (GamepadButton::DPadUp, Action::EnterExit),
             ];
             for (button, action) in map {
                 if pad.just_pressed(button) {

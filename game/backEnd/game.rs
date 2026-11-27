@@ -3,7 +3,7 @@
 //! hangs off them: events and the career, weapons, the time trial, free roam,
 //! traffic and people, skill chains, XP and trophies.
 use bevy::ecs::system::SystemParam;
-use bevy::math::DVec3;
+use bevy::math::{DVec2, DVec3};
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode};
 
@@ -156,6 +156,25 @@ pub struct Game {
     pub controls: Controls,
     /// What happened this frame, for the packs (cleared at the start of each frame).
     pub happened: Vec<crate::packs::Happening>,
+    /// You, out of the car (free roam).
+    pub on_foot: Option<crate::walk::OnFoot>,
+    /// Your own garage car, parked where you got out of it (a car in the world).
+    pub own_car: Option<usize>,
+    /// Driving someone else's car (none of your weapons are in it).
+    pub driving_other: bool,
+    /// The police, when Living City isn't on.
+    pub police: crate::police::Police,
+    /// The packs' people and cars, for fists, bullets and taking cars (packs fill these each frame).
+    pub others: Vec<crate::packs::Other>,
+    pub other_cars: Vec<crate::packs::OtherCar>,
+    /// Damage the packs' people did to you on foot since last frame.
+    pub player_hurt: f64,
+    /// Someone (a pack's resident) lent you their car: their name.
+    pub loan: Option<String>,
+    /// The town you're in, for its welcome.
+    in_town: Option<usize>,
+    resume_due: f64,
+    hint_due: f64,
 }
 
 impl Game {
@@ -180,6 +199,9 @@ impl Game {
     }
 
     pub fn car_radius(&self) -> f64 {
+        if self.on_foot.is_some() {
+            return crate::walk::RADIUS;
+        }
         self.car.as_ref().map_or(2.4, |c| c.length.hypot(c.width) / 2.0)
     }
 
@@ -219,6 +241,9 @@ impl Game {
         } else {
             !self.driving_garage_build
         };
+        if spec.is_none() && self.driving_other {
+            return career::NO_WEAPONS;
+        }
         let on = spec.map_or(self.settings.weapons, |s| s.weapons);
         career::car_loadout(on, if career_car_now { Some(&self.career.arsenal) } else { None })
     }
@@ -285,6 +310,9 @@ impl<'w, 's> Ctx<'w, 's> {
 
     /// Builds the player's car again, with the weapons it has for `spec`. True if its size changed a lot.
     pub fn rebuild_car(&mut self, spec: Option<&EventSpec>) -> bool {
+        if self.game.on_foot.is_some() {
+            return false; // no car to build while you're walking
+        }
         if let Some(old) = self.game.car.take() {
             old.despawn(&mut self.commands);
         }
@@ -366,6 +394,10 @@ impl<'w, 's> Ctx<'w, 's> {
     }
 
     pub fn set_mode(&mut self, next: Mode) {
+        if next == Mode::Garage || next == Mode::Menu {
+            // The garage works on your own car: back in it, where you are.
+            self.back_in_own_car();
+        }
         let previous = self.game.mode;
         self.game.mode = next;
         if next != Mode::Menu && !self.game.menu.is_overlay() {
@@ -389,16 +421,34 @@ impl<'w, 's> Ctx<'w, 's> {
         }
     }
 
-    /// Builds a map right now.
-    pub fn load_world(&mut self, map: &str, layout: u32) {
+    /// Builds a map right now. `free_roam` builds the City map as the open
+    /// world, with the map's own options from the Maps tab (events get the
+    /// city as it always was, and the venue's own weather).
+    pub fn load_world(&mut self, map: &str, layout: u32, free_roam: bool) {
+        self.save_resume();
         let mut world = std::mem::replace(&mut *self.world, World::empty());
+        let options = self.game.settings.map_options(map);
         world.night = self.game.night;
         world.effects.amount = settings::effects_amount(&self.game.settings.effects);
         world.view_distance = self.world.view_distance;
         world.generation = self.world.generation;
+        world.open = free_roam && map == "city";
+        world.generative = options.generative;
+        world.weather_choice = if free_roam { options.weather_choice() } else { None };
+        let mut old_police = std::mem::take(&mut self.game.police);
+        old_police.clear(&mut world);
         world.load(map, layout, &mut self.build());
         *self.world = world;
         self.game.traffic = Traffic::default();
+        self.game.people = Pedestrians::default();
+        self.game.own_car = None;
+        self.game.in_town = None;
+        if self.game.on_foot.take().is_some() || self.game.driving_other {
+            self.game.driving_other = false;
+            self.game.drive_config = self.game.config.clone();
+            self.game.driving_garage_build = true;
+            self.game.rebuild = true;
+        }
     }
 
     /// Switches to the map chosen in the settings, and puts the car at its start (free roam).
@@ -406,7 +456,10 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.trial.stop();
         self.game.weapons.clear();
         let map = self.game.settings.map.clone();
-        self.load_world(&map, 0);
+        let night = self.game.settings.map_options(&map).night;
+        self.game.night = night;
+        self.load_world(&map, 0, true);
+        self.world.set_night(night);
         self.after_map();
         let label = crate::venues::venue(&map).label;
         if self.game.loaded_once {
@@ -429,8 +482,22 @@ impl<'w, 's> Ctx<'w, 's> {
         }
         self.game.damage = 0.0;
         let s = self.world.spawn;
-        self.place_car(s.x, s.z, s.heading);
+        let resume = if self.world.is_open() && self.game.settings.map_options("city").resume {
+            crate::freeroam::Resume::load(&self.storage).filter(|r| {
+                let inside = r.x.abs() < crate::land::MAP_HALF - 100.0 && r.z.abs() < crate::land::MAP_HALF - 100.0;
+                inside || self.world.generative
+            })
+        } else {
+            None
+        };
+        let (x, z, heading) = resume.as_ref().map_or((s.x, s.z, s.heading), |r| (r.x, r.z, r.heading));
+        // Everything near the start is built before the car is put there.
+        self.prepare_land(x, z, std::time::Duration::from_millis(600));
+        self.place_car(x, z, heading);
         self.load_npcs();
+        if let Some(r) = resume {
+            self.resume_from(r);
+        }
         sync_car(self, 0.0);
         if matches!(self.game.mode, Mode::Garage | Mode::Menu) {
             let (pos, heading) = (self.game.car_position(), self.game.physics.heading as f32);
@@ -451,11 +518,320 @@ impl<'w, 's> Ctx<'w, 's> {
         *self.world = world;
         self.game.traffic = traffic;
         self.game.people.load(&self.world, people);
+        // The towns built so far get their people too.
+        if people && let Some(land) = self.world.land.as_deref() {
+            for t in land.towns.iter().filter(|t| t.built && t.size != crate::land::Size::City) {
+                self.game.people.add_town(&t.blocks());
+            }
+        }
+    }
+
+    /// Builds the open world near (x, z), for up to `budget` of time, and
+    /// moves people into the towns it builds.
+    pub fn prepare_land(&mut self, x: f64, z: f64, budget: std::time::Duration) {
+        if !self.world.is_open() {
+            return;
+        }
+        let mut world = std::mem::replace(&mut *self.world, World::empty());
+        world.prepare_land(&mut self.build(), x, z, budget);
+        *self.world = world;
+        let towns = std::mem::take(&mut self.world.built_towns);
+        if self.game.settings.pedestrians
+            && let Some(land) = self.world.land.as_deref()
+        {
+            for t in towns {
+                self.game.people.add_town(&land.towns[t].blocks());
+            }
+        }
     }
 
     fn clear_traffic(&mut self) {
         let mut traffic = std::mem::take(&mut self.game.traffic);
         traffic.clear(&mut self.world);
+    }
+
+    // ---------- on foot ----------
+
+    /// Whether you can get out of the car here: free roam, not in a time trial.
+    fn can_walk(&self) -> bool {
+        self.game.event.is_none() && !self.game.trial.active && self.game.mode == Mode::Drive
+    }
+
+    /// F: out of the car, or into the nearest one.
+    pub fn get_in_or_out(&mut self) {
+        if !self.can_walk() {
+            self.toast("Not now: only in free roam", 1600.0);
+            return;
+        }
+        if self.game.on_foot.is_some() {
+            self.get_in();
+        } else {
+            self.get_out();
+        }
+    }
+
+    /// Out of the car: it stays parked where it is, and you stand beside it.
+    pub fn get_out(&mut self) {
+        if self.game.physics.speed() > 7.0 {
+            self.toast("Slow down to get out", 1400.0);
+            return;
+        }
+        let Some(rig) = self.game.car.take() else { return };
+        let p = &self.game.physics;
+        let (x, z, heading, y) = (p.x, p.z, p.heading, p.y);
+        let (width, length) = (rig.width, rig.length);
+        let own = self.game.driving_garage_build && !self.game.driving_other;
+        let config = self.game.drive_config.clone();
+        let mut world = std::mem::replace(&mut *self.world, World::empty());
+        let i = world.park_car(&mut self.build(), rig, x, z, heading);
+        world.index_new();
+        *self.world = world;
+        if let Some(t) = self.world.targets[i].rig.as_mut() {
+            t.config = config;
+        }
+        if own {
+            self.game.own_car = Some(i);
+        }
+        self.game.weapons.clear();
+        self.game.weapons.set_loadout(career::NO_WEAPONS);
+        // Out of the driver's door (left), or the other side, or behind, whichever is clear.
+        let (fx, fz) = (heading.sin(), heading.cos());
+        let left = DVec3::new(fz, 0.0, -fx);
+        let base = DVec3::new(x, y, z);
+        let doors = [
+            base + left * (width / 2.0 + 0.6),
+            base - left * (width / 2.0 + 0.6),
+            base - DVec3::new(fx, 0.0, fz) * (length / 2.0 + 0.7),
+        ];
+        let mut spot = doors[2];
+        for door in doors {
+            let mut probe = crate::walk::OnFoot::new(door, heading);
+            probe.step(0.0, &CarInput::default(), &self.world);
+            if DVec2::new(probe.pos.x - door.x, probe.pos.z - door.z).length() < 0.2 {
+                spot = door;
+                break;
+            }
+        }
+        spot.y = self.world.height_at(spot.x, spot.z);
+        self.game.on_foot = Some(crate::walk::OnFoot::new(spot, heading));
+        let g = &mut self.game.physics;
+        (g.x, g.y, g.z, g.vx, g.vz, g.vy) = (spot.x, spot.y, spot.z, 0.0, 0.0, 0.0);
+        g.boosting = false;
+        self.fit_to_person();
+        let pos = self.game.car_position();
+        self.rig.snap(pos, heading as f32);
+        self.sound.update(0.0, 0.0, 0.0, 0.0, false, false);
+    }
+
+    /// The camera and sounds for you on foot.
+    fn fit_to_person(&mut self) {
+        self.rig.size = 0.7;
+        self.rig.eye_height = 1.6;
+        self.graphics.shadow_spread = 1.0;
+    }
+
+    /// Into the nearest car: your own, a parked one, a patrol car, or one in
+    /// traffic (its driver gets out and runs). Packs' cars too.
+    pub fn get_in(&mut self) {
+        let Some(me) = self.game.on_foot.clone() else { return };
+        if me.knocked > 0.0 {
+            return;
+        }
+        let at = DVec2::new(me.pos.x, me.pos.z);
+        let mut best: Option<(f64, usize)> = None;
+        for (i, t) in self.world.targets.iter().enumerate() {
+            if t.kind != TargetKind::Car || !t.alive || t.flying {
+                continue;
+            }
+            let Some(rig) = &t.rig else { continue };
+            let d = at.distance(DVec2::new(t.x, t.z));
+            if d < rig.length.max(rig.width) / 2.0 + 1.8 && best.is_none_or(|b| d < b.0) {
+                best = Some((d, i));
+            }
+        }
+        let pack_car = self
+            .game
+            .other_cars
+            .iter()
+            .map(|c| (at.distance(DVec2::new(c.at.x, c.at.z)), *c))
+            .filter(|(d, _)| *d < 4.0)
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((d, car)) = pack_car
+            && best.is_none_or(|b| d < b.0)
+        {
+            self.game.happened.push(crate::packs::Happening::CarTaken {
+                owner: Some(car.owner),
+                index: car.index,
+                x: car.at.x,
+                z: car.at.z,
+                occupied: true,
+            });
+            let config = config::random_config(&CarConfig::default());
+            self.game.on_foot = None;
+            self.drive_other(config, car.at.x, car.at.z, car.heading);
+            return;
+        }
+        let Some((_, i)) = best else {
+            self.toast("No car near enough · walk up to one and press F", 1600.0);
+            return;
+        };
+        let (x, z, heading) = {
+            let t = &self.world.targets[i];
+            (t.pos.x, t.pos.z, t.rot.y)
+        };
+        let occupied = self.game.traffic.owns(i) || self.game.police.unit.as_ref().is_some_and(|u| u.target == i);
+        if self.game.traffic.owns(i) {
+            self.game.traffic.forget(i);
+            self.game.people.bail_out(
+                x + heading.cos() * 1.5,
+                z - heading.sin() * 1.5,
+                heading + std::f64::consts::FRAC_PI_2,
+            );
+            self.toast("You took the car · the driver runs off", 1800.0);
+        }
+        if self.game.police.unit.as_ref().is_some_and(|u| u.target == i) {
+            self.game.police.unit = None;
+            self.game.police.officers.clear();
+            self.game.police.crime(1.5);
+            self.toast("You took the patrol car!", 1800.0);
+        }
+        if occupied && !self.packs.is_on("npc") {
+            self.game.police.crime(1.0);
+        }
+        self.game.happened.push(crate::packs::Happening::CarTaken {
+            owner: None,
+            index: i,
+            x,
+            z,
+            occupied,
+        });
+        let own = self.game.own_car == Some(i);
+        let rig = self.world.targets[i].rig.take();
+        self.world.remove_car(i);
+        self.game.on_foot = None;
+        let Some(rig) = rig else { return };
+        self.commands.entity(rig.root).remove::<ChildOf>();
+        if own {
+            self.game.own_car = None;
+            self.game.drive_config = self.game.config.clone();
+            self.game.driving_garage_build = true;
+            self.game.driving_other = false;
+        } else {
+            self.game.drive_config = rig.config.clone();
+            self.game.driving_garage_build = false;
+            self.game.driving_other = true;
+        }
+        self.game.car = Some(rig);
+        self.fit_to_car();
+        let loadout = self.game.loadout(None);
+        self.game.weapons.set_loadout(loadout);
+        self.place_car(x, z, heading);
+        sync_car(self, 0.0);
+    }
+
+    /// Drives a car built from `config`, someone else's, from (x, z).
+    fn drive_other(&mut self, config: CarConfig, x: f64, z: f64, heading: f64) {
+        self.game.drive_config = config;
+        self.game.driving_garage_build = false;
+        self.game.driving_other = true;
+        self.rebuild_car(None);
+        self.place_car(x, z, heading);
+        sync_car(self, 0.0);
+    }
+
+    /// Back in your own garage car, right where you are (the garage, the
+    /// start of a lap, R): out of any other car, and off your feet.
+    pub fn back_in_own_car(&mut self) {
+        let walking = self.game.on_foot.take().is_some();
+        if let Some(i) = self.game.own_car.take()
+            && i < self.world.targets.len()
+        {
+            self.world.remove_car(i);
+        }
+        if walking || self.game.driving_other {
+            self.game.driving_other = false;
+            self.game.drive_config = self.game.config.clone();
+            self.game.driving_garage_build = true;
+            self.rebuild_car(None);
+            let p = &self.game.physics;
+            let (x, z, h) = (p.x, p.z, p.heading);
+            self.place_car(x, z, h);
+        }
+    }
+
+    /// Saves where you are in the open world, for "Start where I left off".
+    pub fn save_resume(&mut self) {
+        if !self.world.is_open() || self.game.event.is_some() {
+            return;
+        }
+        let p = &self.game.physics;
+        let r = crate::freeroam::Resume {
+            x: p.x,
+            z: p.z,
+            heading: p.heading,
+            on_foot: self.game.on_foot.is_some(),
+            car: self.game.driving_other.then(|| self.game.drive_config.clone()),
+            night: self.game.night,
+        };
+        r.save(&mut self.storage);
+    }
+
+    /// Picks up where you left off: the time of day, the car, and on foot or not.
+    fn resume_from(&mut self, r: crate::freeroam::Resume) {
+        self.game.night = r.night;
+        self.world.set_night(r.night);
+        if let Some(car) = r.car {
+            self.drive_other(car, r.x, r.z, r.heading);
+        }
+        if r.on_foot {
+            self.get_out();
+        }
+    }
+
+    /// Sends a patrol car to near (x, z): onto a street or road if there's one.
+    fn call_police_car(&mut self, x: f64, z: f64, heading: f64) {
+        let (mut sx, mut sz, mut sh) = (x, z, heading);
+        if let Some(land) = self.world.land.as_deref() {
+            if let Some(t) = land.town_at(x, z, 0.0) {
+                let town = &land.towns[t];
+                let snap = |v: f64, c: f64| {
+                    town.lines
+                        .iter()
+                        .map(|l| c + l)
+                        .min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()))
+                        .unwrap_or(v)
+                };
+                if (snap(x, town.at.x) - x).abs() < (snap(z, town.at.y) - z).abs() {
+                    sx = snap(x, town.at.x);
+                } else {
+                    sz = snap(z, town.at.y);
+                }
+            } else if let Some(&r) = land.roads_near(x, z, 300.0).first() {
+                let road = &land.roads[r];
+                let (along, _, _) = road.nearest(x, z);
+                let (rx, rz, rh) = road.pose(along, crate::land::LANE);
+                (sx, sz, sh) = (rx, rz, rh);
+            }
+        } else if self.world.map == "city" {
+            let snap = |v: f64| {
+                crate::world::ROAD_LINES
+                    .into_iter()
+                    .min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()))
+                    .unwrap_or(v)
+            };
+            if (snap(x) - x).abs() < (snap(z) - z).abs() {
+                sx = snap(x);
+            } else {
+                sz = snap(z);
+            }
+            let h = self.world.half - 12.0;
+            (sx, sz) = (sx.clamp(-h, h), sz.clamp(-h, h));
+        }
+        let mut world = std::mem::replace(&mut *self.world, World::empty());
+        let i = world.add_police_car(&mut self.build(), sx, sz, sh);
+        world.index_new();
+        *self.world = world;
+        self.game.police.set_unit(i, sh);
     }
 
     // ---------- events ----------
@@ -522,8 +898,8 @@ impl<'w, 's> Ctx<'w, 's> {
         self.game.weapons.clear();
         self.world.effects.clear();
         self.game.night = spec.night;
-        if self.world.map != spec.map || self.world.layout != spec.layout {
-            self.load_world(&spec.map, spec.layout);
+        if self.world.map != spec.map || self.world.layout != spec.layout || self.world.is_open() {
+            self.load_world(&spec.map, spec.layout, false);
             let found = self.game.career.found.clone();
             self.game.free_roam.load(&self.world, &found);
         } else {
@@ -652,7 +1028,8 @@ impl<'w, 's> Ctx<'w, 's> {
             self.game.night = false;
             self.world.set_night(false);
         }
-        if self.world.map != self.game.settings.map || self.world.layout != 0 {
+        let wants_open = self.game.settings.map == "city";
+        if self.world.map != self.game.settings.map || self.world.layout != 0 || self.world.is_open() != wants_open {
             self.load_map();
         } else {
             self.world.rebuild_all(1e6, 1e6, 0.0);
@@ -1129,6 +1506,17 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
         loaded_once: false,
         controls: Controls::default(),
         happened: Vec::new(),
+        on_foot: None,
+        own_car: None,
+        driving_other: false,
+        police: crate::police::Police::default(),
+        others: Vec::new(),
+        other_cars: Vec::new(),
+        player_hurt: 0.0,
+        loan: None,
+        in_town: None,
+        resume_due: 10.0,
+        hint_due: 0.0,
         settings,
     };
     if imported {
@@ -1165,11 +1553,46 @@ pub fn setup_game(mut commands: Commands, mut storage: ResMut<Storage>, mut pack
 pub fn load_and_build(mut ctx: Ctx) {
     if let Some((map, layout)) = ctx.game.load_map.take() {
         ctx.apply_settings();
-        ctx.load_world(&map, layout);
+        let night = ctx.game.settings.map_options(&map).night;
+        ctx.game.night = night;
+        ctx.load_world(&map, layout, true);
+        ctx.world.set_night(night);
         ctx.after_map();
         ctx.game.loaded_once = true;
         if ctx.game.mode == Mode::Menu {
             ctx.show_career_car();
+        }
+        // For checking the game unattended: start somewhere in the open world
+        // (CAR_GAME_AT=x,z or x,z,heading), and on foot (CAR_GAME_FOOT=1).
+        if let Ok(at) = std::env::var("CAR_GAME_AT") {
+            // Or `road:N:fraction` (on a highway) and `town:Name`.
+            let place = ctx.world.land.as_deref().and_then(|land| {
+                let parts: Vec<&str> = at.split(':').collect();
+                match parts.as_slice() {
+                    ["road", n, f] => {
+                        let r = land.roads.get(n.parse::<usize>().ok()?)?;
+                        let (x, z, h) = r.pose(r.length * f.parse::<f64>().ok()?, crate::land::LANE);
+                        Some(format!("{x},{z},{h}"))
+                    }
+                    ["town", name] => land
+                        .towns
+                        .iter()
+                        .find(|t| t.name.eq_ignore_ascii_case(name))
+                        .map(|t| format!("{},{},0", t.at.x - 6.0, t.at.y - t.half + 10.0)),
+                    _ => None,
+                }
+            });
+            let at = place.unwrap_or(at);
+            let n: Vec<f64> = at.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+            if n.len() >= 2 {
+                ctx.prepare_land(n[0], n[1], std::time::Duration::from_millis(1500));
+                ctx.place_car(n[0], n[1], n.get(2).copied().unwrap_or(0.0));
+                ctx.load_npcs();
+            }
+        }
+        if std::env::var("CAR_GAME_FOOT").as_deref() == Ok("1") {
+            ctx.rebuild_car(None);
+            ctx.get_out();
         }
         // For checking the game unattended: open a garage tab (CAR_GAME_GARAGE=updates).
         if let Some(tab) = std::env::var("CAR_GAME_GARAGE").ok().and_then(|t| crate::garage::tab_named(&t)) {
@@ -1247,6 +1670,15 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
         controls.car.throttle = 1.0;
         controls.car.steer = auto;
     }
+    // For checking the game unattended: hold fire (CAR_GAME_FIRE=1), on foot with the pistol (=pistol).
+    if let Ok(fire) = std::env::var("CAR_GAME_FIRE") {
+        controls.fire = true;
+        if fire == "pistol"
+            && let Some(me) = ctx.game.on_foot.as_mut()
+        {
+            me.weapon = crate::walk::Weapon::Pistol;
+        }
+    }
     ctx.game.controls = controls;
     if on_game && matches!(ctx.game.mode, Mode::Photo | Mode::Garage | Mode::Menu) && !ctx.game.menu.is_overlay() {
         let drag = if input.mouse.pressed(MouseButton::Left) || input.mouse.pressed(MouseButton::Right) {
@@ -1305,15 +1737,20 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
         update_event(&mut ctx, real_dt);
     } else if driving {
         let waiting = ctx.game.trial.active && ctx.game.trial.countdown > 0.0;
-        if !waiting {
-            drive(&mut ctx, dt, &controls);
-        }
-        if ctx.game.weapons.armed() && !waiting {
-            use_weapons(&mut ctx, dt, controls.fire);
+        if ctx.game.on_foot.is_some() {
+            walk(&mut ctx, dt, &controls);
+        } else {
+            if !waiting {
+                drive(&mut ctx, dt, &controls);
+            }
+            if ctx.game.weapons.armed() && !waiting {
+                use_weapons(&mut ctx, dt, controls.fire);
+            }
         }
         update_free_roam(&mut ctx, dt);
         update_npcs(&mut ctx, dt);
         update_time_trial(&mut ctx, real_dt);
+        land_frame(&mut ctx, dt);
     }
     for i in std::mem::take(&mut ctx.world.destroyed) {
         ctx.on_destroyed(i);
@@ -1370,16 +1807,25 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     );
     ctx.rig.update(real_dt as f32, pos, heading, speed, driving && boosting);
 
+    if ctx.world.is_open() {
+        // The camera never goes into the hillside.
+        let (cx, cz) = (ctx.rig.position.x as f64, ctx.rig.position.z as f64);
+        let floor = (ctx.world.height_at(cx, cz) + 0.5) as f32;
+        if ctx.rig.position.y < floor {
+            ctx.rig.position.y = floor;
+        }
+    }
     let p = &ctx.game.physics;
+    let in_car = driving && ctx.game.on_foot.is_none();
     let slip = if p.airborne { 0.0 } else { (p.lateral_speed.abs() / 7.0).min(1.0) };
-    let throttle = if driving { controls.car.throttle } else { 0.0 };
+    let throttle = if in_car { controls.car.throttle } else { 0.0 };
     ctx.sound.update(
         p.revs,
         p.speed_fraction(),
         throttle,
-        if driving { slip } else { 0.0 },
-        driving,
-        driving && p.limiter,
+        if in_car { slip } else { 0.0 },
+        in_car,
+        in_car && p.limiter,
     );
     while ctx.game.traffic.honks > 0 {
         ctx.game.traffic.honks -= 1;
@@ -1401,8 +1847,17 @@ pub fn frame(mut ctx: Ctx, input: Inputs, mut windows: Query<&mut Window, With<P
     }
 }
 
+/// Remembers where you were in the open world when the game closes.
+pub fn save_on_exit(mut exits: MessageReader<bevy::app::AppExit>, mut ctx: Ctx) {
+    if exits.read().next().is_some() {
+        ctx.save_resume();
+        ctx.storage.flush();
+    }
+}
+
 pub fn place_camera(
     rig: Res<CameraRig>,
+    world: Res<World>,
     mut game: ResMut<Game>,
     time: Res<Time<Real>>,
     mut camera: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
@@ -1419,7 +1874,11 @@ pub fn place_camera(
         p.fov = rig.fov.max(1.0).to_radians();
         p.near = 0.1 * (rig.size / 5.0).max(1.0);
         let reach = 40.0 * rig.size as f64 + game.car.as_ref().map_or(4.5, |c| c.length.max(c.height));
-        p.far = (game.settings.view_distance.max(reach * 1.5) + 200.0) as f32;
+        p.far = if world.is_open() {
+            3800.0
+        } else {
+            (game.settings.view_distance.max(reach * 1.5) + 200.0) as f32
+        };
     }
 }
 
@@ -1488,7 +1947,7 @@ pub fn handle_action(ctx: &mut Ctx, action: Action, windows: &mut Query<&mut Win
                 }
                 return;
             }
-            Action::Garage | Action::Trial | Action::SlowMo => {
+            Action::Garage | Action::Trial | Action::SlowMo | Action::EnterExit => {
                 ctx.toast("Not during an event · Esc to pause", 1600.0);
                 return;
             }
@@ -1505,10 +1964,12 @@ pub fn handle_action(ctx: &mut Ctx, action: Action, windows: &mut Query<&mut Win
             let m = ctx.rig.next_mode();
             ctx.toast(m.label(), 1600.0);
         }
+        Action::EnterExit => ctx.get_in_or_out(),
         Action::Reset => {
             if ctx.game.trial.active {
                 ctx.start_time_trial();
             } else {
+                ctx.back_in_own_car();
                 let s = ctx.world.spawn;
                 ctx.place_car(s.x, s.z, s.heading);
             }
@@ -1517,6 +1978,18 @@ pub fn handle_action(ctx: &mut Ctx, action: Action, windows: &mut Query<&mut Win
         Action::Photo => {
             ctx.set_mode(Mode::Photo);
             ctx.toast("Photo mode: drag to look around, Enter to save", 1600.0);
+        }
+        Action::Horn if ctx.game.on_foot.is_some() => {}
+        Action::Trial if ctx.game.on_foot.is_some() => ctx.toast("Get in a car first (F)", 1600.0),
+        Action::NextWeapon | Action::Weapon1 | Action::Weapon2 if ctx.game.on_foot.is_some() => {
+            use crate::walk::Weapon;
+            let me = ctx.game.on_foot.as_mut().unwrap();
+            me.weapon = match (action, me.weapon) {
+                (Action::Weapon1, _) | (Action::NextWeapon, Weapon::Pistol) => Weapon::Fists,
+                _ => Weapon::Pistol,
+            };
+            let name = me.weapon.name();
+            ctx.toast(name, 1000.0);
         }
         Action::Horn => {
             let horn = ctx.game.config.horn.clone();
@@ -1883,7 +2356,301 @@ fn update_npcs(ctx: &mut Ctx, dt: f64) {
         ctx.skill(SkillKind::NearMiss, points, Some("Near miss: traffic"));
         ctx.toast("Near miss!", 700.0);
     }
-    ctx.game.people.update(dt, near);
+    let walker = ctx.game.on_foot.as_ref().map(|m| m.pos);
+    let mut hurt = ctx.game.people.update(dt, near, walker);
+    // The police, unless Living City brings its own.
+    if ctx.packs.is_on("npc") {
+        if ctx.game.police.unit.is_some() || ctx.game.police.wanted > 0.0 {
+            let Ctx { game, world, .. } = &mut *ctx;
+            game.police.clear(world);
+        }
+    } else {
+        let p = &ctx.game.physics;
+        let (at, speed) = (DVec3::new(p.x, p.y, p.z), p.speed());
+        let reports = {
+            let Ctx { game, world, .. } = &mut *ctx;
+            game.police.update(dt, at, walker.is_some(), speed, world)
+        };
+        for r in reports {
+            use crate::police::Report;
+            match r {
+                Report::CallCar(x, z, h) => ctx.call_police_car(x, z, h),
+                Report::Busted(fine) => {
+                    let fine = fine.min(ctx.game.career.coins).max(0.0);
+                    ctx.game.career.coins -= fine;
+                    ctx.save_career();
+                    let text = if fine > 0.0 {
+                        format!("The police fined you 💰 {}", thousands(fine))
+                    } else {
+                        "You got off with a warning this time.".to_string()
+                    };
+                    ctx.game.popup("🚓", "Busted!", text);
+                    ctx.sound.chime(false);
+                }
+                Report::Lost => ctx.toast("You lost the police", 2200.0),
+                Report::Siren => ctx.sound.horn("air"),
+                Report::Shot => ctx.sound.gunshot(),
+            }
+        }
+        hurt += std::mem::take(&mut ctx.game.police.damage);
+    }
+    hurt += std::mem::take(&mut ctx.game.player_hurt);
+    if hurt > 0.0
+        && let Some(me) = ctx.game.on_foot.as_mut()
+    {
+        let out = me.hurt(hurt);
+        ctx.game.shake = ctx.game.shake.max(0.12);
+        ctx.sound.crash(3.0);
+        if out {
+            ctx.toast("You were knocked out", 3000.0);
+        }
+    }
+    // Someone lent you their car: it's parked beside you.
+    if let Some(name) = ctx.game.loan.take() {
+        let p = &ctx.game.physics;
+        let (h, x, z) = (p.heading, p.x, p.z);
+        let (sx, sz) = (x + h.cos() * 3.5, z - h.sin() * 3.5);
+        let mut world = std::mem::replace(&mut *ctx.world, World::empty());
+        world.add_parked_car(&mut ctx.build(), sx, sz, h);
+        world.index_new();
+        *ctx.world = world;
+        ctx.toast(format!("{name} lent you their car · F to get in"), 2600.0);
+    }
+}
+
+/// You on foot: walking, and fists or the pistol.
+fn walk(ctx: &mut Ctx, dt: f64, controls: &Controls) {
+    let Some(mut me) = ctx.game.on_foot.take() else { return };
+    let was_down = me.knocked > 0.0;
+    me.step(dt, &controls.car, &ctx.world);
+    let v = me.velocity();
+    let p = &mut ctx.game.physics;
+    (p.x, p.y, p.z, p.vx, p.vy, p.vz) = (me.pos.x, me.pos.y, me.pos.z, v.x, 0.0, v.y);
+    p.heading = me.heading;
+    p.forward_speed = me.speed;
+    p.lateral_speed = 0.0;
+    p.airborne = me.airborne;
+    p.boosting = false;
+    p.revs = 0.0;
+    p.pitch = 0.0;
+    p.ground_roll = 0.0;
+    let woke = was_down && me.knocked <= 0.0;
+    ctx.game.on_foot = Some(me);
+    if woke {
+        // You wake up at the hospital, back in your car at the start.
+        ctx.back_in_own_car();
+        let s = ctx.world.spawn;
+        ctx.place_car(s.x, s.z, s.heading);
+        {
+            let Ctx { game, world, .. } = &mut *ctx;
+            game.police.clear(world);
+        }
+        ctx.game
+            .popup("🏥", "You woke up in the hospital", "Back on your feet, and back in your car.");
+        return;
+    }
+    if controls.fire {
+        attack(ctx);
+    }
+}
+
+/// A punch or a pistol shot, on foot.
+fn attack(ctx: &mut Ctx) {
+    use crate::packs::Happening;
+    use crate::walk::Weapon;
+    let Some(me) = ctx.game.on_foot.clone() else { return };
+    if me.cooldown > 0.0 || me.knocked > 0.0 {
+        return;
+    }
+    let map = ctx.world.map.clone();
+    if !ctx.game.settings.map_options(&map).fighting {
+        if ctx.game.real_clock > ctx.game.hint_due {
+            ctx.game.hint_due = ctx.game.real_clock + 5.0;
+            ctx.toast("Fighting is off · Garage → Maps", 1800.0);
+        }
+        return;
+    }
+    let forward = me.forward();
+    let no_pack_police = !ctx.packs.is_on("npc");
+    let mut struck: Vec<(DVec3, bool)> = Vec::new();
+    match me.weapon {
+        Weapon::Fists => {
+            if let Some(m) = ctx.game.on_foot.as_mut() {
+                m.cooldown = 0.45;
+                m.punching = 0.3;
+            }
+            let at = me.pos + DVec3::Y * 1.2;
+            let (reach, damage) = (1.5, 34.0);
+            for h in ctx.game.people.strike(at, forward, reach, damage) {
+                struck.push((h.at, h.knocked_out));
+            }
+            for (o_at, out) in ctx.game.police.strike(at, forward, reach, damage) {
+                struck.push((o_at, out));
+                if no_pack_police {
+                    ctx.game.police.crime(if out { 1.5 } else { 0.8 });
+                }
+            }
+            for o in ctx.game.others.clone() {
+                let to = DVec2::new(o.at.x - at.x, o.at.z - at.z);
+                let d = to.length();
+                if !o.down && d < reach && (d < 0.3 || to.dot(forward) / d > 0.35) {
+                    ctx.game.happened.push(Happening::Struck {
+                        owner: o.owner,
+                        index: o.index,
+                        damage,
+                        x: o.at.x,
+                        z: o.at.z,
+                        gun: false,
+                    });
+                    struck.push((o.at, false));
+                }
+            }
+            if !struck.is_empty() {
+                ctx.sound.crash(2.5);
+            }
+        }
+        Weapon::Pistol => {
+            if let Some(m) = ctx.game.on_foot.as_mut() {
+                m.cooldown = 0.32;
+                m.aiming = 1.4;
+            }
+            let origin = me.pos + DVec3::Y * 1.45 + DVec3::new(forward.x, 0.0, forward.y) * 0.45;
+            let (range, cone) = (45.0, 0.94);
+            let mut aim = ctx.game.people.aim_at(me.pos, forward, range, cone);
+            for candidate in [
+                ctx.game.police.aim_at(me.pos, forward, range, cone),
+                ctx.game
+                    .others
+                    .iter()
+                    .filter(|o| !o.down)
+                    .filter_map(|o| {
+                        let to = DVec2::new(o.at.x - me.pos.x, o.at.z - me.pos.z);
+                        let d = to.length();
+                        (d > 0.5 && d < range && to.dot(forward) / d >= cone).then_some((d, o.at + DVec3::Y * 1.25))
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .map(|b| b.1),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if aim.is_none_or(|a| a.distance(me.pos) > candidate.distance(me.pos)) {
+                    aim = Some(candidate);
+                }
+            }
+            let dir = match aim {
+                Some(target) => (target - origin).normalize_or_zero(),
+                None => DVec3::new(forward.x, -0.03, forward.y).normalize(),
+            };
+            let max = 90.0;
+            let wall = ctx.world.raycast(origin, dir, max);
+            let wall_at = wall.map_or(max, |w| w.distance);
+            let bot = ctx.game.people.shoot(origin, dir, wall_at);
+            let cop = ctx.game.police.shoot(origin, dir, wall_at);
+            let other = ctx
+                .game
+                .others
+                .iter()
+                .filter(|o| !o.down)
+                .filter_map(|o| {
+                    crate::pedestrians::person_hit(origin, dir, o.at, 1.0)
+                        .filter(|&t| t <= wall_at)
+                        .map(|t| (*o, t))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let nearest = [bot.map(|b| b.1), cop.map(|c| c.1), other.map(|o| o.1)]
+                .into_iter()
+                .flatten()
+                .fold(f64::INFINITY, f64::min);
+            let damage = 55.0;
+            let end;
+            if nearest < f64::INFINITY {
+                end = origin + dir * nearest;
+                if let Some((i, t)) = bot
+                    && t == nearest
+                {
+                    let out = ctx.game.people.hurt(i, damage, DVec2::new(me.pos.x, me.pos.z));
+                    struck.push((ctx.game.people.position(i), out));
+                } else if let Some((i, t)) = cop
+                    && t == nearest
+                {
+                    let out = ctx.game.police.shot(i, damage);
+                    struck.push((end, out));
+                    if no_pack_police {
+                        ctx.game.police.crime(if out { 2.0 } else { 1.0 });
+                    }
+                } else if let Some((o, _)) = other {
+                    ctx.game.happened.push(Happening::Struck {
+                        owner: o.owner,
+                        index: o.index,
+                        damage,
+                        x: o.at.x,
+                        z: o.at.z,
+                        gun: true,
+                    });
+                    struck.push((o.at, false));
+                }
+                ctx.world.effects.bullet_hit(end, false);
+            } else if let Some(hit) = wall {
+                end = hit.point;
+                ctx.world.apply_hit(&hit, 14.0, dir);
+                ctx.world.effects.bullet_hit(end, hit.ground);
+            } else {
+                end = origin + dir * max;
+            }
+            ctx.world.effects.muzzle_flash(origin, dir);
+            ctx.world.effects.tracer(origin, end);
+            ctx.sound.gunshot();
+            ctx.game.happened.push(Happening::Gunshot { x: me.pos.x, z: me.pos.z });
+            ctx.game.people.alarm(me.pos.x, me.pos.z, 60.0, 0.0);
+            if no_pack_police && ctx.game.people.aim_at(me.pos, forward, 40.0, -1.0).is_some() {
+                ctx.game.police.crime(0.35);
+            }
+        }
+    }
+    for (at, out) in struck {
+        ctx.game.happened.push(Happening::Assault {
+            x: at.x,
+            z: at.z,
+            knocked_out: out,
+        });
+        ctx.game.people.alarm(at.x, at.z, 35.0, 12.0);
+        if no_pack_police {
+            ctx.game.police.crime(if out { 1.0 } else { 0.5 });
+        }
+        if out {
+            ctx.toast("Knocked out!", 900.0);
+        }
+    }
+}
+
+/// The open world each frame: builds what's near, welcomes you to towns,
+/// and keeps where you are saved.
+fn land_frame(ctx: &mut Ctx, dt: f64) {
+    if !ctx.world.is_open() {
+        return;
+    }
+    let p = &ctx.game.physics;
+    let (x, z) = (p.x, p.z);
+    ctx.prepare_land(x, z, std::time::Duration::from_millis(3));
+    let town = ctx
+        .world
+        .land
+        .as_deref()
+        .and_then(|l| l.town_at(x, z, 0.0).map(|t| (t, l.towns[t].label())));
+    match town {
+        Some((t, name)) if ctx.game.in_town != Some(t) => {
+            ctx.game.in_town = Some(t);
+            ctx.toast(format!("Welcome to {name}"), 2200.0);
+        }
+        None => ctx.game.in_town = None,
+        _ => {}
+    }
+    ctx.game.resume_due -= dt;
+    if ctx.game.resume_due <= 0.0 {
+        ctx.game.resume_due = 10.0;
+        ctx.save_resume();
+    }
 }
 
 /// Launch control: throttle in the last 0.6 s of the countdown is a perfect start; too early spins the wheels.
@@ -2495,6 +3262,21 @@ mod tests {
                     handle_action(ctx, Action::Camera, windows);
                     assert_ne!(ctx.rig.mode, previous_camera);
                 }
+
+                // In free roam, out of the car and back in.
+                ctx.menu_action(MenuAction::FreeRoam);
+                assert!(ctx.world.is_open(), "free roam in the city is the open world");
+                ctx.rebuild_car(None);
+                ctx.game.physics.vx = 0.0;
+                ctx.game.physics.vz = 0.0;
+                ctx.get_in_or_out();
+                assert!(ctx.game.on_foot.is_some() && ctx.game.car.is_none());
+                let own = ctx.game.own_car.expect("your car stays parked");
+                assert!(ctx.world.targets[own].alive && ctx.world.targets[own].rig.is_some());
+                ctx.get_in_or_out();
+                assert!(ctx.game.on_foot.is_none() && ctx.game.car.is_some() && ctx.game.own_car.is_none());
+                assert!(ctx.game.driving_garage_build && !ctx.game.driving_other);
+                assert!(ctx.world.targets[own].rig.is_none());
 
                 ctx.menu_action(MenuAction::PlayLevel(Box::new(career::make_level(1))));
                 ctx.pause_event();

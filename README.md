@@ -1,7 +1,9 @@
 # Car Game
 
 A 3D driving game. Race AI rivals through a 100-level career, set up quick races
-with any car, or build your car in the garage and drive anywhere in free roam.
+with any car, or build your car in the garage and drive anywhere in free roam: out
+of the city and along the highways to other towns, through mountains, desert,
+lakes and forest. Get out and walk, take any car, and fight if you want to.
 
 ## Download
 
@@ -65,8 +67,9 @@ be switched off at any time.
 - **Real Physics** adds suspension, individual tire grip and temperatures, a
   powertrain model, crash damage and driving aids, with a telemetry panel while you drive.
 - **Living City** adds residents who work, meet, drive and remember what happens
-  around them, plus messages, a city journal and police pursuits. Press K near
-  someone to talk and L to open the journal. The built-in brain works offline.
+  around them, plus messages, a city journal and police pursuits. In the open
+  world they drive out to other towns, and remember what you do to them on foot.
+  Press K near someone to talk and L to open the journal. The built-in brain works offline.
   An optional Qwen model can be downloaded in the Packs tab and runs on your computer.
 
 ## Build from source
@@ -167,7 +170,9 @@ lines and an announcer finish it off. Each can be turned off in Settings.
 Eight venues, each with its own main track. Any other track number makes a new
 generated track, so there are endless tracks for the career and quick races:
 
-- **City:** streets, parks, a parking lot and a stunt park full of ramps and cones.
+- **City:** streets, parks, a parking lot and a stunt park full of ramps and
+  cones. In free roam it's the heart of a huge open world (see below); events
+  use the city on its own.
 - **Grand Prix circuit:** a twisty 2 km race track with fast sweepers, a
   hairpin, esses and a chicane. It has red and white curbs, barriers,
   grandstands full of fans, floodlights, and a paddock with pit garages and
@@ -206,6 +211,50 @@ blow it up for points, or skim past for a near miss. **Pedestrians** walk the
 sidewalks, leap out of your way (nobody gets hurt), run from explosions, and
 cheer your big jumps. Set the traffic from Off to Busy, or turn pedestrians off,
 in Settings.
+
+## The open world
+
+In free roam, the City map is a 10 km square world. Highways leave the city on
+all four sides and wind out to 24 other places: towns, villages and crossroads
+with filling stations. Each direction has its own country: snowy mountains to the
+north (Snowcap), red desert mesas to the east (Red Rock), lakes to the south
+(Harbor Lake, Willow Bay) and pine forest to the west (Pinewood), with farmland,
+wind farms and barns in between. Every town has its own people on the sidewalks
+and traffic on its main streets. The made map ends in a ring of mountains.
+
+Garage → Maps has the City's own options:
+
+- **Generative map** (off at first): drive past the edge and new towns, highways
+  and country are made as you go, forever. The same spot always looks the same.
+- **Start where I left off** (on at first): the game remembers where you were,
+  whether you were on foot, which car you were in and the time of day.
+  Off starts you at the city's start line.
+- **Fighting people** (on at first): turn it off to keep your hands to yourself.
+
+Every map also has **Start at night** and **Weather** (its own, clear, rain or snow).
+
+**On foot.** Press F (D-pad up) to get out of the car. Walk with W and S, turn
+with A and D, run with Shift and jump with Space. Your car stays parked where you
+left it. Press F next to any car to take it: your own, a parked one, or one in
+traffic (its driver jumps out and runs). Other people's cars drive the way they
+were built.
+
+**Fighting.** On foot, punch with E or a left click (1), or press 2 for a pistol
+that aims at the nearest person in front of you. People are knocked out, never
+killed, and get up again a while later. Most run; some fight back. Fighting,
+gunfire and taking cars from their drivers make you wanted, up to five stars: a
+patrol car comes, officers chase you on foot, and at three stars they shoot back.
+Stand still next to one and you're busted and fined. Get far enough away and you
+lose them. If you're knocked out, you wake up in the hospital, back in your car.
+
+With **Living City** on, its residents live in the city but go where they like,
+and sometimes drive out to another town for the day. They remember being hit,
+tell their friends, hold grudges, and report you to Buddy, the city's police
+officer, who chases you instead of the patrol cars. Knock one out and they wake up
+in the hospital and are home the next day. Take their car and they won't forget
+it; ask first (K to talk, then "Ask to borrow a car") and a friend may lend you one.
+With **Photo Real** on, the open world gets the real sky, light and reflections
+on the lakes.
 
 Every map hides **gold wrenches** (68 in all; look for the beams of light, and
 some need a jump) and has **challenges**: speed cameras, drift zones and jump

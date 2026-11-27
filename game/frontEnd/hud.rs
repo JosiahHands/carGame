@@ -163,83 +163,138 @@ pub fn hud(mut contexts: EguiContexts, game: Res<Game>, world: Res<World>) -> Re
                 );
             }
         }
-        area("speedo", egui::Align2::RIGHT_BOTTOM, [-20.0, -20.0]).show(ctx, |ui| {
-            panel_frame().show(ui, |ui| {
-                ui.set_min_width(200.0);
-                // Boosts: drift sparks, slipstream and turbo.
-                let mut tags = Vec::new();
-                if game.spark_tier > 0 {
-                    let names = ["BLUE", "ORANGE", "PURPLE"];
-                    tags.push((
-                        format!(
-                            "{}{} {}",
-                            "●".repeat(game.spark_tier),
-                            "○".repeat(3 - game.spark_tier),
-                            names[game.spark_tier - 1]
-                        ),
-                        hex([0x4fb3ff, 0xff9f40, 0xc77dff][game.spark_tier - 1]),
-                    ));
-                }
-                if p.draft > 0.3 {
-                    tags.push((format!("SLIPSTREAM {}%", (p.draft * 100.0).round()), hex(0x7af0ff)));
-                }
-                if p.turbo > 0.0 {
-                    tags.push(("TURBO".into(), hex(0xffd23f)));
-                }
-                if !tags.is_empty() {
-                    ui.horizontal(|ui| {
-                        for (t, c) in tags {
-                            ui.label(RichText::new(t).size(12.0).strong().color(c));
-                        }
-                    });
-                }
-                ui.horizontal(|ui| {
+        // Wanted by the police.
+        let stars = game.police.stars();
+        if stars > 0 {
+            area("wanted", egui::Align2::CENTER_TOP, [0.0, 14.0]).show(ctx, |ui| {
+                panel_frame().show(ui, |ui| {
                     ui.label(
-                        RichText::new(format!("{}", game.speed_in_units(p.speed()).round()))
-                            .size(54.0)
+                        RichText::new(format!("🚓 {}{}", "★".repeat(stars), "☆".repeat(5 - stars.min(5))))
+                            .size(20.0)
                             .strong()
-                            .color(Color32::WHITE),
+                            .color(GOLD),
                     );
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(game.unit()).size(16.0).color(Color32::LIGHT_GRAY));
-                        let gear_color = if game.gear_refused > 0.0 {
-                            hex(0xff5050)
-                        } else if p.manual {
-                            GOLD
+                });
+            });
+        }
+        if let Some(me) = &game.on_foot {
+            area("onfoot", egui::Align2::RIGHT_BOTTOM, [-20.0, -20.0]).show(ctx, |ui| {
+                panel_frame().show(ui, |ui| {
+                    ui.set_min_width(200.0);
+                    ui.label(RichText::new("ON FOOT").size(12.0).strong().color(Color32::LIGHT_GRAY));
+                    ui.label(RichText::new("HEALTH").size(11.0).color(Color32::GRAY));
+                    let health = (me.hp / crate::walk::HEALTH) as f32;
+                    bar(ui, health, if health < 0.3 { hex(0xff4040) } else { hex(0x5fd16a) }, 180.0);
+                    let fighting = game.settings.map_options(&world.map).fighting;
+                    ui.label(
+                        RichText::new(if fighting {
+                            format!("{} · 1 fists · 2 pistol", me.weapon.name())
                         } else {
-                            Color32::WHITE
-                        };
-                        ui.label(RichText::new(gear_text(p)).size(26.0).strong().color(gear_color));
+                            "Fighting is off".into()
+                        })
+                        .size(12.0)
+                        .color(Color32::WHITE),
+                    );
+                });
+            });
+            let near_car = world.targets.iter().any(|t| {
+                t.kind == crate::world::TargetKind::Car
+                    && t.alive
+                    && t.rig
+                        .as_ref()
+                        .is_some_and(|r| (t.x - me.pos.x).hypot(t.z - me.pos.z) < r.length.max(r.width) / 2.0 + 1.8)
+            }) || game.other_cars.iter().any(|c| (c.at.x - me.pos.x).hypot(c.at.z - me.pos.z) < 4.0);
+            if near_car && me.knocked <= 0.0 {
+                area("getin", egui::Align2::CENTER_BOTTOM, [0.0, -70.0]).show(ctx, |ui| {
+                    panel_frame().show(ui, |ui| {
+                        ui.label(RichText::new("F · Get in").size(16.0).strong().color(Color32::WHITE));
                     });
                 });
-                let revs = p.revs.clamp(0.0, 1.0) as f32;
-                let revs_color = if shift_light(p) {
-                    hex(0xff2828)
-                } else if revs > 0.75 {
-                    hex(0xff963c)
-                } else {
-                    hex(0x78c8ff)
-                };
-                bar(ui, revs, revs_color, 180.0);
-                ui.add_space(4.0);
-                ui.label(RichText::new("NITRO").size(11.0).color(Color32::GRAY));
-                bar(ui, p.nitro as f32, if p.boosting { hex(0x8ce6ff) } else { hex(0x4fb3ff) }, 180.0);
-                if game.weapons.armed() {
+            }
+            if me.knocked > 0.0 {
+                let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("knocked")));
+                let alpha = ((3.5 - me.knocked).clamp(0.0, 1.0) * 220.0) as u8;
+                painter.rect_filled(ctx.viewport_rect(), 0.0, Color32::from_rgba_unmultiplied(10, 10, 14, alpha));
+            }
+        } else {
+            area("speedo", egui::Align2::RIGHT_BOTTOM, [-20.0, -20.0]).show(ctx, |ui| {
+                panel_frame().show(ui, |ui| {
+                    ui.set_min_width(200.0);
+                    // Boosts: drift sparks, slipstream and turbo.
+                    let mut tags = Vec::new();
+                    if game.spark_tier > 0 {
+                        let names = ["BLUE", "ORANGE", "PURPLE"];
+                        tags.push((
+                            format!(
+                                "{}{} {}",
+                                "●".repeat(game.spark_tier),
+                                "○".repeat(3 - game.spark_tier),
+                                names[game.spark_tier - 1]
+                            ),
+                            hex([0x4fb3ff, 0xff9f40, 0xc77dff][game.spark_tier - 1]),
+                        ));
+                    }
+                    if p.draft > 0.3 {
+                        tags.push((format!("SLIPSTREAM {}%", (p.draft * 100.0).round()), hex(0x7af0ff)));
+                    }
+                    if p.turbo > 0.0 {
+                        tags.push(("TURBO".into(), hex(0xffd23f)));
+                    }
+                    if !tags.is_empty() {
+                        ui.horizontal(|ui| {
+                            for (t, c) in tags {
+                                ui.label(RichText::new(t).size(12.0).strong().color(c));
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("{}", game.speed_in_units(p.speed()).round()))
+                                .size(54.0)
+                                .strong()
+                                .color(Color32::WHITE),
+                        );
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(game.unit()).size(16.0).color(Color32::LIGHT_GRAY));
+                            let gear_color = if game.gear_refused > 0.0 {
+                                hex(0xff5050)
+                            } else if p.manual {
+                                GOLD
+                            } else {
+                                Color32::WHITE
+                            };
+                            ui.label(RichText::new(gear_text(p)).size(26.0).strong().color(gear_color));
+                        });
+                    });
+                    let revs = p.revs.clamp(0.0, 1.0) as f32;
+                    let revs_color = if shift_light(p) {
+                        hex(0xff2828)
+                    } else if revs > 0.75 {
+                        hex(0xff963c)
+                    } else {
+                        hex(0x78c8ff)
+                    };
+                    bar(ui, revs, revs_color, 180.0);
                     ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("{} · {}", game.weapons.selected + 1, game.weapons.name()))
-                            .size(12.0)
-                            .color(Color32::WHITE),
-                    );
-                    bar(
-                        ui,
-                        game.weapons.readiness() as f32,
-                        if game.weapons.overheated { hex(0xff4040) } else { hex(0xffb347) },
-                        180.0,
-                    );
-                }
+                    ui.label(RichText::new("NITRO").size(11.0).color(Color32::GRAY));
+                    bar(ui, p.nitro as f32, if p.boosting { hex(0x8ce6ff) } else { hex(0x4fb3ff) }, 180.0);
+                    if game.weapons.armed() {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("{} · {}", game.weapons.selected + 1, game.weapons.name()))
+                                .size(12.0)
+                                .color(Color32::WHITE),
+                        );
+                        bar(
+                            ui,
+                            game.weapons.readiness() as f32,
+                            if game.weapons.overheated { hex(0xff4040) } else { hex(0xffb347) },
+                            180.0,
+                        );
+                    }
+                });
             });
-        });
+        }
         // The skill chain.
         if game.chain.count > 0 || (game.chain_shown > 0.0 && game.chain_end.is_some()) {
             area("chain", egui::Align2::LEFT_CENTER, [16.0, 40.0]).show(ctx, |ui| {
@@ -517,8 +572,11 @@ pub const HELP: &[&str] = &[
     "X / Z  change gear (manual)",
     "C  camera   R  reset   T  time trial   B  slow motion",
     "G  garage   P  photo mode   N  night   V  horn",
-    "M  sound   F  fullscreen   H  this help   Esc  menu",
-    "Controller: triggers drive, A handbrake, B nitro, RB fire",
+    "M  sound   F11  fullscreen   H  this help   Esc  menu",
+    "F  get out of the car, or into the nearest one (free roam)",
+    "On foot: W S walk, A D turn, Shift run, Space jump",
+    "   E or click  punch or shoot   1 fists   2 pistol",
+    "Controller: triggers drive, A handbrake, B nitro, RB fire, D-pad up get in/out",
 ];
 
 pub mod minimap {
@@ -582,6 +640,32 @@ pub mod minimap {
             for &line in &ROAD_LINES {
                 painter.add(quad(line, 0.0, ROAD_WIDTH, len, 0.0, hex(0x2b2d31)));
                 painter.add(quad(0.0, line, len, ROAD_WIDTH, 0.0, hex(0x2b2d31)));
+            }
+        }
+        if let Some(land) = world.land.as_deref() {
+            // The open world: highways, and the towns' streets.
+            let asphalt = hex(0x2b2d31);
+            for r in land.roads_near(x, z, range * 1.6) {
+                let road = &land.roads[r];
+                let pts: Vec<Pos2> = road
+                    .points
+                    .iter()
+                    .step_by(3)
+                    .filter(|p| near(p.x, p.z, 30.0))
+                    .map(|p| to_screen(p.x, p.z))
+                    .collect();
+                if pts.len() > 1 {
+                    painter.add(Shape::line(pts, Stroke::new((crate::land::ROAD_WIDTH * ppm) as f32, asphalt)));
+                }
+            }
+            for t in &land.towns {
+                if t.size == crate::land::Size::City || !near(t.at.x, t.at.y, t.half + 20.0) {
+                    continue;
+                }
+                for &l in &t.lines {
+                    painter.add(quad(t.at.x + l, t.at.y, ROAD_WIDTH, t.half * 2.0, 0.0, asphalt));
+                    painter.add(quad(t.at.x, t.at.y + l, t.half * 2.0, ROAD_WIDTH, 0.0, asphalt));
+                }
             }
         }
         if let Some(track) = &world.track {

@@ -1503,6 +1503,46 @@ pub mod garage {
         changed
     }
 
+    /// The chosen map's own options. Most rebuild the map; fighting and
+    /// starting where you left off only change the settings.
+    fn map_options(ui: &mut egui::Ui, s: &mut Settings, out: &mut Vec<GarageAction>) {
+        let map = s.map.clone();
+        let label = crate::venues::venue(&map).label;
+        heading(ui, &format!("{label} options"));
+        let mut o = s.map_options(&map);
+        let before = o.clone();
+        let mut reload = false;
+        if map == "city" {
+            reload |= on_off(ui, "Generative map", &mut o.generative);
+            hint(
+                ui,
+                "Off: the map is 10 km across, ringed by mountains. On: keep driving past the edge and new towns, roads and country are made as you go, forever (the same every time).",
+            );
+            on_off(ui, "Start where I left off", &mut o.resume);
+            hint(ui, "Off: you start at the city's start line each time.");
+            on_off(ui, "Fighting people", &mut o.fighting);
+            hint(
+                ui,
+                "On foot (F gets in and out of cars), punch with E or a click, and 2 for the pistol. People are knocked out, never killed, and the police come.",
+            );
+        }
+        reload |= on_off(ui, "Start at night", &mut o.night);
+        reload |= choice(
+            ui,
+            "Weather",
+            &[("auto", "This map's own"), ("clear", "Clear"), ("rain", "Rain"), ("snow", "Snow")],
+            &mut o.weather,
+        );
+        if o != before {
+            s.maps.insert(map, o);
+            out.push(if reload {
+                GarageAction::MapChanged
+            } else {
+                GarageAction::SettingsChanged
+            });
+        }
+    }
+
     fn on_off(ui: &mut egui::Ui, label: &str, value: &mut bool) -> bool {
         let mut changed = false;
         ui.horizontal(|ui| {
@@ -1727,6 +1767,7 @@ pub mod garage {
                     ui,
                     "Press T while driving for a timed lap. Beat your best and a ghost of that lap races you next time.",
                 );
+                map_options(ui, s, out);
                 return;
             }
             Tab::Body => {

@@ -101,7 +101,15 @@ def cases(full):
         "packs": ["npc", "physics"],
     }
     yield "same-map-stunt", {"env": {"CAR_GAME_LEVEL": "quick:stunt:city", "CAR_GAME_AUTOPILOT": "0"}}
+    city = {"CAR_GAME_MODE": "drive", "CAR_GAME_MAP": "city"}
+    yield "on-foot-pistol", {"env": city | {"CAR_GAME_FOOT": "1", "CAR_GAME_FIRE": "pistol"}}
     if full:
+        yield "open-world-highway", {"env": city | {"CAR_GAME_AT": "road:1:0.5", "CAR_GAME_AUTOPILOT": "0"}}
+        yield "open-world-town", {"env": city | {"CAR_GAME_AT": "town:Red Rock", "CAR_GAME_AUTOPILOT": "0"}, "packs": ["npc"]}
+        yield "generative-map", {
+            "env": city | {"CAR_GAME_AT": "9000,300,1.57", "CAR_GAME_AUTOPILOT": "0"},
+            "settings": {"maps": {"city": {"generative": True, "weather": "rain"}}},
+        }
         for venue in MAPS:
             yield f"drive-{venue}", {"env": {"CAR_GAME_MODE": "drive", "CAR_GAME_MAP": venue, "CAR_GAME_AUTOPILOT": "0"}}
         for event, venue in EVENTS.items():

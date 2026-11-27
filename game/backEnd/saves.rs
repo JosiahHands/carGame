@@ -241,6 +241,50 @@ pub mod settings {
         /// install it. Off unless the player turns it on (Garage → Updates).
         #[serde(default)]
         pub auto_update: bool,
+        /// New in 1.4.0: each map's own options (Garage → Maps), by map name.
+        #[serde(default)]
+        pub maps: std::collections::BTreeMap<String, MapOptions>,
+    }
+
+    /// A map's own options, on the Maps tab.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct MapOptions {
+        /// Start the map at night.
+        pub night: bool,
+        /// "auto" (the venue's own) | "clear" | "rain" | "snow"
+        pub weather: String,
+        /// City: past the made map, more land is made as you drive, forever.
+        pub generative: bool,
+        /// City: start where you left off (otherwise at the start).
+        pub resume: bool,
+        /// City: you can fight people on foot.
+        pub fighting: bool,
+    }
+
+    impl Default for MapOptions {
+        fn default() -> Self {
+            MapOptions {
+                night: false,
+                weather: "auto".into(),
+                generative: false,
+                resume: true,
+                fighting: true,
+            }
+        }
+    }
+
+    impl MapOptions {
+        /// The weather this picks, if not the venue's own.
+        pub fn weather_choice(&self) -> Option<crate::venues::Weather> {
+            use crate::venues::Weather;
+            match self.weather.as_str() {
+                "clear" => Some(Weather::Clear),
+                "rain" => Some(Weather::Rain),
+                "snow" => Some(Weather::Snow),
+                _ => None,
+            }
+        }
     }
 
     impl Default for Settings {
@@ -266,6 +310,7 @@ pub mod settings {
                 pedestrians: true,
                 quality: String::new(),
                 auto_update: false,
+                maps: std::collections::BTreeMap::new(),
             }
         }
     }
@@ -311,6 +356,11 @@ pub mod settings {
         pub fn is_mph(&self) -> bool {
             self.units == "mph"
         }
+
+        /// A map's own options (the defaults until changed).
+        pub fn map_options(&self, map: &str) -> MapOptions {
+            self.maps.get(map).cloned().unwrap_or_default()
+        }
     }
 
     /// Shadow map size, and how many meters around the car get shadows.
@@ -336,8 +386,23 @@ pub mod settings {
     pub fn load_settings(storage: &Storage) -> Settings {
         let defaults = Settings::default();
         let mut merged = serde_json::to_value(&defaults).expect("JSON");
-        if let (Some(saved), Some(target)) = (storage.get_json(STORAGE_KEY), merged.as_object_mut()) {
+        let saved = storage.get_json(STORAGE_KEY);
+        let mut maps = std::collections::BTreeMap::new();
+        // Each map's options are read on their own, so one broken entry can't spoil the rest.
+        if let Some(entries) = saved.as_ref().and_then(|s| s.get("maps")).and_then(Value::as_object) {
+            for (map, options) in entries {
+                if MAP_NAMES.contains(&map.as_str())
+                    && let Ok(o) = serde_json::from_value::<MapOptions>(options.clone())
+                {
+                    maps.insert(map.clone(), o);
+                }
+            }
+        }
+        if let (Some(saved), Some(target)) = (saved, merged.as_object_mut()) {
             for (key, value) in saved.as_object().into_iter().flatten() {
+                if key == "maps" {
+                    continue;
+                }
                 // Only keep saved values of the right type, so a broken save can't break the game.
                 let same_type = matches!(
                     (target.get(key), value),
@@ -351,6 +416,12 @@ pub mod settings {
             }
         }
         let mut s: Settings = serde_json::from_value(merged).unwrap_or_default();
+        for o in maps.values_mut() {
+            if !["auto", "clear", "rain", "snow"].contains(&o.weather.as_str()) {
+                o.weather = "auto".into();
+            }
+        }
+        s.maps = maps;
         let clamp = |v: f64, min: f64, max: f64| if v == 0.0 || v.is_nan() { min } else { v.clamp(min, max) };
         s.resolution = clamp(s.resolution, 0.5, 1.0);
         s.view_distance = clamp(s.view_distance, 150.0, 600.0);
@@ -381,6 +452,30 @@ pub mod settings {
 
     pub fn save_settings(storage: &mut Storage, settings: &Settings) {
         storage.set_json(STORAGE_KEY, settings);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn each_maps_options_are_kept_and_a_broken_one_is_dropped() {
+            let mut storage = Storage::in_memory();
+            storage.set(
+                STORAGE_KEY,
+                r#"{"map":"city","maps":{"city":{"generative":true,"weather":"rain"},"oval":{"night":"yes"},"nowhere":{"night":true},"canyon":{"weather":"hail"}}}"#,
+            );
+            let s = load_settings(&storage);
+            let city = s.map_options("city");
+            assert!(city.generative && city.resume && city.fighting);
+            assert_eq!(city.weather_choice(), Some(crate::venues::Weather::Rain));
+            assert_eq!(s.map_options("oval"), MapOptions::default());
+            assert!(!s.maps.contains_key("nowhere"));
+            assert_eq!(s.map_options("canyon").weather, "auto");
+            let mut again = Storage::in_memory();
+            save_settings(&mut again, &s);
+            assert_eq!(load_settings(&again).maps, s.maps);
+        }
     }
 }
 

@@ -1936,6 +1936,35 @@ pub mod freeroam {
     use crate::text::thousands;
     use crate::world::{BlockKind, HALF_SIZE, ROAD_LINES, World};
 
+    /// Where you were in the open world when you left it, for "Start where
+    /// I left off" (Garage → Maps).
+    #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Resume {
+        pub x: f64,
+        pub z: f64,
+        pub heading: f64,
+        pub on_foot: bool,
+        /// The car you were in, if it wasn't your own garage build.
+        pub car: Option<crate::config::CarConfig>,
+        pub night: bool,
+    }
+
+    const RESUME_KEY: &str = "carGame.cityResume.v1";
+
+    impl Resume {
+        pub fn load(storage: &crate::storage::Storage) -> Option<Resume> {
+            storage
+                .get_json(RESUME_KEY)
+                .and_then(|v| serde_json::from_value::<Resume>(v).ok())
+                .filter(|r| r.x.is_finite() && r.z.is_finite() && r.heading.is_finite())
+        }
+
+        pub fn save(&self, storage: &mut crate::storage::Storage) {
+            storage.set_json(RESUME_KEY, self);
+        }
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ZoneKind {
         Speed,

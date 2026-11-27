@@ -11,12 +11,13 @@ use cast::mind;
 use city::{map, roads, visual};
 
 use bevy::app::AppExit;
+use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy_egui::EguiPrimaryContextPass;
 use game::GameSet;
 use game::audio::Sound;
 use game::game::{Game, Mode};
-use game::packs::{PackInfo, PackOption, Packs, RegisterPack};
+use game::packs::{Happening, Other, OtherCar, PackInfo, PackOption, Packs, RegisterPack};
 use game::storage::Storage;
 use game::world::{HitBox, World};
 
@@ -222,6 +223,8 @@ fn simulate(
         city.active = false;
     }
     if !wanted {
+        game.others.retain(|o| o.owner != ID);
+        game.other_cars.retain(|o| o.owner != ID);
         return;
     }
 
@@ -229,6 +232,7 @@ fn simulate(
         city.active = true;
         city.generation = world.generation;
         city.map = map::CityMap::build(&world);
+        city.towns = out_of_town(&world);
         city.place_residents();
         for (i, n) in city.residents.iter_mut().enumerate() {
             n.entity = Some(visual::spawn_resident(&mut commands, &mut visuals, &mut materials, n.member, i));
@@ -267,6 +271,24 @@ fn simulate(
             game.toast("Pull up near someone to talk · L opens the journal", 2000.0);
         }
     }
+    // The driver, on foot, hit someone, or took a resident's car.
+    for event in game.happened.clone() {
+        match event {
+            Happening::Struck {
+                owner: ID,
+                index,
+                damage,
+                gun,
+                ..
+            } if index < city.residents.len() => {
+                city.struck(index, damage, gun, &mut game);
+            }
+            Happening::CarTaken {
+                owner: Some(ID), index, ..
+            } => city.car_taken(index, &mut game),
+            _ => {}
+        }
+    }
     let dt = time.delta_secs_f64().min(0.1) * if game.slow_motion { game::game::SLOW_MOTION } else { 1.0 };
     let everywhere = packs.string(ID, "think", "everywhere") == "everywhere";
     let chases = packs.string(ID, "chases", "on") == "on";
@@ -278,6 +300,28 @@ fn simulate(
     city.tick(dt, &mut game, &mut storage, &mut ai, everywhere);
     world.hit_boxes.retain(|h| h.owner != POLICE_OWNER);
     city.police(dt, &mut game, &sound, &world, &mut ai, everywhere, chases);
+    // The residents and their cars, for the driver's fists and bullets, and to take.
+    let now = city.clock;
+    game.others.retain(|o| o.owner != ID);
+    game.other_cars.retain(|o| o.owner != ID);
+    for (i, n) in city.residents.iter().enumerate() {
+        if !n.hidden(now) {
+            game.others.push(Other {
+                owner: ID,
+                index: i,
+                at: DVec3::new(n.at.x, world.height_at(n.at.x, n.at.y), n.at.y),
+                down: n.down_until > now,
+            });
+        }
+    }
+    for t in &city.trips {
+        game.other_cars.push(OtherCar {
+            owner: ID,
+            index: t.driver,
+            at: DVec3::new(t.at.x, world.height_at(t.at.x, t.at.y), t.at.y),
+            heading: t.heading,
+        });
+    }
     if let Some(chase) = &city.chase {
         world.hit_boxes.push(HitBox {
             x: chase.at.x,
@@ -292,6 +336,26 @@ fn simulate(
     if storage.dirty {
         storage.flush();
     }
+}
+
+/// The towns residents can drive out to, and the highways there (the open world only).
+fn out_of_town(world: &World) -> Vec<city::OutOfTown> {
+    let Some(land) = world.land.as_deref() else { return Vec::new() };
+    land.towns
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| matches!(t.size, game::land::Size::Town | game::land::Size::Village))
+        .filter(|(_, t)| t.at.length() < game::land::MAP_HALF)
+        .filter_map(|(i, t)| {
+            let route = land.route(0, i)?;
+            Some(city::OutOfTown {
+                name: t.name.clone(),
+                at: t.at,
+                half: t.half,
+                route,
+            })
+        })
+        .collect()
 }
 
 fn sync_vehicles(
@@ -544,6 +608,7 @@ mod ui {
         let mut open = true;
         let mut send = false;
         let mut ride = false;
+        let mut lend = false;
         let passenger = city.passenger.is_none();
         let thinking = city.chat_pending(who);
         let chat = city.chat.as_mut().expect("chat is open");
@@ -583,8 +648,15 @@ mod ui {
                     let enter = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     send = ui.add_enabled(!thinking, egui::Button::new("Send")).clicked() || (enter && !thinking);
                 });
-                if passenger && chat.contact == Contact::Beside && is_friend(&resident.mind) {
-                    ride = ui.button("Offer a ride").clicked();
+                if chat.contact == Contact::Beside {
+                    ui.horizontal(|ui| {
+                        if passenger && is_friend(&resident.mind) && game.on_foot.is_none() {
+                            ride = ui.button("Offer a ride").clicked();
+                        }
+                        if game.on_foot.is_some() {
+                            lend = ui.button("Ask to borrow a car").clicked();
+                        }
+                    });
                 }
             });
         if send {
@@ -592,6 +664,9 @@ mod ui {
         }
         if ride {
             city.offer_ride(who, game);
+        }
+        if lend {
+            city.lend_car(who, game);
         }
         if !open {
             city.chat = None;

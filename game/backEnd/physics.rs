@@ -542,7 +542,9 @@ impl CarPhysics {
         };
         let giant = self.height >= GIANT_HEIGHT;
         let direction = DVec3::new(self.vx, 0.0, self.vz).normalize_or_zero();
-        let (near_circles, near_walls) = world.nearby(self.x, self.z, self.length.max(self.width) / 2.0 + 1.0);
+        let reach = self.length.max(self.width) / 2.0 + 1.0;
+        let (near_circles, near_walls) = world.nearby(self.x, self.z, reach);
+        let near_boxes = world.boxes_near(self.x, self.z, reach);
         let mut impact = 0.0;
         let mut hit = |lost: f64, target: Option<usize>, events: &mut StepEvents| {
             if lost > impact {
@@ -562,12 +564,12 @@ impl CarPhysics {
             let across = spread(k / along_count, across_count, across_room);
             let cx = self.x + fx * along + fz * across;
             let cz = self.z + fz * along - fx * across;
-            for bi in 0..world.boxes.len() {
+            for &bi in &near_boxes {
                 let b = world.boxes[bi];
                 if !b.solid {
                     continue;
                 }
-                if b.target.is_some() && self.y > b.height {
+                if (b.target.is_some() || b.base != 0.0) && (self.y > b.base + b.height || self.y + self.height < b.base) {
                     continue;
                 }
                 let px = cx.clamp(b.min_x, b.max_x);
@@ -609,7 +611,7 @@ impl CarPhysics {
             }
             for &ci in &near_circles {
                 let c = world.circles[ci];
-                if !c.solid || self.y > c.height {
+                if !c.solid || self.y > c.base + c.height || self.y + self.height.max(1.0) < c.base {
                     continue;
                 }
                 let dx = cx - c.x;
