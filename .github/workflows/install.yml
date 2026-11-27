@@ -1,0 +1,167 @@
+# Runs the README's install commands exactly as written (Bash, PowerShell and
+# Command Prompt) and checks each one both installs the latest release and
+# updates an existing installation. The scripts are fetched from the commit
+# being tested rather than main, so a change is checked before it's merged.
+name: Install commands
+
+on:
+  pull_request:
+    paths: [README.md, 'tools/install.*', tools/update.sh, .github/workflows/install.yml]
+  push:
+    branches: [main]
+    paths: [README.md, 'tools/install.*', tools/update.sh, .github/workflows/install.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  REF: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  windows:
+    name: Windows (PowerShell, Command Prompt, Git Bash)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the commands from the README
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/commands"
+          grep -m1 '^curl -fsSL .*/tools/install\.sh | bash$' README.md | sed "s#/main/#/$REF/#" > "$RUNNER_TEMP/commands/bash.sh"
+          grep -m1 '^irm .*/tools/install\.ps1 | iex$' README.md | sed "s#/main/#/$REF/#" > "$RUNNER_TEMP/commands/powershell.ps1"
+          grep -m1 '^powershell -NoProfile .*/tools/install\.ps1 | iex"$' README.md | sed "s#/main/#/$REF/#" > "$RUNNER_TEMP/commands/prompt.bat"
+          for f in "$RUNNER_TEMP"/commands/*; do [ -s "$f" ] || { echo "No command for $f in README.md"; exit 1; }; cat "$f"; done
+          echo "LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName | sed 's/^v//')" >> "$GITHUB_ENV"
+      - name: Check helpers
+        shell: pwsh
+        run: |
+          @'
+          param([string]$Shell)
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.JosiahHands.CarGame_is1'
+          $version = (Get-ItemProperty $key).DisplayVersion
+          if ($version -ne $env:LATEST) { throw "$Shell left version '$version' installed, not $env:LATEST" }
+          $dir = "$env:LOCALAPPDATA\Programs\Car Game"
+          foreach ($f in 'car-game.exe', 'icon.ico', 'assets') { if (-not (Test-Path "$dir\$f")) { throw "$Shell left $dir\$f missing" } }
+          $menu = [Environment]::GetFolderPath('Programs')
+          if (-not (Test-Path "$menu\Car Game.lnk")) { throw "$Shell made no Start menu shortcut" }
+          if (Test-Path "$menu\Car Game") { throw "$Shell left the old Start menu folder" }
+          Write-Host "$Shell installed Car Game $version"
+          '@ | Set-Content "$env:RUNNER_TEMP\verify.ps1"
+          @'
+          $dir = "$env:LOCALAPPDATA\Programs\Car Game"
+          if (Test-Path "$dir\unins000.exe") { Start-Process "$dir\unins000.exe" '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait }
+          # The uninstaller hands over to a copy of itself and returns early.
+          for ($i = 0; $i -lt 120 -and (Test-Path "$dir\car-game.exe"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$dir\car-game.exe") { throw 'Car Game did not uninstall' }
+          '@ | Set-Content "$env:RUNNER_TEMP\uninstall.ps1"
+
+      # An update from the previous release, which put its shortcut in a folder.
+      - name: Install the previous release
+        shell: pwsh
+        run: |
+          $previous = gh release list --repo $env:GITHUB_REPOSITORY --json tagName -q '.[1].tagName'
+          gh release download $previous --repo $env:GITHUB_REPOSITORY -p Car-Game-Windows-Setup.exe -D $env:RUNNER_TEMP\previous
+          Start-Process "$env:RUNNER_TEMP\previous\Car-Game-Windows-Setup.exe" '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.JosiahHands.CarGame_is1').DisplayVersion
+      - name: Windows PowerShell updates the previous release
+        shell: powershell
+        run: |
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP\commands\powershell.ps1" -Raw)
+          & "$env:RUNNER_TEMP\verify.ps1" 'Windows PowerShell (update)'
+
+      - name: Windows PowerShell installs
+        shell: powershell
+        run: |
+          & "$env:RUNNER_TEMP\uninstall.ps1"
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP\commands\powershell.ps1" -Raw)
+          & "$env:RUNNER_TEMP\verify.ps1" 'Windows PowerShell (install)'
+      - name: PowerShell 7 installs and updates
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP\uninstall.ps1"
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP\commands\powershell.ps1" -Raw)
+          & "$env:RUNNER_TEMP\verify.ps1" 'PowerShell 7 (install)'
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP\commands\powershell.ps1" -Raw)
+          & "$env:RUNNER_TEMP\verify.ps1" 'PowerShell 7 (update)'
+
+      - name: Clear for Command Prompt
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\uninstall.ps1"'
+      - name: Command Prompt installs and updates
+        shell: cmd
+        run: |
+          call "%RUNNER_TEMP%\commands\prompt.bat" || exit /b 1
+          pwsh -NoProfile -File "%RUNNER_TEMP%\verify.ps1" "Command Prompt (install)" || exit /b 1
+          call "%RUNNER_TEMP%\commands\prompt.bat" || exit /b 1
+          pwsh -NoProfile -File "%RUNNER_TEMP%\verify.ps1" "Command Prompt (update)" || exit /b 1
+
+      - name: Clear for Git Bash
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\uninstall.ps1"'
+      - name: Git Bash installs and updates
+        shell: bash
+        run: |
+          bash "$RUNNER_TEMP/commands/bash.sh"
+          pwsh -NoProfile -File "$RUNNER_TEMP/verify.ps1" 'Git Bash (install)'
+          bash "$RUNNER_TEMP/commands/bash.sh"
+          pwsh -NoProfile -File "$RUNNER_TEMP/verify.ps1" 'Git Bash (update)'
+
+  unix:
+    name: ${{ matrix.name }} (Bash, PowerShell)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, name: macOS }
+          - { os: ubuntu-latest, name: Linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the commands from the README
+        run: |
+          mkdir -p "$RUNNER_TEMP/commands"
+          grep -m1 '^curl -fsSL .*/tools/install\.sh | bash$' README.md | sed "s#/main/#/$REF/#" > "$RUNNER_TEMP/commands/bash.sh"
+          grep -m1 '^irm .*/tools/install\.ps1 | iex$' README.md | sed "s#/main/#/$REF/#" > "$RUNNER_TEMP/commands/powershell.ps1"
+          for f in "$RUNNER_TEMP"/commands/*; do [ -s "$f" ] || { echo "No command for $f in README.md"; exit 1; }; cat "$f"; done
+          echo "LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName | sed 's/^v//')" >> "$GITHUB_ENV"
+          cat > "$RUNNER_TEMP/verify.sh" <<'EOF'
+          set -eu
+          if [ "$(uname -s)" = Darwin ]; then
+              app="$HOME/Applications/Car Game.app"
+              version=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString)
+              [ "$version" = "$LATEST" ] || { echo "$1 left version $version installed, not $LATEST"; exit 1; }
+              [ -x "$app/Contents/MacOS/car-game" ] || { echo "$1 left no game"; exit 1; }
+          else
+              dir="$HOME/.local/share/Car Game"
+              [ -x "$dir/car-game" ] || { echo "$1 left no game"; exit 1; }
+              grep -q "Exec=\"$dir/car-game\"" "$HOME/.local/share/applications/car-game.desktop" || { echo "$1 made no menu entry"; exit 1; }
+          fi
+          echo "$1 installed Car Game"
+          EOF
+          cat > "$RUNNER_TEMP/uninstall.sh" <<'EOF'
+          rm -rf "$HOME/Applications/Car Game.app" "$HOME/.local/share/Car Game" "$HOME/.local/share/applications/car-game.desktop"
+          EOF
+      - name: Bash installs and updates
+        shell: bash
+        run: |
+          bash "$RUNNER_TEMP/uninstall.sh"
+          bash "$RUNNER_TEMP/commands/bash.sh"
+          bash "$RUNNER_TEMP/verify.sh" 'Bash (install)'
+          bash "$RUNNER_TEMP/commands/bash.sh"
+          bash "$RUNNER_TEMP/verify.sh" 'Bash (update)'
+      - name: PowerShell installs and updates
+        shell: pwsh
+        run: |
+          bash "$env:RUNNER_TEMP/uninstall.sh"
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP/commands/powershell.ps1" -Raw)
+          bash "$env:RUNNER_TEMP/verify.sh" 'PowerShell (install)'
+          if ($LASTEXITCODE) { exit 1 }
+          Invoke-Expression (Get-Content "$env:RUNNER_TEMP/commands/powershell.ps1" -Raw)
+          bash "$env:RUNNER_TEMP/verify.sh" 'PowerShell (update)'
+          if ($LASTEXITCODE) { exit 1 }

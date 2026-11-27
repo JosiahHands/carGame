@@ -28,16 +28,32 @@ aren't signed by Apple or Microsoft, so the first time:
 
 ## Install or update
 
-Run this command in Bash, PowerShell, or Command Prompt. It installs the
-latest release or updates an existing installation without setup questions.
+Paste the command for your terminal. Each one installs the latest release, or
+updates the game if it's already installed, without any setup questions. Run it
+again any time to update.
+
+**Bash** (Mac, Linux, or Git Bash on Windows):
 
 ```bash
-bash -o pipefail -c "curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.sh | bash"
+curl -fsSL https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.sh | bash
 ```
 
-On Windows, the command uses 64-bit [Git for Windows](https://gitforwindows.org/).
-For PowerShell or Command Prompt, make sure `bash` resolves to Git's `bash.exe`,
-usually in `C:\Program Files\Git\bin`. Press H in the game to see the controls.
+**PowerShell** (Windows):
+
+```powershell
+irm https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.ps1 | iex
+```
+
+**Command Prompt** (Windows):
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/JosiahHands/carGame/main/tools/install.ps1 | iex"
+```
+
+The game goes in Applications on a Mac, `~/.local/share/Car Game` on Linux, and
+your user's Programs folder on Windows, with a Start menu shortcut. On Windows
+a running game is closed before it's updated. You can also update from
+**Garage → Updates**. Press H in the game to see the controls.
 
 ## Packs
 
