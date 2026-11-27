@@ -111,6 +111,17 @@ jobs:
           WGPU_FORCE_FALLBACK_ADAPTER: '1'
         run: |
           $install = Join-Path $env:RUNNER_TEMP 'car-game-test'
+          # An update over older versions: 1.2.x's shortcuts (Start menu and
+          # Desktop) and 1.3.0/1.3.1's Start menu folder must be replaced, not duplicated.
+          $shell = New-Object -ComObject WScript.Shell
+          $programs = [Environment]::GetFolderPath('Programs')
+          $desktop = [Environment]::GetFolderPath('Desktop')
+          New-Item -ItemType Directory -Force (Join-Path $programs 'Car Game') | Out-Null
+          foreach ($old in @((Join-Path $programs 'Car Game.lnk'), (Join-Path $desktop 'Car Game.lnk'), (Join-Path $programs 'Car Game\Car Game.lnk'))) {
+            $link = $shell.CreateShortcut($old)
+            $link.TargetPath = "$env:WINDIR\notepad.exe"
+            $link.Save()
+          }
           $installer = Start-Process -Wait -PassThru -FilePath 'upload/Car-Game-Windows-Setup.exe' -ArgumentList @(
             '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`""
           )
@@ -120,6 +131,14 @@ jobs:
           $portable = Join-Path $env:RUNNER_TEMP 'car-game-portable/Car Game/car-game.exe'
           if ((Get-FileHash $exe).Hash -ne (Get-FileHash $portable).Hash) { throw 'Installed and portable executables differ' }
           if (!(Test-Path "$install/assets/packs/photo_real/libs/car-models/cars.glb")) { throw 'Installer omitted Photo Real assets' }
+          if (Test-Path (Join-Path $programs 'Car Game')) { throw 'The 1.3.0/1.3.1 Start menu folder is still there' }
+          foreach ($path in @((Join-Path $programs 'Car Game.lnk'), (Join-Path $desktop 'Car Game.lnk'))) {
+            $link = $shell.CreateShortcut($path)
+            if ($link.TargetPath -ne (Resolve-Path $exe).Path) { throw "$path points at $($link.TargetPath)" }
+            if ($link.IconLocation -notlike '*icon.ico*') { throw "$path has no icon ($($link.IconLocation))" }
+          }
+          $found = @(Get-ChildItem $programs -Recurse -Filter 'Car Game*.lnk')
+          if ($found.Count -ne 1) { throw "Expected one Start menu shortcut, found: $($found.FullName -join ', ')" }
           python tools/packaging/smoke.py $exe qa --timeout 480
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4

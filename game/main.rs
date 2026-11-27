@@ -5,9 +5,10 @@
 // errors still show while developing).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
-use bevy::window::{PresentMode, WindowResolution};
+use bevy::window::{PresentMode, PrimaryWindow, WindowResolution};
 
 fn main() -> AppExit {
     App::new()
@@ -32,6 +33,7 @@ fn main() -> AppExit {
                     ..default()
                 }),
         )
+        .add_systems(Update, window_icon)
         .add_plugins(game::GamePlugin)
         .add_plugins((
             real_physics::RealPhysicsPack,
@@ -39,4 +41,26 @@ fn main() -> AppExit {
             living_city::LivingCityPack,
         ))
         .run()
+}
+
+/// Gives the game's window its icon, once the window is open: Windows shows
+/// it in the taskbar and Alt+Tab, Linux in its task switcher. (On macOS the
+/// app bundle's icon is used instead.)
+fn window_icon(_main_thread: NonSendMarker, window: Query<Entity, With<PrimaryWindow>>, mut done: Local<bool>) {
+    if *done || cfg!(target_os = "macos") {
+        return;
+    }
+    let Ok(entity) = window.single() else { return };
+    bevy::winit::WINIT_WINDOWS.with_borrow(|windows| {
+        let Some(window) = windows.get_window(entity) else { return };
+        *done = true;
+        let Ok(image) = image::load_from_memory_with_format(include_bytes!("frontEnd/icons/icon.png"), image::ImageFormat::Png) else {
+            return;
+        };
+        let image = image.resize(256, 256, image::imageops::FilterType::Triangle).into_rgba8();
+        let (width, height) = image.dimensions();
+        if let Ok(icon) = winit::window::Icon::from_rgba(image.into_raw(), width, height) {
+            window.set_window_icon(Some(icon));
+        }
+    });
 }

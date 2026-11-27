@@ -2205,9 +2205,11 @@ version = "1.3.2"
 dependencies = [
  "bevy",
  "game",
+ "image",
  "living_city",
  "photo_real",
  "real_physics",
+ "winit",
 ]
 
 [[package]]
