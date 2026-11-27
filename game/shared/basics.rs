@@ -568,6 +568,8 @@ pub mod dev {
     const SAVE_FRAMES: u32 = 5;
     /// Frames to wait before trying again after a blank picture.
     const RETRY_FRAMES: u32 = 30;
+    /// Frames to wait before retrying a capture that never returned a picture.
+    const MISSING_RETRY_FRAMES: u32 = 120;
     /// Frames to wait for a picture at most (software renderers can take a
     /// long time to compile their shaders), before giving up with an error.
     const GIVE_UP_FRAMES: u32 = 3000;
@@ -640,9 +642,10 @@ pub mod dev {
         }
         if shot.saved_at.is_none() && shot.blank.swap(false, Ordering::Relaxed) {
             info!("The picture was blank (still preparing to draw): trying again");
-            shot.next_try = shot.frame + RETRY_FRAMES;
+            shot.next_try = shot.next_try.min(shot.frame + RETRY_FRAMES);
         }
         if shot.frame == shot.next_try && shot.saved_at.is_none() {
+            shot.next_try += MISSING_RETRY_FRAMES;
             let mut save = save_to_disk(shot.path.clone());
             let blank = shot.blank.clone();
             commands
@@ -679,5 +682,32 @@ pub mod dev {
     /// `steer` (-1..1), to see the car moving in screenshots.
     pub fn autopilot() -> Option<f64> {
         std::env::var("CAR_GAME_AUTOPILOT").ok().and_then(|v| v.parse().ok())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn retries_when_the_renderer_never_returns_a_screenshot() {
+            let mut app = App::new();
+            app.insert_resource(ScreenshotThenQuit {
+                path: std::path::PathBuf::new(),
+                frame: 0,
+                capture_at: 1,
+                next_try: 1,
+                blank: Arc::new(AtomicBool::new(false)),
+                saved_at: None,
+            })
+            .add_systems(Update, screenshot_then_quit);
+
+            for _ in 0..=MISSING_RETRY_FRAMES {
+                app.update();
+            }
+
+            let world = app.world_mut();
+            assert_eq!(world.query::<&Screenshot>().iter(world).count(), 2);
+            assert_eq!(world.resource::<ScreenshotThenQuit>().next_try, 1 + 2 * MISSING_RETRY_FRAMES);
+        }
     }
 }

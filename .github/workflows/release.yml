@@ -41,7 +41,7 @@ jobs:
               exit 1
             fi
             echo "publish=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$HEAD_REF" != "features/v$version" ]]; then
+          elif [[ "$HEAD_REF" != "features/v$version" && "$HEAD_REF" != "fix/v$version-"* ]]; then
             exit 0
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -92,6 +92,7 @@ jobs:
           name: game-${{ matrix.platform }}
           path: upload/*
           if-no-files-found: error
+          overwrite: true
       - name: Test the Windows installer and run the installed game
         if: runner.os == 'Windows'
         shell: pwsh
@@ -119,6 +120,7 @@ jobs:
             qa/*/frame.png
             qa/*/game.log
           if-no-files-found: ignore
+          overwrite: true
 
   smoke-linux:
     # The AppImage is built on Ubuntu 22.04, so it runs on that and newer
@@ -156,6 +158,7 @@ jobs:
             qa/*/frame.png
             qa/*/game.log
           if-no-files-found: ignore
+          overwrite: true
 
   release:
     name: Publish the release
