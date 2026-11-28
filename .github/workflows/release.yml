@@ -99,7 +99,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $install = Join-Path $env:RUNNER_TEMP 'car-game-test'
+          $install = Join-Path $env:RUNNER_TEMP 'Car Game update test'
           # An update over older versions: 1.2.x's shortcuts (Start menu and
           # Desktop) and 1.3.0/1.3.1's Start menu folder must be replaced, not duplicated.
           $shell = New-Object -ComObject WScript.Shell
@@ -111,8 +111,9 @@ jobs:
             $link.TargetPath = "$env:WINDIR\notepad.exe"
             $link.Save()
           }
+          # Match the extended drive path passed by the v1.4.0 in-game updater.
           $installer = Start-Process -Wait -PassThru -FilePath 'upload/Car-Game-Windows-Setup.exe' -ArgumentList @(
-            '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$install`""
+            '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=\\?\$install`""
           )
           if ($installer.ExitCode -ne 0) { throw "Installer returned $($installer.ExitCode)" }
           Expand-Archive 'upload/Car-Game-Windows.zip' -DestinationPath (Join-Path $env:RUNNER_TEMP 'car-game-portable')
