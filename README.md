@@ -312,5 +312,18 @@ limit yourself, and turn on the FPS counter to see the difference.
 Set the workspace version in `Cargo.toml` and include the matching version
 (for example, `v1.3.1`) in the merge commit on `main`. The Native release
 workflow builds the six packages and publishes them together on GitHub Releases.
-A pull request from a matching branch such as `features/v1.3.1` also builds the
-packages as workflow artifacts.
+
+## Testing locally
+
+Run `python3 tools/test.py` on macOS or Linux, or `py -3 tools/test.py` on
+Windows. It checks formatting, runs Clippy and the Rust tests, then plays every
+smoke case on the current computer. Screenshots and logs are saved under
+`builds/test-runs/`. Use `--quick` for the four basic cases or `--jobs 1` if
+your computer runs one game more reliably than two at once.
+
+Run the same command on each system you want to test. To test a packaged
+download directly, pass its executable and a fresh output folder to
+`tools/packaging/smoke.py`. Try installer changes in a clean user account or
+VM, checking both a fresh install and an update with existing saves.
+GitHub runs a single final safety check for pull requests. It builds the
+downloads only when releasing a new version from `main`.
