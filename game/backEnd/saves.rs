@@ -1420,7 +1420,7 @@ pub mod updates {
             size: Option<u64>,
         },
         Installing(String),
-        /// Installed: the game closes, and the new version starts.
+        /// Ready to close and hand off to the new version or Windows Setup.
         Restarting(String),
         Failed(String),
     }
@@ -1443,11 +1443,6 @@ pub mod updates {
     enum Launch {
         Program(PathBuf),
         MacApp(PathBuf),
-        /// The new version's installer, which starts the game when it's done.
-        WindowsSetup {
-            setup: PathBuf,
-            dir: PathBuf,
-        },
     }
 
     static LAUNCH: Mutex<Option<Launch>> = Mutex::new(None);
@@ -1514,7 +1509,7 @@ pub mod updates {
             match install(&version, self) {
                 Ok(launch) => {
                     if let Ok(mut l) = LAUNCH.lock() {
-                        *l = Some(launch);
+                        *l = launch;
                     }
                     self.set(Status::Restarting(version));
                 }
@@ -1694,9 +1689,9 @@ pub mod updates {
         }
     }
 
-    /// Downloads `version` and puts it in place of this copy (on Windows, gets
-    /// its installer ready); then says what to start.
-    fn install(version: &str, updater: &Updater) -> Result<Launch, String> {
+    /// On Windows, starts Setup, which waits for this copy to save and exit.
+    /// Elsewhere, replaces this copy and returns the program to start on exit.
+    fn install(version: &str, updater: &Updater) -> Result<Option<Launch>, String> {
         let installed = installation()
             .ok_or("This copy of the game was built from the source code, so it can't update itself. Download the new version instead.")?;
         let download = |name: &str, file: &Path| -> Result<(), String> {
@@ -1738,7 +1733,7 @@ pub mod updates {
                 .arg("-f")
                 .arg(&app)
                 .output();
-                Ok(Launch::MacApp(app))
+                Ok(Some(Launch::MacApp(app)))
             }
             Install::LinuxFolder(folder) => {
                 let stage = Stage::next_to(&folder)?;
@@ -1755,7 +1750,7 @@ pub mod updates {
                 make_runnable(&new.join("car-game"));
                 make_runnable(&new.join("car-game-bin"));
                 replace(&folder, &new, &stage)?;
-                Ok(Launch::Program(folder.join("car-game")))
+                Ok(Some(Launch::Program(folder.join("car-game"))))
             }
             Install::AppImage(image) => {
                 let new = image.with_file_name(".car-game-update.AppImage");
@@ -1766,16 +1761,38 @@ pub mod updates {
                 if result.is_err() {
                     let _ = std::fs::remove_file(&new);
                 }
-                result.map(|()| Launch::Program(image))
+                result.map(|()| Some(Launch::Program(image)))
             }
             Install::Windows(dir) => {
                 let folder = std::env::temp_dir().join("car-game-update");
                 std::fs::create_dir_all(&folder).map_err(|e| format!("Couldn't download the update ({e})."))?;
                 let setup = folder.join("Car-Game-Windows-Setup.exe");
                 download("Car-Game-Windows-Setup.exe", &setup)?;
-                Ok(Launch::WindowsSetup { setup, dir })
+                // Report a launch failure while the game is still open.
+                windows_setup(&setup, &dir, &folder.join("setup.log"))
+                    .spawn()
+                    .map_err(|e| format!("Couldn't start the Windows installer: {e}"))?;
+                Ok(None)
             }
         }
+    }
+
+    fn windows_setup(setup: &Path, dir: &Path, log: &Path) -> Command {
+        let path_arg = |prefix, path: &Path| {
+            let mut arg = std::ffi::OsString::from(prefix);
+            arg.push(path);
+            arg
+        };
+        let mut command = Command::new(setup);
+        command
+            .args(["/SP-", "/VERYSILENT", "/NORESTART", "/NORESTARTAPPLICATIONS", "/LAUNCH=1"])
+            .arg(format!("/CAR_GAME_PID={}", std::process::id()))
+            .arg(path_arg("/DIR=", dir))
+            .arg(path_arg("/LOG=", log))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command
     }
 
     /// Checks for an update as the game starts, when the player has asked for that.
@@ -1786,7 +1803,7 @@ pub mod updates {
         }
     }
 
-    /// Closes the game once an update is installed; [`start_new_version`] then starts it.
+    /// Closes the game when the update is installed or Windows Setup is ready.
     pub fn close_when_installed(updater: Res<Updater>, mut exit: MessageWriter<AppExit>, mut sent: Local<bool>) {
         if !*sent && matches!(updater.status(), Status::Restarting(_)) {
             *sent = true;
@@ -1806,19 +1823,6 @@ pub mod updates {
                 c.arg("-n").arg(app);
                 c
             }
-            Launch::WindowsSetup { setup, dir } => {
-                let mut c = Command::new(setup);
-                c.args([
-                    "/SP-",
-                    "/VERYSILENT",
-                    "/SUPPRESSMSGBOXES",
-                    "/NORESTART",
-                    "/CLOSEAPPLICATIONS",
-                    "/LAUNCH=1",
-                ])
-                .arg(format!("/DIR={}", dir.display()));
-                c
-            }
         };
         if let Err(e) = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
             eprintln!("Couldn't start the new version ({launch:?}): {e}");
@@ -1828,6 +1832,19 @@ pub mod updates {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn windows_setup_gets_the_current_game_pid_and_paths() {
+            let dir = Path::new(r"\\?\C:\My Games\Car Game");
+            let command = windows_setup(Path::new("Setup.exe"), dir, Path::new(r"C:\My Logs\setup.log"));
+            let pid = format!("/CAR_GAME_PID={}", std::process::id());
+            let args: Vec<_> = command.get_args().collect();
+            assert!(args.contains(&std::ffi::OsStr::new(&pid)));
+            assert!(args.contains(&std::ffi::OsStr::new(r"/DIR=\\?\C:\My Games\Car Game")));
+            assert!(args.contains(&std::ffi::OsStr::new(r"/LOG=C:\My Logs\setup.log")));
+            assert!(args.contains(&std::ffi::OsStr::new("/LAUNCH=1")));
+            assert!(!args.contains(&std::ffi::OsStr::new("/SUPPRESSMSGBOXES")));
+        }
 
         #[test]
         fn compares_versions_by_number() {
