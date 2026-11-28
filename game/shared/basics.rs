@@ -561,6 +561,58 @@ pub mod packs {
             z: f64,
             points: f64,
         },
+        /// On foot, the player punched or shot one of a pack's people (see `Other`).
+        Struck {
+            owner: &'static str,
+            index: usize,
+            damage: f64,
+            x: f64,
+            z: f64,
+            gun: bool,
+        },
+        /// The player attacked someone (anyone) at (x, z).
+        Assault {
+            x: f64,
+            z: f64,
+            knocked_out: bool,
+        },
+        /// The player fired a gun on foot.
+        Gunshot {
+            x: f64,
+            z: f64,
+        },
+        /// The player took a car: one of a pack's (`owner`, `index`, see
+        /// `OtherCar`), or a car in the world. `occupied` if someone was driving it.
+        CarTaken {
+            owner: Option<&'static str>,
+            index: usize,
+            x: f64,
+            z: f64,
+            occupied: bool,
+        },
+    }
+
+    /// One of a pack's people, so the player's fists and bullets can find
+    /// them (packs fill `Game.others` each frame).
+    #[derive(Clone, Copy, Debug)]
+    pub struct Other {
+        pub owner: &'static str,
+        pub index: usize,
+        /// Where their feet are.
+        pub at: bevy::math::DVec3,
+        /// Knocked down (fists and bullets go past).
+        pub down: bool,
+    }
+
+    /// A car a pack is driving, that the player can take (`Game.other_cars`).
+    #[derive(Clone, Debug)]
+    pub struct OtherCar {
+        pub owner: &'static str,
+        pub index: usize,
+        pub at: bevy::math::DVec3,
+        pub heading: f64,
+        /// How it looks and drives, once it's yours.
+        pub config: crate::config::CarConfig,
     }
 }
 

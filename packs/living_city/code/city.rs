@@ -98,6 +98,17 @@ pub struct Resident {
     last_talk: f64,
     last_reaction: f64,
     evade: Option<(DVec2, f64)>,
+    /// How hurt they are (100 knocks them out).
+    pub hurt: f64,
+    /// Lying knocked out until then, and in the hospital until then.
+    pub down_until: f64,
+    pub hospital_until: f64,
+    /// Fighting the driver back until then.
+    fighting_until: f64,
+    punch_due: f64,
+    /// Visiting another town (an index into `City::towns`), until then.
+    pub away: Option<usize>,
+    away_until: f64,
 }
 
 impl Resident {
@@ -121,7 +132,24 @@ impl Resident {
             last_talk: -100.0,
             last_reaction: -100.0,
             evade: None,
+            hurt: 0.0,
+            down_until: 0.0,
+            hospital_until: 0.0,
+            fighting_until: 0.0,
+            punch_due: 0.0,
+            away: None,
+            away_until: 0.0,
         }
+    }
+
+    /// Out of sight: asleep, in a car, or in the hospital.
+    pub fn hidden(&self, now: f64) -> bool {
+        self.asleep || self.in_car || (self.hospital_until > now && self.down_until <= now)
+    }
+
+    /// Up and about: not hidden, and not lying knocked out.
+    pub fn available(&self, now: f64) -> bool {
+        !self.hidden(now) && self.down_until <= now && self.hospital_until <= now
     }
 
     fn say(&mut self, now: f64, text: String) {
@@ -206,6 +234,19 @@ pub struct Trip {
     rider: Option<usize>,
     destination: Place,
     roads: VecDeque<DVec2>,
+    /// Out to another town (index into `City::towns`), or back from one.
+    out: Option<usize>,
+    back: bool,
+}
+
+/// Another town residents can drive out to (the open world, see the game's land.rs).
+#[derive(Clone)]
+pub struct OutOfTown {
+    pub name: String,
+    pub at: DVec2,
+    pub half: f64,
+    /// The highway from the city's edge to the town's middle.
+    pub route: Vec<DVec2>,
 }
 
 #[derive(Default, Resource)]
@@ -232,6 +273,8 @@ pub struct City {
     pub reset_prompt: bool,
     pub ai_choice: Option<crate::protocol::ModelChoice>,
     pub ai_memory: u64,
+    /// Towns out on the highways (only in the open world).
+    pub towns: Vec<OutOfTown>,
     save_due: f64,
     decision_due: f64,
     conversation_due: f64,
@@ -347,6 +390,15 @@ impl City {
             n.task = if n.asleep { "asleep at home" } else { "starting the day" }.into();
             n.path.clear();
             n.in_car = false;
+            // Everyone starts again in the city: nobody's away, fighting or lying hurt
+            // (anyone in the hospital stays there until the morning).
+            n.away = None;
+            n.away_until = 0.0;
+            n.fighting_until = 0.0;
+            n.down_until = 0.0;
+            if n.hospital_until <= self.clock {
+                n.hurt = 0.0;
+            }
             n.next = self.clock + 3.0 + i as f64 * 0.45;
         }
     }
@@ -374,15 +426,20 @@ impl City {
         self.residents
             .iter()
             .enumerate()
-            .filter(|(_, n)| !n.asleep && !n.in_car && n.at.distance_squared(at) <= reach * reach)
+            .filter(|(_, n)| n.available(self.clock) && n.at.distance_squared(at) <= reach * reach)
             .min_by(|(_, a), (_, b)| a.at.distance_squared(at).total_cmp(&b.at.distance_squared(at)))
             .map(|(i, _)| i)
     }
 
     pub fn open_chat(&mut self, who: usize, contact: Contact, game: &mut Game) {
+        let now = self.clock;
         let n = &mut self.residents[who];
         if n.asleep {
             game.toast(format!("{} is asleep at home", n.member.name), 1800.0);
+            return;
+        }
+        if n.down_until > now || n.hospital_until > now {
+            game.toast(format!("{} is in no state to talk", n.member.name), 1800.0);
             return;
         }
         if contact == Contact::Beside && (n.in_car || n.at.distance(position(game)) > 60.0 || game.physics.vx.hypot(game.physics.vz) > 7.0)
@@ -557,6 +614,24 @@ impl City {
 
     fn act(&mut self, i: usize, decision: Decision, game: &mut Game) {
         let now = self.clock;
+        // Knocked out or in the hospital since deciding: it'll have to wait.
+        if self.residents[i].down_until > now || self.residents[i].hospital_until > now {
+            return;
+        }
+        // Away in another town, most things wait until they're back.
+        if let Some(t) = self.residents[i].away
+            && !["text the driver", "report the driver to the police"].contains(&decision.action.as_str())
+        {
+            let n = &mut self.residents[i];
+            n.mind.think(&decision.thought);
+            n.say(now, decision.say.clone());
+            match decision.action.as_str() {
+                "go home" => self.head_back(i),
+                "something else" if !decision.doing.is_empty() => n.task = decision.doing,
+                _ => n.task = format!("looking around {}", self.towns[t].name),
+            }
+            return;
+        }
         let n = &mut self.residents[i];
         n.mind.think(&decision.thought);
         n.mind.set_goal(&decision.goal);
@@ -614,7 +689,14 @@ impl City {
                     },
                     20,
                 );
-                game.toast(format!("Message from {} · L to read", self.residents[i].member.name), 2400.0);
+                let key = game.bindings.label("journal");
+                game.toast(format!("Message from {} · {key} to read", self.residents[i].member.name), 2400.0);
+            }
+            "take a trip out of town" => {
+                if !self.leave_town(i) {
+                    let n = &mut self.residents[i];
+                    n.go(&self.map, self.map.wander(at), None, now, "wandering");
+                }
             }
             "report the driver to the police" => {
                 self.heat = (self.heat + 0.65).min(5.0);
@@ -740,7 +822,7 @@ impl City {
         }
         self.conversation_due = now + 2.0;
         let chatting = self.chat.as_ref().map(|c| c.who);
-        let ready = |i: usize, n: &Resident| !n.asleep && !n.in_car && Some(i) != chatting && n.path.is_empty() && now - n.last_talk > 35.0;
+        let ready = |i: usize, n: &Resident| n.available(now) && Some(i) != chatting && n.path.is_empty() && now - n.last_talk > 35.0;
         let pair = self.residents.iter().enumerate().find_map(|(i, n)| {
             if !ready(i, n) {
                 return None;
@@ -786,8 +868,8 @@ impl City {
         let len = self.residents.len();
         let Some(i) = (0..len).map(|n| (n + self.cursor) % len).find(|&i| {
             let n = &self.residents[i];
-            !n.asleep
-                && !n.in_car
+            n.available(now)
+                && n.fighting_until <= now
                 && n.path.is_empty()
                 && n.next <= now
                 && self.chat.as_ref().is_none_or(|c| c.who != i)
@@ -854,6 +936,17 @@ impl City {
                 Happening::NearMiss { x, z } => (x, z, "skimmed past a car", "worried", 4.0, 34.0, 0.35),
                 Happening::Horn { x, z } => (x, z, "honked the horn", "annoyed", 2.0, 25.0, 0.0),
                 Happening::Drift { x, z, points } if points > 100.0 => (x, z, "pulled off a drift", "excited", 5.0, 65.0, 0.0),
+                Happening::Assault { x, z, knocked_out } => (
+                    x,
+                    z,
+                    if knocked_out { "knocked someone out" } else { "attacked someone" },
+                    "scared",
+                    9.0,
+                    60.0,
+                    if knocked_out { 1.0 } else { 0.6 },
+                ),
+                Happening::Gunshot { x, z } => (x, z, "fired a gun", "scared", 9.0, 90.0, 0.7),
+                Happening::CarTaken { x, z, occupied: true, .. } => (x, z, "pulled someone out of their car", "scared", 8.0, 50.0, 1.0),
                 _ => continue,
             };
             let at = DVec2::new(x, z);
@@ -864,7 +957,11 @@ impl City {
             };
             let mut witnesses = 0;
             for n in &mut self.residents {
-                if n.asleep || n.in_car || n.at.distance_squared(at) > reach * reach || self.clock - n.last_reaction < 2.0 {
+                if n.hidden(self.clock)
+                    || n.down_until > self.clock
+                    || n.at.distance_squared(at) > reach * reach
+                    || self.clock - n.last_reaction < 2.0
+                {
                     continue;
                 }
                 witnesses += 1;
@@ -913,8 +1010,7 @@ impl City {
         let (at, heading) = crate::roads::curb(officer.at);
         let partner = self.resident("guy").filter(|&j| {
             let n = &self.residents[j];
-            !n.asleep
-                && !n.in_car
+            n.available(self.clock)
                 && n.at.distance_squared(officer.at) < 18.0_f64.powi(2)
                 && !n.mind.forbids(mind::Vow::Chase, "ride with BUDDY on a chase")
         });
@@ -1065,6 +1161,9 @@ impl City {
                 c.damage += 5.0;
                 game.shake = game.shake.max(0.18);
                 sound.gunshot();
+                if game.on_foot.is_some() {
+                    game.player_hurt += 6.0;
+                }
             }
             if c.sees_driver && distance < 2.7 && speed > 3.0 {
                 let velocity = DVec2::new(game.physics.vx, game.physics.vz) - direction * c.speed;
@@ -1150,14 +1249,12 @@ impl City {
 
     fn start_trip(&mut self, driver: usize, rider: Option<usize>, place: Place) -> bool {
         let n = &self.residents[driver];
-        if self.trips.len() >= 3 || n.in_car || n.at.distance(place.at) < 35.0 {
+        if self.trips.len() >= 3 || !n.available(self.clock) || n.at.distance(place.at) < 35.0 {
             return false;
         }
         let (at, heading) = crate::roads::curb(n.at);
         let (end, _) = crate::roads::curb(place.at);
-        let rider = rider.filter(|&i| {
-            i != driver && !self.residents[i].in_car && !self.residents[i].asleep && self.residents[i].at.distance(n.at) < 15.0
-        });
+        let rider = rider.filter(|&i| i != driver && self.residents[i].available(self.clock) && self.residents[i].at.distance(n.at) < 15.0);
         self.trips.push(Trip {
             at,
             heading,
@@ -1165,6 +1262,8 @@ impl City {
             rider,
             destination: place,
             roads: crate::roads::route(at, end),
+            out: None,
+            back: false,
         });
         self.residents[driver].in_car = true;
         if let Some(i) = rider {
@@ -1178,11 +1277,13 @@ impl City {
         for (j, t) in self.trips.iter_mut().enumerate() {
             if let Some(&next) = t.roads.front() {
                 let delta = next - t.at;
+                // Out on the highway, they put their foot down.
+                let speed = if t.at.x.abs().max(t.at.y.abs()) > 300.0 { 24.0 } else { 12.0 };
                 if delta.length() < 0.7 {
                     t.roads.pop_front();
                 } else {
                     t.heading = delta.x.atan2(delta.y);
-                    t.at += delta.clamp_length_max(12.0 * dt);
+                    t.at += delta.clamp_length_max(speed * dt);
                 }
             } else {
                 finished.push(j);
@@ -1190,12 +1291,35 @@ impl City {
         }
         for j in finished.into_iter().rev() {
             let t = self.trips.remove(j);
+            let now = self.clock;
             for i in std::iter::once(t.driver).chain(t.rider) {
                 let n = &mut self.residents[i];
                 n.at = t.at;
                 n.in_car = false;
-                n.go_place(&self.map, t.destination, self.clock, "arriving after a drive");
+                match (t.out, t.back) {
+                    (Some(town), false) => {
+                        let name = self.towns[town].name.clone();
+                        n.away = Some(town);
+                        n.away_until = now + 120.0 + random() * 150.0;
+                        n.task = format!("visiting {name}");
+                        n.path.clear();
+                        n.next = now + 5.0;
+                        n.mind
+                            .remember(now, &format!("I drove out to {name} for the day."), 5.0, &[], "did");
+                        n.mind.jolt(0.12, "excited");
+                    }
+                    (_, true) => {
+                        n.away = None;
+                        n.go(&self.map, n.home, None, now, "home after a day out");
+                    }
+                    _ => n.go_place(&self.map, t.destination, now, "arriving after a drive"),
+                }
             }
+        }
+        // You got out of the car: your passenger gets out too.
+        if self.passenger.is_some() && game.on_foot.is_some() {
+            let near = self.passenger.is_some_and(|(_, place)| place.at.distance(position(game)) < 40.0);
+            self.drop_passenger(game, near);
         }
         if let Some((i, place)) = self.passenger {
             let at = position(game);
@@ -1203,6 +1327,196 @@ impl City {
             if at.distance(place.at) < 15.0 && game.physics.vx.hypot(game.physics.vz) < 3.0 {
                 self.drop_passenger(game, true);
             }
+        }
+    }
+
+    /// Drives out to another town for a few hours.
+    fn leave_town(&mut self, i: usize) -> bool {
+        let n = &self.residents[i];
+        if self.towns.is_empty() || self.trips.len() >= 3 || !n.available(self.clock) || n.away.is_some() {
+            return false;
+        }
+        let t = (random() * self.towns.len() as f64) as usize % self.towns.len();
+        let town = &self.towns[t];
+        let Some(&first) = town.route.first() else { return false };
+        let (at, heading) = crate::roads::curb(n.at);
+        let mut roads = crate::roads::route(at, first);
+        roads.extend(town.route.iter().copied());
+        let name = town.name.clone();
+        self.trips.push(Trip {
+            at,
+            heading,
+            driver: i,
+            rider: None,
+            destination: Place {
+                id: "home",
+                kind: "home",
+                label: "home",
+                at: n.home,
+            },
+            roads,
+            out: Some(t),
+            back: false,
+        });
+        let now = self.clock;
+        let n = &mut self.residents[i];
+        n.in_car = true;
+        n.task = format!("driving out to {name}");
+        n.say(now, format!("Off to {name} for the day!"));
+        push_limited(&mut self.news, format!("{} drove out to {name}.", n.member.name), 10);
+        true
+    }
+
+    /// Drives back to the city from another town.
+    fn head_back(&mut self, i: usize) {
+        let Some(t) = self.residents[i].away else { return };
+        if self.residents[i].in_car {
+            return;
+        }
+        let town = &self.towns[t];
+        let mut roads: VecDeque<DVec2> = town.route.iter().rev().copied().collect();
+        let edge = *town.route.first().unwrap_or(&DVec2::ZERO);
+        let home = self.residents[i].home;
+        let (end, _) = crate::roads::curb(home);
+        roads.extend(crate::roads::route(edge, end));
+        let at = self.residents[i].at;
+        self.trips.push(Trip {
+            at,
+            heading: 0.0,
+            driver: i,
+            rider: None,
+            destination: Place {
+                id: "home",
+                kind: "home",
+                label: "home",
+                at: home,
+            },
+            roads,
+            out: Some(t),
+            back: true,
+        });
+        let n = &mut self.residents[i];
+        n.in_car = true;
+        n.task = "driving home".into();
+    }
+
+    /// The driver, on foot, punched or shot resident `i`.
+    pub fn struck(&mut self, i: usize, damage: f64, gun: bool, game: &mut Game) {
+        let now = self.clock;
+        let n = &mut self.residents[i];
+        if n.down_until > now || n.hospital_until > now || n.hidden(now) {
+            return;
+        }
+        n.hurt += damage;
+        n.path.clear();
+        n.evade = None;
+        let (name, id) = (n.member.name.clone(), n.member.id.clone());
+        self.last_crime = now;
+        if n.hurt >= 100.0 {
+            n.down_until = now + 8.0;
+            n.fighting_until = 0.0;
+            if self.chat.as_ref().is_some_and(|c| c.who == i) {
+                self.chat = None;
+            }
+            n.task = "knocked out".into();
+            n.mind.remember(
+                now,
+                "The driver knocked me out. I woke up in the hospital.",
+                10.0,
+                &["driver"],
+                "saw",
+            );
+            n.mind.feel("driver", -0.7);
+            n.mind.jolt(-0.5, "scared");
+            let text = format!("The driver knocked out {name}.");
+            push_limited(&mut self.news, text.clone(), 10);
+            push_limited(&mut self.crimes, text, 6);
+            self.heat = (self.heat + 2.2).min(5.0);
+            // Word gets round to their friends.
+            for (j, other) in self.residents.iter_mut().enumerate() {
+                if j != i && other.mind.feeling(&id) > 0.3 {
+                    other.mind.remember(
+                        now,
+                        &format!("{name} got knocked out by the driver."),
+                        7.0,
+                        &["driver", id.as_str()],
+                        "heard",
+                    );
+                    other.mind.feel("driver", -0.25);
+                }
+            }
+            game.toast(format!("{name} is knocked out"), 1600.0);
+        } else {
+            n.mind.remember(
+                now,
+                if gun { "The driver shot me!" } else { "The driver hit me!" },
+                9.0,
+                &["driver"],
+                "saw",
+            );
+            n.mind.feel("driver", -0.35);
+            n.mind.jolt(-0.3, "angry");
+            if !gun && n.mind.traits.courage > 0.6 {
+                n.fighting_until = now + 12.0;
+                n.say(now, "You want a fight?!".into());
+            } else {
+                let away = (n.at - position(game)).normalize_or(DVec2::X);
+                n.evade = Some((away, now + 4.0));
+                n.say(now, "Help! Somebody help!".into());
+            }
+            self.heat = (self.heat + 1.2).min(5.0);
+            push_limited(&mut self.crimes, format!("The driver attacked {name}."), 6);
+        }
+        self.police_due = self.police_due.min(now + 2.0);
+    }
+
+    /// The driver took the car resident `driver` was driving.
+    pub fn car_taken(&mut self, driver: usize, game: &mut Game) {
+        let Some(k) = self.trips.iter().position(|t| t.driver == driver) else {
+            return;
+        };
+        let t = self.trips.remove(k);
+        let now = self.clock;
+        let side = DVec2::new(t.heading.cos(), -t.heading.sin());
+        for (j, who) in std::iter::once(t.driver).chain(t.rider).enumerate() {
+            let n = &mut self.residents[who];
+            n.in_car = false;
+            n.at = t.at + side * (2.0 + j as f64);
+            n.away = None;
+            n.mind
+                .remember(now, "The driver took my car! Pulled me right out of it.", 9.0, &["driver"], "saw");
+            n.mind.feel("driver", -0.5);
+            n.mind.jolt(-0.35, "angry");
+            n.say(now, "Hey! That's my car!".into());
+            n.go(&self.map, n.home, None, now, "walking home without a car");
+        }
+        let name = self.residents[t.driver].member.name.clone();
+        let text = format!("The driver took {name}'s car.");
+        push_limited(&mut self.news, text.clone(), 10);
+        push_limited(&mut self.crimes, text, 6);
+        self.heat = (self.heat + 1.6).min(5.0);
+        self.last_crime = now;
+        game.toast(format!("You took {name}'s car"), 1800.0);
+    }
+
+    /// The driver asked resident `i` to borrow a car.
+    pub fn lend_car(&mut self, i: usize, game: &mut Game) {
+        let now = self.clock;
+        let n = &mut self.residents[i];
+        if game.loaned_car.is_some() || game.loan.is_some() {
+            n.say(now, "You've already got someone's car!".into());
+            return;
+        }
+        if n.mind.feeling("driver") > 0.2 && !n.mind.forbids(mind::Vow::Ride, "lend the driver my car") {
+            n.mind.remember(now, "I lent the driver my car.", 6.0, &["driver"], "did");
+            n.mind.feel("driver", 0.03);
+            n.say(now, "Sure, take mine. Bring it back in one piece!".into());
+            game.loan = Some((n.member.name.clone(), crate::visual::car_config(i)));
+        } else {
+            n.say(now, "Lend YOU my car? Not a chance.".into());
+            n.mind
+                .remember(now, "The driver asked to borrow my car. I said no.", 4.0, &["driver"], "did");
+            game.toast(format!("{} won't lend you a car", n.member.name), 2000.0);
         }
     }
 
@@ -1296,6 +1610,7 @@ impl City {
                 }
             }
         }
+        let mut away_done = Vec::new();
         for (i, n) in self.residents.iter_mut().enumerate() {
             let still = n.path.is_empty();
             let kind = n.place.map_or("", |p| p.kind);
@@ -1307,8 +1622,67 @@ impl City {
                 still && ["park", "stunts", "music"].contains(&kind),
             );
             n.speed = 0.0;
+            // Knocked out: lying there, then off to the hospital until the morning.
+            if n.down_until > 0.0 && now >= n.down_until && n.hurt >= 100.0 {
+                n.down_until = 0.0;
+                n.hurt = 0.0;
+                n.hospital_until = (day(now) + 1) as f64 * 24.0 * 60.0;
+                n.path.clear();
+                n.away = None;
+                n.task = "in the hospital".into();
+            }
+            if n.down_until > now {
+                continue;
+            }
+            if n.hospital_until > 0.0 {
+                if now < n.hospital_until {
+                    continue;
+                }
+                n.hospital_until = 0.0;
+                if let Some(h) = self.map.place("hospital", n.home) {
+                    n.at = h.at;
+                }
+                n.go(&self.map, n.home, None, now, "home from the hospital");
+                n.mind
+                    .remember(now, "I got out of the hospital this morning.", 6.0, &["driver"], "did");
+            }
             if n.in_car || Some(i) == chatting {
                 continue;
+            }
+            n.hurt = (n.hurt - dt * 0.5).max(0.0);
+            // Fighting back, if the driver is on foot.
+            if n.fighting_until > now {
+                if game.on_foot.is_some() {
+                    let to = player - n.at;
+                    let d = to.length();
+                    n.heading = to.x.atan2(to.y);
+                    if d > 1.1 {
+                        n.at += to / d * 3.6 * dt;
+                        n.speed = 3.6;
+                    } else if now >= n.punch_due {
+                        n.punch_due = now + 1.2;
+                        game.player_hurt += 7.0;
+                    }
+                    if d > 40.0 {
+                        n.fighting_until = 0.0;
+                    }
+                    continue;
+                }
+                n.fighting_until = 0.0;
+            }
+            // Away in another town: wander about it, then head home.
+            if let Some(t) = n.away {
+                let town = &self.towns[t];
+                if now >= n.away_until && n.path.is_empty() {
+                    away_done.push(i);
+                    continue;
+                }
+                if n.path.is_empty() && now >= n.next {
+                    let spread = (town.half - 20.0).max(10.0);
+                    let to = town.at + DVec2::new(centered(), centered()) * 2.0 * spread;
+                    n.path = VecDeque::from([to]);
+                    n.next = now + 20.0 + random() * 30.0;
+                }
             }
             let awake = h >= 5.5 + (1.0 - n.mind.traits.energy) * 2.0 && h < 22.5 + n.mind.traits.energy * 1.5;
             if n.asleep {
@@ -1319,7 +1693,7 @@ impl City {
                 }
                 continue;
             }
-            if !awake && n.task != "going home" {
+            if !awake && n.task != "going home" && n.away.is_none() {
                 n.go(&self.map, n.home, None, now, "going home");
             }
             if n.task == "going home" && n.at.distance_squared(n.home) < 1.0 {
@@ -1358,6 +1732,9 @@ impl City {
                     n.at += delta.clamp_length_max(n.speed * dt);
                 }
             }
+        }
+        for i in away_done {
+            self.head_back(i);
         }
         self.transport(dt, game);
         self.plan_next(game, ai, use_ai);
@@ -1468,6 +1845,14 @@ pub mod map {
                         at: block + SIDES[(i * 3 + i / 2) % 4] * LOOP,
                     });
                 }
+            }
+            if let Some(block) = homes.get(7).or(homes.last()) {
+                places.push(Place {
+                    id: "hospital",
+                    kind: "hospital",
+                    label: "the hospital",
+                    at: *block + DVec2::new(0.0, -LOOP),
+                });
             }
             if let Some(block) = blocks(BlockKind::Lot).first().or_else(|| homes.get(4)) {
                 places.push(Place {
@@ -1877,16 +2262,26 @@ pub mod visual {
             let Some(n) = city.residents.get(body.index) else { continue };
             let ground = world.height_at(n.at.x, n.at.y) as f32;
             let at = Vec3::new(n.at.x as f32, ground, n.at.y as f32);
-            let show = city.active && !n.asleep && !n.in_car && at.distance_squared(camera.position) < 150.0_f32.powi(2);
+            let show = city.active && !n.hidden(city.clock) && at.distance_squared(camera.position) < 150.0_f32.powi(2);
             *visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
             if !show {
                 continue;
             }
+            let lying = n.down_until > city.clock;
             let phase = (city.clock * n.speed * 3.0) as f32;
-            let stride = phase.sin() * (n.speed as f32 * 0.28).min(1.15);
+            let stride = if lying {
+                0.0
+            } else {
+                phase.sin() * (n.speed as f32 * 0.28).min(1.15)
+            };
             if let Ok(mut t) = transforms.get_mut(entity) {
-                t.translation = at + Vec3::Y * stride.abs() * 0.035;
-                t.rotation = Quat::from_rotation_y(n.heading as f32);
+                t.translation = at + Vec3::Y * if lying { 0.15 } else { stride.abs() * 0.035 };
+                t.rotation = Quat::from_rotation_y(n.heading as f32)
+                    * if lying {
+                        Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+                    } else {
+                        Quat::IDENTITY
+                    };
                 t.scale = Vec3::splat((n.member.look.height / 1.7) as f32);
             }
             for i in 0..2 {
@@ -1935,11 +2330,27 @@ pub mod visual {
         }
     }
 
+    /// Residents' car colors (by driver).
+    const CAR_PAINT: [u32; 4] = [0x8f334e, 0xc1692e, 0x378995, 0x6f7166];
+
+    /// A resident's car as a garage build, for when the driver takes it:
+    /// a plain hatchback or van in the same paint as on the street.
+    pub fn car_config(driver: usize) -> game::config::CarConfig {
+        game::config::CarConfig {
+            body: if driver.is_multiple_of(3) { "van" } else { "hatch" }.into(),
+            paint_color: format!("#{:06x}", CAR_PAINT[driver % 4]),
+            finish: "gloss".into(),
+            pattern: "none".into(),
+            stripes: "none".into(),
+            spoiler: "none".into(),
+            roof_guns: false,
+            plate: "LOCAL".into(),
+            ..Default::default()
+        }
+    }
+
     pub fn spawn_car(commands: &mut Commands, visuals: &mut Visuals, materials: &mut Assets<StandardMaterial>, driver: Option<usize>) {
-        let paint = visuals.color(
-            materials,
-            driver.map_or(0xf4f3f3, |i| [0x8f334e, 0xc1692e, 0x378995, 0x6f7166][i % 4]),
-        );
+        let paint = visuals.color(materials, driver.map_or(0xf4f3f3, |i| CAR_PAINT[i % 4]));
         let dark = visuals.color(materials, 0x1c2732);
         let lights = visuals.color(materials, 0xf8dfaf);
         let red = visuals.color(materials, 0xf3333d);

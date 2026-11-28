@@ -138,6 +138,9 @@ struct Model {
     body_width: f32,
     arch_radius: f32,
     max_y: f32,
+    /// The back of the body, and its lowest point.
+    rear_z: f32,
+    min_y: f32,
 }
 
 #[derive(Resource, Default)]
@@ -221,11 +224,15 @@ fn load_models(
             continue;
         };
         let num = |k: &str| extras.get(k).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32;
-        let max_y = extras
-            .get("max")
-            .and_then(|m| m.get(1))
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(1.4) as f32;
+        let corner = |k: &str, i: usize, or: f32| {
+            extras
+                .get(k)
+                .and_then(|m| m.get(i))
+                .and_then(serde_json::Value::as_f64)
+                .map_or(or, |v| v as f32)
+        };
+        let max_y = corner("max", 1, 1.4);
+        let (rear_z, min_y) = (corner("min", 2, -2.2), corner("min", 1, 0.15));
         let mut collect = |root: &GltfNode| {
             let mut out = Vec::new();
             let mut stack = vec![(root.clone(), Transform::IDENTITY)];
@@ -292,6 +299,8 @@ fn load_models(
                 body_width: num("bodyWidth"),
                 arch_radius: num("archRadius"),
                 max_y,
+                rear_z,
+                min_y,
             },
         );
     }
@@ -332,6 +341,7 @@ fn dress_cars(
     cars: Query<(Entity, &CarLook), Without<Ghost>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut shift: ResMut<game::carmodel::ExhaustShift>,
 ) {
     let o = options(&packs);
     let want = o.on && o.real_models && !state.models.is_empty();
@@ -346,11 +356,16 @@ fn dress_cars(
         if let Ok(mut e) = commands.get_entity(body) {
             e.despawn();
         }
+        shift.0.remove(&car);
         if let Ok((_, look)) = cars.get(car) {
             for e in &look.0.shell {
                 if let Ok(mut ec) = commands.get_entity(*e) {
                     ec.insert(Visibility::Inherited);
                 }
+            }
+            // The pipes go back where the game's own body has them.
+            if let Ok(mut ec) = commands.get_entity(look.0.exhaust) {
+                ec.insert(Transform::default());
             }
         }
     }
@@ -420,6 +435,17 @@ fn dress_cars(
             if let Ok(mut ec) = commands.get_entity(*e) {
                 ec.insert(Visibility::Hidden);
             }
+        }
+        // Pipes out the back: just inside the bottom of the new rear bumper,
+        // sticking out a few centimeters, so they never float behind it.
+        if let Some(tip) = rig.pipe_tip {
+            let rear = place.translation.z + model.rear_z * sz;
+            let bottom = y + model.min_y * sy;
+            let moved = Vec3::new(0.0, bottom + 0.14 - tip.x, rear - 0.07 - tip.y);
+            if let Ok(mut ec) = commands.get_entity(rig.exhaust) {
+                ec.insert(Transform::from_translation(moved));
+            }
+            shift.0.insert(car, moved);
         }
         state.dressed.insert(car, body);
     }
@@ -593,7 +619,7 @@ fn sky_and_sun(
     }
     let night = world.is_night();
     let theme = if world.map == "city" { None } else { Some(world.theme()) };
-    let weather = theme.map_or(Weather::Clear, |t| t.weather);
+    let weather = world.weather_kind();
     let desert = theme.is_some_and(|t| t.ground == Ground::Sand);
     let sun_share = match weather {
         Weather::Rain => 0.45,
@@ -635,11 +661,7 @@ fn wet_roads(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let o = options(&packs);
-    let weather = if world.map == "city" {
-        Weather::Clear
-    } else {
-        world.theme().weather
-    };
+    let weather = world.weather_kind();
     let wetness = match weather {
         Weather::Rain => 1.0,
         Weather::Snow => 0.35,
@@ -751,11 +773,7 @@ fn beams(
         return;
     }
     let Some(car) = car else { return };
-    let weather = if world.map == "city" {
-        Weather::Clear
-    } else {
-        world.theme().weather
-    };
+    let weather = world.weather_kind();
     let strength = o.beams
         * match weather {
             Weather::Rain => 1.8,
@@ -809,7 +827,7 @@ fn lens(
     }
     let ctx = contexts.ctx_mut()?;
     let dt = time.delta_secs();
-    let raining = o.lens_rain && game.mode == Mode::Drive && world.map != "city" && world.theme().weather == Weather::Rain;
+    let raining = o.lens_rain && game.mode == Mode::Drive && world.weather_kind() == Weather::Rain;
     state.lens_rain = (state.lens_rain + if raining { dt / 4.0 } else { -dt / 2.0 }).clamp(0.0, 1.0);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("lens")));
     let r = ctx.viewport_rect();

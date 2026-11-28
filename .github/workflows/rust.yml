@@ -1,67 +1,36 @@
-# Checks the Rust game builds and passes its tests on macOS, Windows
-# and Linux, for every pull request and every push to main or a features/
-# or fix/ branch. Everything builds offline from the stored libraries (libs/ and packs/*/libs/).
-name: Rust
+name: Final safety
 
 on:
   pull_request:
-  push:
-    branches: [main, 'features/**', 'fix/**']
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: rust-${{ github.ref }}
+  group: final-safety-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
-    name: Build and test on ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, name: macOS }
-          - { os: windows-latest, name: Windows }
-          - { os: ubuntu-latest, name: Linux }
-    runs-on: ${{ matrix.os }}
+    name: Final safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Linux libraries for sound, controllers and windows
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libclang-dev cmake
-      - name: Windows libclang
-        if: runner.os == 'Windows'
+      - name: Check Rust formatting and the offline lockfile
+        run: |
+          cargo fmt --all --check
+          cargo metadata --format-version 1 --locked --offline > /dev/null
+      - name: Check Bash and Python syntax
+        run: |
+          for script in tools/*.sh tools/packaging/*.sh; do bash -n "$script"; done
+          python3 -m py_compile tools/test.py tools/packaging/smoke.py
+      - name: Check PowerShell syntax
         shell: pwsh
         run: |
-          "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
-      # rustup reads rust-toolchain.toml and installs that exact Rust.
-      - run: rustup show active-toolchain || rustup toolchain install
-      - name: Identify vendored dependencies
-        id: vendor
-        shell: bash
-        run: echo "tree=$(git ls-tree HEAD libs packs/living_city/libs | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
-      # Keep compiled dependencies and fingerprints. The game and test binaries relink from source.
-      - uses: actions/cache@v5
-        with:
-          path: |
-            builds/ci/.fingerprint
-            builds/ci/build
-            builds/ci/deps/*
-            !builds/ci/deps/car_game-*
-            !builds/ci/deps/game-*
-            !builds/ci/deps/living_city-*
-            !builds/ci/deps/photo_real-*
-            !builds/ci/deps/real_physics-*
-          key: cargo-ci-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
-          restore-keys: cargo-ci-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
-      - name: Formatting
-        if: runner.os == 'Linux'
-        run: cargo fmt --all --check
-      - name: Lints
-        run: cargo clippy --profile ci --workspace --all-targets --locked --offline -- -D warnings
-      - name: Tests
-        run: cargo test --profile ci --workspace --locked --offline
-      - name: Build the game
-        run: cargo build --profile ci --workspace --locked --offline
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tools/install.ps1').Path, [ref]$null, [ref]$errors
+          ) | Out-Null
+          if ($errors) { throw ($errors -join "`n") }

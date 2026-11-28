@@ -1118,7 +1118,7 @@ impl EventRun {
         me.wrong_way = 0.0;
     }
 
-    pub fn hud(&self) -> EventHud {
+    pub fn hud(&self, bindings: &crate::input::Bindings) -> EventHud {
         let s = &self.spec;
         let me = &self.racers[0];
         let mut stats = Vec::new();
@@ -1180,7 +1180,7 @@ impl EventRun {
             if self.player_wrecked > 0.0 {
                 warning = "WRECKED".into();
             } else if me.lost > 1.0 {
-                warning = "RETURN TO THE TRACK · R to reset".into();
+                warning = format!("RETURN TO THE TRACK · {} to reset", bindings.label("reset"));
             } else if me.wrong_way > 1.0 {
                 warning = "WRONG WAY".into();
             }
@@ -1935,6 +1935,35 @@ pub mod freeroam {
     use crate::rng::Seeded;
     use crate::text::thousands;
     use crate::world::{BlockKind, HALF_SIZE, ROAD_LINES, World};
+
+    /// Where you were in the open world when you left it, for "Start where
+    /// I left off" (Garage → Maps).
+    #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+    #[serde(default, rename_all = "camelCase")]
+    pub struct Resume {
+        pub x: f64,
+        pub z: f64,
+        pub heading: f64,
+        pub on_foot: bool,
+        /// The car you were in, if it wasn't your own (checked by sanitize_config when used).
+        pub car: Option<serde_json::Value>,
+        pub night: bool,
+    }
+
+    const RESUME_KEY: &str = "carGame.cityResume.v1";
+
+    impl Resume {
+        pub fn load(storage: &crate::storage::Storage) -> Option<Resume> {
+            storage
+                .get_json(RESUME_KEY)
+                .and_then(|v| serde_json::from_value::<Resume>(v).ok())
+                .filter(|r| r.x.is_finite() && r.z.is_finite() && r.heading.is_finite())
+        }
+
+        pub fn save(&self, storage: &mut crate::storage::Storage) {
+            storage.set_json(RESUME_KEY, self);
+        }
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum ZoneKind {
@@ -2790,14 +2819,22 @@ pub mod weapons {
         let flat_forward = DVec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let mut best: Option<DVec3> = None;
         let mut best_distance = 120.0;
-        for t in &world.targets {
-            if !t.alive || t.kind == TargetKind::Building || (t.kind == TargetKind::Car && t.rig.is_none()) {
+        let (circles, _) = world.nearby(from.x, from.z, best_distance);
+        let mut targets: Vec<_> = world
+            .car_targets()
+            .chain(circles.into_iter().filter_map(|i| world.circles[i].target))
+            .collect();
+        targets.sort_unstable();
+        for i in targets {
+            let t = &world.targets[i];
+            if !t.alive || (t.kind == TargetKind::Car && t.rig.is_none()) {
                 continue;
             }
             let middle = match t.kind {
-                TargetKind::Car => 0.7,
-                TargetKind::Tree => 2.5,
-                _ => 4.0,
+                TargetKind::Car => world.boxes[t.shape].base + 0.7,
+                TargetKind::Tree => world.circles[t.shape].base + 2.5,
+                TargetKind::Lamp => world.circles[t.shape].base + 4.0,
+                TargetKind::Building => continue,
             };
             let to = DVec3::new(t.x - from.x, middle - from.y, t.z - from.z);
             let distance = to.length();

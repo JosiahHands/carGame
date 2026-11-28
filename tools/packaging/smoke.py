@@ -2,6 +2,7 @@
 """Launch the packaged game with isolated data and capture real rendered frames."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -101,7 +102,17 @@ def cases(full):
         "packs": ["npc", "physics"],
     }
     yield "same-map-stunt", {"env": {"CAR_GAME_LEVEL": "quick:stunt:city", "CAR_GAME_AUTOPILOT": "0"}}
+    city = {"CAR_GAME_MODE": "drive", "CAR_GAME_MAP": "city"}
+    yield "on-foot-pistol", {"env": city | {"CAR_GAME_FOOT": "1", "CAR_GAME_FIRE": "pistol"}}
     if full:
+        yield "open-world-highway", {"env": city | {"CAR_GAME_AT": "road:1:0.5", "CAR_GAME_AUTOPILOT": "0"}}
+        yield "open-world-town", {"env": city | {"CAR_GAME_AT": "town:Red Rock", "CAR_GAME_AUTOPILOT": "0"}, "packs": ["npc"]}
+        yield "big-map", {"env": city | {"CAR_GAME_BIGMAP": "1"}}
+        yield "bayport-and-controls", {"env": city | {"CAR_GAME_AT": "town:Bayport", "CAR_GAME_GARAGE": "controls"}}
+        yield "generative-map", {
+            "env": city | {"CAR_GAME_AT": "9000,300,1.57", "CAR_GAME_AUTOPILOT": "0"},
+            "settings": {"maps": {"city": {"generative": True, "weather": "rain"}}},
+        }
         for venue in MAPS:
             yield f"drive-{venue}", {"env": {"CAR_GAME_MODE": "drive", "CAR_GAME_MAP": venue, "CAR_GAME_AUTOPILOT": "0"}}
         for event, venue in EVENTS.items():
@@ -114,30 +125,40 @@ def cases(full):
         }
 
 
+def check_case(executable, directory, name, scenario, timeout):
+    try:
+        dimensions = run(executable, directory, scenario, timeout)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+        message = f"FAIL {name}: {error} ({directory})"
+        log_path = directory / "game.log"
+        if log_path.is_file():
+            with log_path.open("rb") as log:
+                log.seek(max(0, log_path.stat().st_size - 3500))
+                message += "\n" + log.read().decode("utf-8", errors="replace")
+        print(message, file=sys.stderr, flush=True)
+        return 1
+    print(f"PASS {name}: {dimensions} ({directory})", flush=True)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--timeout", type=int, default=90, help="seconds per launch")
+    parser.add_argument("--jobs", type=int, default=1, help="simultaneous game launches")
     args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
     executable = args.executable.resolve(strict=True)
-    failures = 0
-    for name, scenario in cases(args.full):
-        directory = args.output.resolve() / name
-        try:
-            dimensions = run(executable, directory, scenario, args.timeout)
-        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
-            print(f"FAIL {name}: {error} ({directory})", file=sys.stderr, flush=True)
-            log_path = directory / "game.log"
-            if log_path.is_file():
-                with log_path.open("rb") as log:
-                    log.seek(max(0, log_path.stat().st_size - 3500))
-                    print(log.read().decode("utf-8", errors="replace"), file=sys.stderr, flush=True)
-            failures += 1
-        else:
-            print(f"PASS {name}: {dimensions} ({directory})", flush=True)
-    return bool(failures)
+    output = args.output.resolve()
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        checks = [
+            pool.submit(check_case, executable, output / name, name, scenario, args.timeout)
+            for name, scenario in cases(args.full)
+        ]
+        return max(check.result() for check in checks)
 
 
 if __name__ == "__main__":

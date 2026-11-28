@@ -542,7 +542,9 @@ impl CarPhysics {
         };
         let giant = self.height >= GIANT_HEIGHT;
         let direction = DVec3::new(self.vx, 0.0, self.vz).normalize_or_zero();
-        let (near_circles, near_walls) = world.nearby(self.x, self.z, self.length.max(self.width) / 2.0 + 1.0);
+        let reach = self.length.max(self.width) / 2.0 + 1.0;
+        let (near_circles, near_walls) = world.nearby(self.x, self.z, reach);
+        let near_boxes = world.boxes_near(self.x, self.z, reach);
         let mut impact = 0.0;
         let mut hit = |lost: f64, target: Option<usize>, events: &mut StepEvents| {
             if lost > impact {
@@ -562,12 +564,12 @@ impl CarPhysics {
             let across = spread(k / along_count, across_count, across_room);
             let cx = self.x + fx * along + fz * across;
             let cz = self.z + fz * along - fx * across;
-            for bi in 0..world.boxes.len() {
+            for &bi in &near_boxes {
                 let b = world.boxes[bi];
                 if !b.solid {
                     continue;
                 }
-                if b.target.is_some() && self.y > b.height {
+                if (b.target.is_some() || b.base != 0.0) && (self.y > b.base + b.height || self.y + self.height < b.base) {
                     continue;
                 }
                 let px = cx.clamp(b.min_x, b.max_x);
@@ -582,6 +584,24 @@ impl CarPhysics {
                     world.damage(t, 1e6, direction);
                     events.smashed += 1;
                     continue;
+                }
+                // A wreck gets shoved along rather than stopping the car dead.
+                if let Some(t) = b.target
+                    && world.is_wreck(t)
+                {
+                    let (dx, dz) = (px - cx, pz - cz);
+                    let d = dx.hypot(dz).max(1e-3);
+                    let (nx, nz) = (dx / d, dz / d);
+                    let toward = self.vx * nx + self.vz * nz;
+                    if toward > 0.5 {
+                        world.shove(t, DVec3::new(nx, 0.0, nz) * toward * 1.15);
+                        self.vx -= nx * toward * 0.35;
+                        self.vz -= nz * toward * 0.35;
+                        // Out of the box, without the bounce of a wall.
+                        self.x -= nx * (r - d).max(0.0);
+                        self.z -= nz * (r - d).max(0.0);
+                        continue;
+                    }
                 }
                 let lost = self.resolve(cx, cz, px, pz, r, dynamics);
                 hit(lost, b.target, events);
@@ -609,7 +629,7 @@ impl CarPhysics {
             }
             for &ci in &near_circles {
                 let c = world.circles[ci];
-                if !c.solid || self.y > c.height {
+                if !c.solid || self.y > c.base + c.height || self.y + self.height.max(1.0) < c.base {
                     continue;
                 }
                 let dx = cx - c.x;

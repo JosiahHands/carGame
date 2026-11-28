@@ -469,12 +469,17 @@ pub mod scene {
     }
 
     fn people(game: Res<Game>, assets: Res<SceneAssets>, mut meshes: ResMut<Assets<Mesh>>, mut last_empty: Local<bool>) {
-        let empty = game.people.is_empty() || game.event.is_some();
+        // You on foot, and the police, are drawn with everyone else.
+        let mut extra = game.police.poses();
+        if let Some(me) = &game.on_foot {
+            extra.push(me.pose());
+        }
+        let empty = (game.people.is_empty() && extra.is_empty()) || game.event.is_some();
         if empty && *last_empty {
             return;
         }
         *last_empty = empty;
-        let data = if empty { MeshData::default() } else { game.people.mesh() };
+        let data = if empty { MeshData::default() } else { game.people.mesh(&extra) };
         if let Some(mut m) = meshes.get_mut(&assets.people_mesh) {
             *m = if data.positions.is_empty() {
                 // Nothing to draw: one invisible triangle.

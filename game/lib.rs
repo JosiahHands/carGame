@@ -35,6 +35,8 @@ pub mod city;
 pub mod event;
 #[path = "backEnd/game.rs"]
 pub mod game;
+#[path = "backEnd/land.rs"]
+pub mod land;
 #[path = "backEnd/physics.rs"]
 pub mod physics;
 #[path = "backEnd/saves.rs"]
@@ -43,7 +45,7 @@ pub mod saves;
 pub mod world;
 
 pub use career::rewards;
-pub use city::{pedestrians, traffic};
+pub use city::{pedestrians, police, traffic, walk};
 pub use event::{freeroam, rivals, skills, spec, timetrial, weapons};
 pub use saves::{config, import, settings, storage, updates};
 pub use world::{track, venues};
@@ -92,6 +94,7 @@ impl Plugin for GamePlugin {
             .init_resource::<camera::CameraRig>()
             .init_resource::<packs::Packs>()
             .init_resource::<updates::Updater>()
+            .init_resource::<carmodel::ExhaustShift>()
             .insert_resource(EguiGlobalSettings {
                 auto_create_primary_context: false,
                 ..default()
@@ -116,7 +119,8 @@ impl Plugin for GamePlugin {
                     updates::close_when_installed,
                 ),
             )
-            .add_systems(EguiPrimaryContextPass, (game::menus, hud::hud).chain());
+            .add_systems(EguiPrimaryContextPass, (game::menus, hud::hud).chain())
+            .add_systems(Last, game::save_on_exit.in_set(bevy::app::OnAppExitSystems));
     }
 }
 

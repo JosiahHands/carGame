@@ -2201,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "car_game"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "bevy",
  "game",
@@ -3076,7 +3076,7 @@ dependencies = [
 
 [[package]]
 name = "game"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "ab_glyph",
  "base64",
@@ -3914,7 +3914,7 @@ checksum = "02b614978e47ce529faee66579f2b2fe19c94aa96d910a6a9a8043b2b02d8175"
 
 [[package]]
 name = "living_city"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -4812,7 +4812,7 @@ dependencies = [
 
 [[package]]
 name = "photo_real"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -5114,7 +5114,7 @@ dependencies = [
 
 [[package]]
 name = "real_physics"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "bevy",
  "bevy_egui",

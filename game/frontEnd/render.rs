@@ -162,12 +162,11 @@ pub mod world_build {
         }
     }
 
-    /// The shapes lamps and trees are drawn with on this map.
+    /// The shapes lamps and trees are drawn with.
     #[derive(Clone, Default)]
     pub struct PropShapes {
-        pub trunk: MeshData,
-        pub trunk_color: [f32; 4],
-        pub leaves: MeshData,
+        /// For each kind of tree (`Trees as usize`): trunk, trunk color, leaves, and leaves far away.
+        pub trees: Vec<(MeshData, [f32; 4], MeshData, MeshData)>,
         pub pole: MeshData,
         pub head: MeshData,
     }
@@ -208,7 +207,18 @@ pub mod world_build {
                     .spawn((Transform::default(), Visibility::default(), Name::new("map")))
                     .id(),
             );
-            if map == "city" {
+            if map == "city" && self.open {
+                self.land = Some(Box::new(crate::land::Land::new(self.generative)));
+                self.build_city(b);
+                self.half = if self.generative { 1e9 } else { crate::land::MAP_HALF };
+                if !self.generative {
+                    // The made map ends here, in the mountains.
+                    let h = crate::land::MAP_HALF;
+                    for (ax, az, bx, bz) in [(-h, -h, h, -h), (h, -h, h, h), (h, h, -h, h), (-h, h, -h, -h)] {
+                        self.walls.push(make_wall(ax, az, bx, bz, 2000.0));
+                    }
+                }
+            } else if map == "city" {
                 self.build_city(b);
             } else if map == "circuit" && self.layout == 0 {
                 self.build_circuit(b);
@@ -217,7 +227,9 @@ pub mod world_build {
             } else {
                 self.build_venue_track(b);
             }
-            self.build_edges(b);
+            if self.land.is_none() {
+                self.build_edges(b);
+            }
             self.build_weather();
             self.build_cells();
             self.loaded = true;
@@ -246,6 +258,10 @@ pub mod world_build {
             self.destroyed.clear();
             self.start_lights = 0;
             self.effects.clear();
+            self.land = None;
+            self.rubble.clear();
+            self.watch.clear();
+            self.built_towns.clear();
         }
 
         fn build_city(&mut self, b: &mut Build) {
@@ -256,8 +272,10 @@ pub mod world_build {
                 heading: 0.0,
             };
             self.course = city_course();
-            self.build_ground(b);
-            self.build_roads(b);
+            if self.land.is_none() {
+                self.build_ground(b);
+            }
+            self.build_streets(b, 0.0, 0.0, &ROAD_LINES, HALF_SIZE - 8.0);
             self.build_blocks(b);
         }
 
@@ -275,23 +293,25 @@ pub mod world_build {
             b.commands.entity(e).insert(Wet);
         }
 
-        fn build_roads(&mut self, b: &mut Build) {
-            let len = HALF_SIZE * 2.0 - 16.0;
+        /// A grid of streets around (cx, cz): one along each line (offsets from
+        /// the middle, the same both ways), `half` meters each way, with street lamps.
+        fn build_streets(&mut self, b: &mut Build, cx: f64, cz: f64, lines: &[f64], half: f64) {
+            let len = half * 2.0;
             let mat = Self::tex_mat(b, b.mats.road.clone(), Vec2::new(1.0, (len / 12.0) as f32), 0.9);
             let mut roads = MeshData::default();
-            for (i, &c) in ROAD_LINES.iter().enumerate() {
+            for (i, &c) in lines.iter().enumerate() {
                 let plane = Rectangle::new(ROAD_WIDTH as f32, len as f32).mesh().build();
                 let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
                 // Along x (turned a quarter), and along z.
                 roads.add_mesh(
                     &plane,
-                    &Transform::from_xyz(0.0, 0.02 + i as f32 * 0.0005, c as f32)
+                    &Transform::from_xyz(cx as f32, 0.02 + i as f32 * 0.0005, (cz + c) as f32)
                         .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) * flat),
                     [1.0; 4],
                 );
                 roads.add_mesh(
                     &plane,
-                    &Transform::from_xyz(c as f32, 0.025 + i as f32 * 0.0005, 0.0).with_rotation(flat),
+                    &Transform::from_xyz((cx + c) as f32, 0.025 + i as f32 * 0.0005, cz as f32).with_rotation(flat),
                     [1.0; 4],
                 );
             }
@@ -304,9 +324,9 @@ pub mod world_build {
                 .mesh()
                 .size(ROAD_WIDTH as f32, ROAD_WIDTH as f32)
                 .build();
-            for &x in &ROAD_LINES {
-                for &z in &ROAD_LINES {
-                    crossings.add_mesh(&square, &Transform::from_xyz(x as f32, 0.035, z as f32), [1.0; 4]);
+            for &x in lines {
+                for &z in lines {
+                    crossings.add_mesh(&square, &Transform::from_xyz((cx + x) as f32, 0.035, (cz + z) as f32), [1.0; 4]);
                 }
             }
             crossings.colors.clear();
@@ -314,14 +334,15 @@ pub mod world_build {
             let e = self.spawn(b, crossings.build(), cross_mat, Transform::default());
             b.commands.entity(e).insert((NotShadowCaster, Wet));
             let mut poles = Vec::new();
-            let along: Vec<f64> = ROAD_LINES[..ROAD_LINES.len() - 1]
-                .iter()
-                .flat_map(|c| [c + 20.0, c + 60.0])
-                .collect();
-            for &c in &ROAD_LINES {
+            let along: Vec<f64> = if lines.len() > 1 {
+                lines[..lines.len() - 1].iter().flat_map(|c| [c + 20.0, c + 60.0]).collect()
+            } else {
+                vec![-half + 4.0, half - 4.0]
+            };
+            for &c in lines {
                 for &p in &along {
-                    poles.push(DVec3::new(c + ROAD_WIDTH / 2.0 + 1.0, 0.0, p));
-                    poles.push(DVec3::new(p, 0.0, c - ROAD_WIDTH / 2.0 - 1.0));
+                    poles.push(DVec3::new(cx + c + ROAD_WIDTH / 2.0 + 1.0, 0.0, cz + p));
+                    poles.push(DVec3::new(cx + p, 0.0, cz + c - ROAD_WIDTH / 2.0 - 1.0));
                 }
             }
             self.add_lamps(&poles, 1.0);
@@ -339,6 +360,7 @@ pub mod world_build {
                     hit_radius: 0.3 * size,
                     solid: true,
                     target: Some(self.targets.len()),
+                    base: 0.0,
                 });
                 let mut t = Target::new_prop(
                     TargetKind::Lamp,
@@ -354,6 +376,7 @@ pub mod world_build {
                 self.targets.push(t);
                 self.props.push(Prop {
                     lamp: true,
+                    kind: Trees::Round,
                     transform: Transform::from_translation(p.as_vec3()).with_scale(Vec3::splat(size as f32)),
                     color: [1.0; 4],
                     visible: true,
@@ -437,6 +460,10 @@ pub mod world_build {
                     DVec3::new(off, 0.0, along),
                     DVec3::new(-off, 0.0, along),
                 ][side.min(3)];
+                // In the open world, the highways leave the city along x = 0 and z = 0.
+                if self.land.is_some() && (p.x.abs() < 14.0 || p.z.abs() < 14.0) {
+                    continue;
+                }
                 trees.push(p);
             }
             self.add_trees(&trees);
@@ -457,6 +484,7 @@ pub mod world_build {
                 height: h,
                 solid: true,
                 target: Some(index),
+                base: 0.0,
             });
             let hp = (120.0 + h * 6.0).round();
             let mut t = Target::new_prop(TargetKind::Building, x, z, hp, (40000.0 + h * 2500.0).round(), shape, 0, 1.0);
@@ -471,6 +499,11 @@ pub mod world_build {
         /// Trees in the venue's style: round leafy trees, pines, snowy pines or cactuses.
         fn add_trees(&mut self, points: &[DVec3]) {
             let kind = if self.map == "city" { Trees::Round } else { self.theme().trees };
+            self.add_trees_of(points, kind);
+        }
+
+        /// Trees of one kind, standing on the ground at each point (its y).
+        fn add_trees_of(&mut self, points: &[DVec3], kind: Trees) {
             for p in points {
                 let s = 0.8 + self.rand.next() * 0.6;
                 let turn = self.rand.next() * PI * 2.0;
@@ -501,6 +534,7 @@ pub mod world_build {
                     hit_radius: 1.4 * s,
                     solid: true,
                     target: Some(self.targets.len()),
+                    base: p.y,
                 });
                 self.targets.push(Target::new_prop(
                     TargetKind::Tree,
@@ -514,6 +548,7 @@ pub mod world_build {
                 ));
                 self.props.push(Prop {
                     lamp: false,
+                    kind,
                     transform: Transform::from_translation(p.as_vec3())
                         .with_rotation(Quat::from_rotation_y(turn as f32))
                         .with_scale(Vec3::splat(s as f32)),
@@ -524,9 +559,24 @@ pub mod world_build {
             }
         }
 
-        /// The shapes for this map's lamps and trees.
+        /// The shapes for lamps and every kind of tree.
         pub fn prop_shapes(&self) -> PropShapes {
-            let kind = if self.map == "city" { Trees::Round } else { self.theme().trees };
+            let at = |x: f32, y: f32, z: f32| Transform::from_xyz(x, y, z);
+            PropShapes {
+                trees: [Trees::Round, Trees::Pine, Trees::Cactus, Trees::SnowPine]
+                    .into_iter()
+                    .map(|kind| {
+                        let (trunk, color, leaves) = Self::tree_shape(kind);
+                        let distant = crate::world_render::distant_foliage(&leaves);
+                        (trunk, color, leaves, distant)
+                    })
+                    .collect(),
+                pole: MeshData::from_mesh(&tapered_cylinder(0.12, 0.16, 7.0, 8), &at(0.0, 3.5, 0.0), [1.0; 4]),
+                head: MeshData::from_mesh(&Cuboid::new(0.7, 0.25, 0.7).mesh().build(), &at(0.0, 7.1, 0.0), [1.0; 4]),
+            }
+        }
+
+        fn tree_shape(kind: Trees) -> (MeshData, [f32; 4], MeshData) {
             let at = |x: f32, y: f32, z: f32| Transform::from_xyz(x, y, z);
             let mut trunk = MeshData::from_mesh(&tapered_cylinder(0.22, 0.3, 2.4, 7), &at(0.0, 1.2, 0.0), [1.0; 4]);
             let mut trunk_color = 0x6b4a2f;
@@ -567,16 +617,15 @@ pub mod world_build {
                 }
                 Trees::Round => {}
             }
-            PropShapes {
-                trunk,
-                trunk_color: linear(trunk_color),
-                leaves: leaves.flat_shaded(),
-                pole: MeshData::from_mesh(&tapered_cylinder(0.12, 0.16, 7.0, 8), &at(0.0, 3.5, 0.0), [1.0; 4]),
-                head: MeshData::from_mesh(&Cuboid::new(0.7, 0.25, 0.7).mesh().build(), &at(0.0, 7.1, 0.0), [1.0; 4]),
-            }
+            (trunk, linear(trunk_color), leaves.flat_shaded())
         }
 
         fn build_parking_lot(&mut self, b: &mut Build, bx: f64, bz: f64) {
+            self.fill_parking_lot(b, bx, bz, 0.55);
+        }
+
+        /// A parking lot, each space taken with chance `taken`.
+        fn fill_parking_lot(&mut self, b: &mut Build, bx: f64, bz: f64, taken: f64) {
             let asphalt = bevy::shape::Plane3d::default().mesh().size(60.0, 60.0).build();
             let m = Self::color_mat(b, hex_color(0x3a3c40), 0.95);
             let e = self.spawn(b, asphalt, m, Transform::from_xyz(bx as f32, 0.02, bz as f32));
@@ -588,7 +637,7 @@ pub mod world_build {
                     let z = bz + row * 18.0;
                     let line = bevy::shape::Plane3d::default().mesh().size(0.15, 9.0).build();
                     lines.add_mesh(&line, &Transform::from_xyz((x - 3.0) as f32, 0.025, z as f32), [1.0; 4]);
-                    if self.rand.next() < 0.55 {
+                    if self.rand.next() < taken {
                         self.add_parked_car(b, x, z, if row > 0.0 { PI } else { 0.0 });
                     }
                 }
@@ -601,7 +650,40 @@ pub mod world_build {
         /// A random parked car that can be rammed or blown up. Returns its target index.
         pub fn add_parked_car(&mut self, b: &mut Build, x: f64, z: f64, heading: f64) -> usize {
             let config = random_config(&CarConfig::default());
-            let rig = build_car(&mut b.car_ctx(), &config, false, false);
+            self.add_car_with(b, x, z, heading, &config)
+        }
+
+        /// A parked car built from `config`. Returns its target index.
+        pub fn add_car_with(&mut self, b: &mut Build, x: f64, z: f64, heading: f64, config: &CarConfig) -> usize {
+            let rig = build_car(&mut b.car_ctx(), config, false, false);
+            let y = self.height_at(x, z);
+            self.park_car(b, rig, x, z, heading, y)
+        }
+
+        /// A patrol car (see police.rs).
+        pub fn add_police_car(&mut self, b: &mut Build, x: f64, z: f64, heading: f64) -> usize {
+            let config = CarConfig {
+                body: "muscle".into(),
+                paint_color: "#f4f4f4".into(),
+                accent_color: "#1d2c4a".into(),
+                finish: "gloss".into(),
+                pattern: "twoTone".into(),
+                stripes: "side".into(),
+                spoiler: "none".into(),
+                light_bar: true,
+                roof_guns: false,
+                plate: "POLICE".into(),
+                ..CarConfig::default()
+            };
+            let i = self.add_car_with(b, x, z, heading, &config);
+            self.targets[i].value = 30000.0;
+            i
+        }
+
+        /// Leaves a car (and its model) parked in the world, like any other
+        /// parked car: where the player got out of it. Returns its target index.
+        /// `y` is the height it stands at (on a banked track or a ramp, say).
+        pub fn park_car(&mut self, b: &mut Build, rig: crate::carmodel::CarRig, x: f64, z: f64, heading: f64, y: f64) -> usize {
             if let Some(root) = self.root {
                 b.commands.entity(rig.root).insert(ChildOf(root));
             }
@@ -612,14 +694,15 @@ pub mod world_build {
                 max_x: x,
                 min_z: z,
                 max_z: z,
-                height: 1.4,
+                height: rig.height.max(1.4),
                 solid: true,
                 target: Some(index),
+                base: y,
             });
             let mut t = Target::new_prop(TargetKind::Car, x, z, 70.0, 12000.0, shape, 0, 1.0);
             t.rig = Some(rig);
             t.home = Spot { x, z, heading };
-            t.pos = DVec3::new(x, 0.0, z);
+            t.pos = DVec3::new(x, y, z);
             t.rot = DVec3::new(0.0, heading, 0.0);
             self.targets.push(t);
             self.fit_car_box(index);
@@ -1062,6 +1145,7 @@ pub mod world_build {
                     hit_radius: r * 1.2,
                     solid: true,
                     target: None,
+                    base: 0.0,
                 });
             }
             if !mesh.is_empty() {
@@ -1318,6 +1402,7 @@ pub mod world_build {
                     hit_radius: 0.7,
                     solid: true,
                     target: None,
+                    base: 0.0,
                 });
             }
             let span = left - right;
@@ -1428,6 +1513,7 @@ pub mod world_build {
                     height: 1.4,
                     solid: true,
                     target: None,
+                    base: 0.0,
                 });
             }
             edge.colors.clear();
@@ -1496,7 +1582,7 @@ pub mod world_build {
 
         /// Rain or snow, if the venue has weather.
         fn build_weather(&mut self) {
-            let kind = if self.map == "city" { Weather::Clear } else { self.theme().weather };
+            let kind = self.weather_kind();
             if kind == Weather::Clear {
                 return;
             }
@@ -1510,6 +1596,518 @@ pub mod world_build {
                 }
             }
             self.weather_speed = if rain { 22.0 } else { 2.2 };
+        }
+    }
+
+    /// Rocks and landmarks out in the country are drawn this far away.
+    const SCENERY_SHOWN: f32 = 3000.0;
+
+    /// Sidewalk blocks are this big inside their streets.
+    const BLOCK_INNER: f64 = 80.0 - ROAD_WIDTH;
+
+    /// The tree that grows in a biome, at height `h`.
+    pub fn tree_for(biome: crate::land::Biome, h: f64) -> Trees {
+        use crate::land::Biome;
+        match biome {
+            Biome::Forest if h > 120.0 => Trees::SnowPine,
+            Biome::Forest => Trees::Pine,
+            Biome::Mountains if h > 95.0 => Trees::SnowPine,
+            Biome::Mountains => Trees::Pine,
+            Biome::Desert => Trees::Cactus,
+            Biome::Plains | Biome::Lakes => Trees::Round,
+        }
+    }
+
+    /// Something that turns slowly about its own z axis (a wind turbine's blades), radians a second.
+    #[derive(Component)]
+    pub struct Spin(pub f32);
+
+    impl World {
+        // ---------- the open world (see land.rs) ----------
+
+        /// Builds what's near (x, z) in the open world: the ground's heights,
+        /// towns within 1.7 km, and trees and scenery within 800 m. Spends up
+        /// to `budget` of time, nearest first.
+        pub fn prepare_land(&mut self, b: &mut Build, x: f64, z: f64, budget: std::time::Duration) {
+            let started = std::time::Instant::now();
+            let Some(land) = self.land.as_mut() else { return };
+            land.ensure(x, z);
+            land.prepare(x, z, 900.0, 3400.0, budget.mul_f32(0.5));
+            let town = land
+                .towns
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| !t.built && t.at.distance(bevy::math::DVec2::new(x, z)) < 1700.0)
+                .min_by(|a, b| {
+                    let p = bevy::math::DVec2::new(x, z);
+                    a.1.at.distance_squared(p).total_cmp(&b.1.at.distance_squared(p))
+                })
+                .map(|(i, _)| i);
+            if let Some(t) = town {
+                self.build_town(b, t);
+            }
+            let hamlet = self.land.as_ref().and_then(|l| {
+                l.hamlets
+                    .iter()
+                    .position(|h| !h.built && h.at.distance(bevy::math::DVec2::new(x, z)) < 1300.0)
+            });
+            if let Some(h) = hamlet {
+                self.build_hamlet(b, h);
+            }
+            let here = crate::land::tile_of(x, z);
+            let mut wanted = Vec::new();
+            for dx in -4..=4 {
+                for dz in -4..=4 {
+                    let key = (here.0 + dx, here.1 + dz);
+                    let (cx, cz) = ((key.0 as f64 + 0.5) * crate::land::TILE, (key.1 as f64 + 0.5) * crate::land::TILE);
+                    let d = (cx - x).hypot(cz - z);
+                    if d < 900.0 && !self.land.as_ref().is_some_and(|l| l.tiles.contains(&key)) {
+                        wanted.push((d, key));
+                    }
+                }
+            }
+            wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for (i, (_, key)) in wanted.into_iter().enumerate() {
+                if i > 0 && started.elapsed() > budget {
+                    break;
+                }
+                self.build_tile(b, key);
+            }
+            self.index_new();
+        }
+
+        /// A town's streets, blocks, buildings, parks, parking and lamps.
+        fn build_town(&mut self, b: &mut Build, index: usize) {
+            let Some(land) = self.land.as_mut() else { return };
+            land.towns[index].built = true;
+            let town = land.towns[index].clone();
+            self.built_towns.push(index);
+            let mut rand = Seeded::new(crate::land::hash(town.key.0 as i64, town.key.1 as i64, 50) as f64);
+            let (cx, cz) = (town.at.x, town.at.y);
+            self.build_streets(b, cx, cz, &town.lines, town.half);
+            if town.size == crate::land::Size::Crossroads {
+                // A filling station on one corner.
+                let (sx, sz) = (cx + 30.0, cz + 30.0);
+                self.add_building(b, sx, sz + 4.0, 14.0, 9.0, 4.5);
+                let mut canopy = MeshData::default();
+                canopy.add_mesh(
+                    &Cuboid::new(12.0, 0.6, 7.0).mesh().build(),
+                    &Transform::from_xyz(sx as f32, 4.6, (sz - 7.0) as f32),
+                    linear(0xd94f2b),
+                );
+                for (ox, oz) in [(-5.0, -3.0), (5.0, -3.0), (-5.0, 3.0), (5.0, 3.0)] {
+                    canopy.add_mesh(
+                        &Cuboid::new(0.35, 4.3, 0.35).mesh().build(),
+                        &Transform::from_xyz((sx + ox) as f32, 2.15, (sz - 7.0 + oz) as f32),
+                        linear(0xe8e8e8),
+                    );
+                }
+                for ox in [-2.5, 2.5] {
+                    canopy.add_mesh(
+                        &Cuboid::new(0.8, 1.6, 0.6).mesh().build(),
+                        &Transform::from_xyz((sx + ox) as f32, 0.8, (sz - 7.0) as f32),
+                        linear(0x2e6fb5),
+                    );
+                    self.circles.push(Circle {
+                        x: sx + ox,
+                        z: sz - 7.0,
+                        r: 0.5,
+                        height: 1.6,
+                        hit_radius: 0.5,
+                        solid: true,
+                        target: None,
+                        base: 0.0,
+                    });
+                }
+                self.spawn(b, canopy.build(), b.mats.vertex_colored.clone(), Transform::default());
+                return;
+            }
+            let village = town.size == crate::land::Size::Village;
+            let metropolis = town.size == crate::land::Size::Metropolis;
+            let inner = BLOCK_INNER;
+            let sidewalk = Self::tex_mat(b, b.mats.concrete_tex.clone(), Vec2::splat((inner / 4.0) as f32), 0.95);
+            let mut slabs = MeshData::default();
+            let mut grass = MeshData::default();
+            let mut trees = Vec::new();
+            let tree_kind = tree_for(town.biome, 0.0);
+            for (k, block) in town.blocks().into_iter().enumerate() {
+                let (bx, bz) = (block.x, block.y);
+                let plane = bevy::shape::Plane3d::default().mesh().size(inner as f32, inner as f32).build();
+                slabs.add_mesh(&plane, &Transform::from_xyz(bx as f32, 0.015, bz as f32), [1.0; 4]);
+                let r = rand.next();
+                let park = if village {
+                    r < 0.3
+                } else if metropolis {
+                    r < 0.07
+                } else {
+                    r < 0.22
+                };
+                let lot = !village && !park && r < if metropolis { 0.1 } else { 0.36 };
+                if park {
+                    let lawn = bevy::shape::Plane3d::default()
+                        .mesh()
+                        .size((inner - 8.0) as f32, (inner - 8.0) as f32)
+                        .build();
+                    grass.add_mesh(&lawn, &Transform::from_xyz(bx as f32, 0.018, bz as f32), [1.0; 4]);
+                    for _ in 0..14 {
+                        let x = bx + (rand.next() - 0.5) * (inner - 14.0);
+                        let z = bz + (rand.next() - 0.5) * (inner - 14.0);
+                        trees.push(DVec3::new(x, 0.0, z));
+                    }
+                } else if lot && k % 3 == 0 {
+                    std::mem::swap(&mut self.rand, &mut rand);
+                    self.fill_parking_lot(b, bx, bz, 0.22);
+                    std::mem::swap(&mut self.rand, &mut rand);
+                } else {
+                    for ox in [-1.0, 1.0] {
+                        for oz in [-1.0, 1.0] {
+                            if village && rand.next() < 0.35 {
+                                continue;
+                            }
+                            let (w, d, h) = if village {
+                                (9.0 + rand.next() * 6.0, 9.0 + rand.next() * 6.0, 4.5 + rand.next() * 5.0)
+                            } else if metropolis {
+                                // Towers, tallest in the middle of the city.
+                                let middle = 1.0 - ((bx - cx).hypot(bz - cz) / town.half).min(1.0);
+                                let tall = 30.0 + rand.next().powf(1.4) * (90.0 + 170.0 * middle);
+                                (18.0 + rand.next() * 10.0, 18.0 + rand.next() * 10.0, tall)
+                            } else {
+                                (
+                                    12.0 + rand.next() * 12.0,
+                                    12.0 + rand.next() * 12.0,
+                                    6.0 + rand.next().powf(1.7) * 30.0,
+                                )
+                            };
+                            std::mem::swap(&mut self.rand, &mut rand);
+                            self.add_building(b, bx + ox * 17.0, bz + oz * 17.0, w, d, h);
+                            std::mem::swap(&mut self.rand, &mut rand);
+                        }
+                    }
+                }
+            }
+            slabs.colors.clear();
+            let e = self.spawn(b, slabs.build(), sidewalk, Transform::default());
+            b.commands.entity(e).insert(NotShadowCaster);
+            if !grass.is_empty() {
+                grass.colors.clear();
+                let m = Self::color_mat(b, hex_color(0x5b8f43), 1.0);
+                let e = self.spawn(b, grass.build(), m, Transform::default());
+                b.commands.entity(e).insert(NotShadowCaster);
+            }
+            std::mem::swap(&mut self.rand, &mut rand);
+            self.add_trees_of(&trees, tree_kind);
+            std::mem::swap(&mut self.rand, &mut rand);
+        }
+
+        /// The trees, rocks and landmarks in one 250 m square of the country.
+        fn build_tile(&mut self, b: &mut Build, key: (i32, i32)) {
+            let Some(land) = self.land.as_mut() else { return };
+            land.tiles.insert(key);
+            let land = self.land.as_ref().unwrap();
+            let tile = crate::land::TILE;
+            let (x0, z0) = (key.0 as f64 * tile, key.1 as f64 * tile);
+            let mut rand = Seeded::new(crate::land::hash(key.0 as i64, key.1 as i64, 60) as f64);
+            let w = land.biomes(x0 + tile / 2.0, z0 + tile / 2.0);
+            // Trees.
+            // Woods here and there on the farmland, deep forest in the west.
+            let woods = crate::land::smoothstep(0.15, 0.4, crate::land::fbm(x0 / 900.0, z0 / 900.0, 61, 2));
+            let count = (5.0 * w[0] + 90.0 * w[0] * woods + 125.0 * w[1] + 40.0 * w[2] + 4.0 * w[3] + 16.0 * w[4]).round() as usize;
+            let mut by_kind: [Vec<DVec3>; 4] = Default::default();
+            for _ in 0..count {
+                let (x, z) = (x0 + rand.next() * tile, z0 + rand.next() * tile);
+                if !land.clear(x, z, 3.0) {
+                    continue;
+                }
+                let h = land.ground(x, z);
+                let biome = land.main_biome(x, z);
+                if biome == crate::land::Biome::Mountains && h > 175.0 + rand.next() * 40.0 {
+                    continue; // above the tree line
+                }
+                // On the farmland, trees grow in the woods, and only here and there in the fields.
+                if biome == crate::land::Biome::Plains && rand.next() > 0.5 + woods * 0.5 {
+                    continue;
+                }
+                let kind = tree_for(biome, h);
+                by_kind[kind as usize].push(DVec3::new(x, h, z));
+            }
+            // Rocks and boulders.
+            let rocks = (4.0 * w[2] + 3.5 * w[3] + 0.6 * w[1]).round() as usize;
+            let mut stone = MeshData::default();
+            let shape = tapered_cylinder(1.0, 1.25, 1.0, 7);
+            for _ in 0..rocks {
+                let (x, z) = (x0 + rand.next() * tile, z0 + rand.next() * tile);
+                let r = 1.5 + rand.next() * 5.0;
+                if !land.clear(x, z, r + 2.0) {
+                    continue;
+                }
+                let base = [(-r, -r), (r, -r), (-r, r), (r, r)]
+                    .iter()
+                    .map(|(dx, dz)| land.ground(x + dx, z + dz))
+                    .fold(f64::INFINITY, f64::min);
+                let h = r * (0.8 + rand.next() * 1.4);
+                let desert = land.main_biome(x, z) == crate::land::Biome::Desert;
+                let color = if desert {
+                    linear_hsl(0.04 + rand.next() * 0.03, 0.5, 0.38 + rand.next() * 0.1)
+                } else {
+                    linear_hsl(0.08, 0.06, 0.4 + rand.next() * 0.12)
+                };
+                let t = Transform::from_xyz(x as f32, (base + h / 2.0 - 0.3) as f32, z as f32)
+                    .with_rotation(Quat::from_rotation_y((rand.next() * 6.0) as f32))
+                    .with_scale(Vec3::new(r as f32, h as f32, r as f32));
+                stone.add_mesh(&shape, &t, color);
+                self.circles.push(Circle {
+                    x,
+                    z,
+                    r: r * 1.1,
+                    height: h,
+                    hit_radius: r * 1.1,
+                    solid: true,
+                    target: None,
+                    base: base - 0.3,
+                });
+            }
+            // Now and then a landmark: wind turbines and barns on the farmland,
+            // cabins in the woods, lighthouses by the lakes, masts on the mountains.
+            let mut scenery = MeshData::default();
+            let mut turbines = Vec::new();
+            let roll = rand.next();
+            let (lx, lz) = (x0 + 40.0 + rand.next() * (tile - 80.0), z0 + 40.0 + rand.next() * (tile - 80.0));
+            let biome = land.main_biome(lx, lz);
+            let ground = land.ground(lx, lz);
+            use crate::land::Biome;
+            match biome {
+                Biome::Plains if roll < 0.14 && land.clear(lx, lz, 14.0) => {
+                    for k in 0..3 {
+                        let (tx, tz) = (lx + k as f64 * 70.0 - 70.0, lz + (rand.next() - 0.5) * 40.0);
+                        if land.clear(tx, tz, 10.0) {
+                            turbines.push(DVec3::new(tx, land.ground(tx, tz), tz));
+                        }
+                    }
+                }
+                Biome::Plains if roll < 0.24 && land.clear(lx, lz, 22.0) => {
+                    let turn = Quat::from_rotation_y((rand.next() * PI) as f32);
+                    let at = Vec3::new(lx as f32, ground as f32, lz as f32);
+                    scenery.add_mesh(
+                        &Cuboid::new(14.0, 7.0, 20.0).mesh().build(),
+                        &Transform::from_translation(at + turn * Vec3::new(0.0, 3.5, 0.0)).with_rotation(turn),
+                        linear(0x9c2f25),
+                    );
+                    let roof = Cuboid::new(10.5, 10.5, 20.6).mesh().build();
+                    scenery.add_mesh(
+                        &roof,
+                        &Transform::from_translation(at + turn * Vec3::new(0.0, 7.0, 0.0))
+                            .with_rotation(turn * Quat::from_rotation_z(PI as f32 / 4.0))
+                            .with_scale(Vec3::new(0.95, 0.5, 1.0)),
+                        linear(0x5a5552),
+                    );
+                    scenery.add_mesh(
+                        &Cylinder::new(3.0, 16.0).mesh().resolution(14).build(),
+                        &Transform::from_translation(at + turn * Vec3::new(11.0, 8.0, 4.0)),
+                        linear(0xb8bcc0),
+                    );
+                    self.add_solid_box(lx, lz, 13.0, ground, 9.0);
+                }
+                Biome::Forest if roll < 0.1 && land.clear(lx, lz, 10.0) => {
+                    let turn = Quat::from_rotation_y((rand.next() * PI) as f32);
+                    let at = Vec3::new(lx as f32, ground as f32, lz as f32);
+                    scenery.add_mesh(
+                        &Cuboid::new(7.0, 3.2, 9.0).mesh().build(),
+                        &Transform::from_translation(at + Vec3::Y * 1.6).with_rotation(turn),
+                        linear(0x7a5232),
+                    );
+                    scenery.add_mesh(
+                        &Cuboid::new(5.6, 5.6, 9.6).mesh().build(),
+                        &Transform::from_translation(at + Vec3::Y * 3.3)
+                            .with_rotation(turn * Quat::from_rotation_z(PI as f32 / 4.0))
+                            .with_scale(Vec3::new(1.0, 0.55, 1.0)),
+                        linear(0x3d3a36),
+                    );
+                    scenery.add_mesh(
+                        &Cuboid::new(0.9, 2.5, 0.9).mesh().build(),
+                        &Transform::from_translation(at + turn * Vec3::new(2.0, 4.6, 2.0)),
+                        linear(0x6b625a),
+                    );
+                    self.add_solid_box(lx, lz, 5.5, ground, 4.5);
+                }
+                Biome::Lakes if roll < 0.12 && land.clear(lx, lz, 6.0) && ground < 3.0 => {
+                    let at = Vec3::new(lx as f32, ground as f32, lz as f32);
+                    for k in 0..6 {
+                        let color = if k % 2 == 0 { 0xf2f2f2 } else { 0xc8322b };
+                        scenery.add_mesh(
+                            &tapered_cylinder(1.6 - k as f32 * 0.12, 1.72 - k as f32 * 0.12, 3.0, 12),
+                            &Transform::from_translation(at + Vec3::Y * (1.5 + k as f32 * 3.0)),
+                            linear(color),
+                        );
+                    }
+                    scenery.add_mesh(
+                        &Cylinder::new(1.3, 2.0).mesh().resolution(12).build(),
+                        &Transform::from_translation(at + Vec3::Y * 19.0),
+                        linear(0xffe9a8),
+                    );
+                    scenery.add_mesh(
+                        &ConeShape { radius: 1.6, height: 1.6 }.mesh().resolution(12).build(),
+                        &Transform::from_translation(at + Vec3::Y * 20.8),
+                        linear(0x2b2b2b),
+                    );
+                    self.circles.push(Circle {
+                        x: lx,
+                        z: lz,
+                        r: 1.8,
+                        height: 21.0,
+                        hit_radius: 1.8,
+                        solid: true,
+                        target: None,
+                        base: ground,
+                    });
+                }
+                Biome::Mountains if roll < 0.06 && ground > 60.0 && land.clear(lx, lz, 6.0) => {
+                    let at = Vec3::new(lx as f32, ground as f32, lz as f32);
+                    for k in 0..8 {
+                        let s = 1.0 - k as f32 * 0.1;
+                        scenery.add_mesh(
+                            &Cuboid::new(1.6 * s, 6.0, 1.6 * s).mesh().build(),
+                            &Transform::from_translation(at + Vec3::Y * (3.0 + k as f32 * 6.0)),
+                            linear(if k % 2 == 0 { 0xd23b2b } else { 0xf0f0f0 }),
+                        );
+                    }
+                    self.circles.push(Circle {
+                        x: lx,
+                        z: lz,
+                        r: 1.0,
+                        height: 48.0,
+                        hit_radius: 1.0,
+                        solid: true,
+                        target: None,
+                        base: ground,
+                    });
+                }
+                _ => {}
+            }
+            for t in &turbines {
+                let at = t.as_vec3();
+                scenery.add_mesh(
+                    &tapered_cylinder(0.9, 1.6, 60.0, 12),
+                    &Transform::from_translation(at + Vec3::Y * 30.0),
+                    linear(0xeceff1),
+                );
+                scenery.add_mesh(
+                    &Cuboid::new(2.2, 2.4, 5.0).mesh().build(),
+                    &Transform::from_translation(at + Vec3::new(0.0, 61.0, 0.0)),
+                    linear(0xe3e6e8),
+                );
+                self.circles.push(Circle {
+                    x: t.x,
+                    z: t.z,
+                    r: 1.7,
+                    height: 62.0,
+                    hit_radius: 1.7,
+                    solid: true,
+                    target: None,
+                    base: t.y,
+                });
+                // The blades turn (see world_render's `spin`).
+                let mut blades = MeshData::default();
+                for k in 0..3 {
+                    let a = k as f32 * std::f32::consts::TAU / 3.0;
+                    blades.add_mesh(
+                        &Cuboid::new(1.4, 26.0, 0.3).mesh().build(),
+                        &(Transform::from_rotation(Quat::from_rotation_z(a)) * Transform::from_xyz(0.0, 13.5, 0.0)),
+                        linear(0xf4f6f7),
+                    );
+                }
+                let root = self.root.expect("map root");
+                let face = Quat::from_rotation_y((t.x * 0.001 + t.z * 0.002) as f32 % 0.6);
+                b.commands.spawn((
+                    Mesh3d(b.meshes.add(blades.build())),
+                    MeshMaterial3d(b.mats.vertex_colored.clone()),
+                    Transform::from_translation(at + Vec3::new(0.0, 61.0, 0.0) + face * Vec3::new(0.0, 0.0, 2.8)).with_rotation(face),
+                    Spin(0.9 + (t.x.abs() % 0.4) as f32),
+                    bevy::camera::visibility::VisibilityRange::abrupt(0.0, SCENERY_SHOWN),
+                    ChildOf(root),
+                ));
+            }
+            for (k, points) in by_kind.iter().enumerate() {
+                if !points.is_empty() {
+                    let kind = [Trees::Round, Trees::Pine, Trees::Cactus, Trees::SnowPine][k];
+                    std::mem::swap(&mut self.rand, &mut rand);
+                    self.add_trees_of(points, kind);
+                    std::mem::swap(&mut self.rand, &mut rand);
+                }
+            }
+            // Far behind you, the country's rocks and landmarks aren't drawn.
+            // (Each mesh is placed at the tile's middle, so the distance is measured from there.)
+            let far = bevy::camera::visibility::VisibilityRange::abrupt(0.0, SCENERY_SHOWN);
+            let middle = Vec3::new((x0 + tile / 2.0) as f32, 0.0, (z0 + tile / 2.0) as f32);
+            let local = |mut m: MeshData| {
+                for p in &mut m.positions {
+                    p[0] -= middle.x;
+                    p[2] -= middle.z;
+                }
+                m
+            };
+            if !stone.is_empty() {
+                let e = self.spawn(
+                    b,
+                    local(stone.flat_shaded()).build(),
+                    b.mats.vertex_colored.clone(),
+                    Transform::from_translation(middle),
+                );
+                b.commands.entity(e).insert(far.clone());
+            }
+            if !scenery.is_empty() {
+                let e = self.spawn(
+                    b,
+                    local(scenery).build(),
+                    b.mats.vertex_colored.clone(),
+                    Transform::from_translation(middle),
+                );
+                b.commands.entity(e).insert(far);
+            }
+        }
+
+        /// A few houses either side of the highway, a barn and some trees.
+        fn build_hamlet(&mut self, b: &mut Build, index: usize) {
+            let Some(land) = self.land.as_mut() else { return };
+            land.hamlets[index].built = true;
+            let h = land.hamlets[index].clone();
+            let mut rand = Seeded::new((h.at.x * 7.0 + h.at.y * 13.0).abs().floor());
+            let right = bevy::math::DVec2::new(-h.dir.y, h.dir.x);
+            let houses = 3 + (rand.next() * 4.0) as usize;
+            let mut trees = Vec::new();
+            std::mem::swap(&mut self.rand, &mut rand);
+            for k in 0..houses {
+                let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+                let along = (k as f64 - houses as f64 / 2.0) * 16.0 + (self.rand.next() - 0.5) * 4.0;
+                let at = h.at + h.dir * along + right * side * (17.0 + self.rand.next() * 6.0);
+                let (w, d, ht) = (
+                    7.5 + self.rand.next() * 4.0,
+                    7.0 + self.rand.next() * 3.0,
+                    4.0 + self.rand.next() * 3.0,
+                );
+                self.add_building(b, at.x, at.y, w, d, ht);
+                let behind = at + right * side * 12.0 + h.dir * (self.rand.next() - 0.5) * 10.0;
+                trees.push(DVec3::new(behind.x, 0.0, behind.y));
+            }
+            let barn = h.at - h.dir * (houses as f64 * 9.0 + 14.0) + right * 22.0;
+            self.add_building(b, barn.x, barn.y, 12.0, 16.0, 8.0);
+            let lamps = [h.at + right * 9.0, h.at - right * 9.0 + h.dir * 20.0];
+            self.add_lamps(&lamps.map(|p| DVec3::new(p.x, 0.0, p.y)), 1.0);
+            self.add_trees_of(&trees, Trees::Round);
+            std::mem::swap(&mut self.rand, &mut rand);
+        }
+
+        /// A square block nobody can drive through (a barn, a cabin), `half` meters each way.
+        fn add_solid_box(&mut self, x: f64, z: f64, half: f64, base: f64, height: f64) {
+            self.boxes.push(BoxShape {
+                min_x: x - half,
+                max_x: x + half,
+                min_z: z - half,
+                max_z: z + half,
+                height,
+                solid: true,
+                target: None,
+                base: base - 0.5,
+            });
         }
     }
 
@@ -1618,7 +2216,7 @@ pub mod world_render {
     use crate::meshes::MeshData;
     use crate::venues::Weather;
     use crate::world::{Change, World};
-    use crate::world_build::{PropShapes, StartLight, WorldMats, css_color, glow, hex_color};
+    use crate::world_build::{PropShapes, Spin, StartLight, Wet, WorldMats, css_color, glow, hex_color};
 
     /// The camera the game is seen through.
     #[derive(Component)]
@@ -1662,7 +2260,8 @@ pub mod world_render {
     struct Chunks {
         generation: u64,
         shapes: PropShapes,
-        distant_leaves: MeshData,
+        /// How many of the world's props are in `members`.
+        known: usize,
         spawned: HashMap<(i32, i32), Vec<Entity>>,
         members: HashMap<(i32, i32), Vec<usize>>,
         dirty: HashSet<(i32, i32)>,
@@ -1687,12 +2286,15 @@ pub mod world_render {
             app.init_resource::<Focus>()
                 .init_resource::<Graphics>()
                 .init_resource::<Chunks>()
+                .init_resource::<LandMeshes>()
                 .add_systems(Startup, setup)
+                .add_systems(Update, spin)
                 .add_systems(
                     PostUpdate,
                     (
                         apply_changes,
                         rebuild_chunks,
+                        land_meshes,
                         environment,
                         start_lights,
                         effects_meshes,
@@ -1858,6 +2460,363 @@ pub mod world_render {
         });
     }
 
+    /// Water in the open world's lakes (a pack can make it shine).
+    #[derive(Component)]
+    pub struct Water;
+
+    /// The open world's ground and highways that are on the screen.
+    #[derive(Resource, Default)]
+    struct LandMeshes {
+        generation: u64,
+        /// Chunks drawn in detail (8 m) and far off (32 m): the ground, and any water.
+        near: HashMap<(i32, i32), Vec<Entity>>,
+        far: HashMap<(i32, i32), Vec<Entity>>,
+        /// Pieces of highway drawn: (road, piece) and its entity, and where it is.
+        roads: HashMap<(usize, usize), (Entity, f64, f64)>,
+        mats: Option<(Handle<StandardMaterial>, Handle<StandardMaterial>, Handle<StandardMaterial>)>,
+        /// Where the highways were last looked at, and the land's version then.
+        last: Option<(f64, f64, u64)>,
+        /// Where far-off ground was last put away.
+        last_evict: Option<(f64, f64)>,
+    }
+
+    /// The ground is drawn in detail within this distance, and roughly to `LAND_FAR`.
+    const LAND_NEAR: f64 = 900.0;
+    const LAND_FAR: f64 = 3400.0;
+    /// Highways are this many points (6 m apart) to a piece.
+    const ROAD_PIECE: usize = 40;
+
+    fn spin(time: Res<Time>, mut q: Query<(&Spin, &mut Transform)>) {
+        for (s, mut t) in &mut q {
+            t.rotate_local_z(s.0 * time.delta_secs());
+        }
+    }
+
+    /// One chunk of ground as a mesh, from its height grid (`cells` squares a
+    /// side), with skirts round the edge so chunks of the other detail never
+    /// leave a gap. Also a water surface if any of it is under water.
+    fn ground_mesh(land: &crate::land::Land, key: (i32, i32), grid: &[f32], cells: usize) -> (MeshData, Option<MeshData>) {
+        use crate::land::{CHUNK, WATER};
+        let step = CHUNK / cells as f64;
+        let (x0, z0) = (key.0 as f64 * CHUNK, key.1 as f64 * CHUNK);
+        let n = cells + 1;
+        let h = |i: usize, j: usize| f64::from(grid[j.min(cells) * n + i.min(cells)]);
+        let mut m = MeshData::default();
+        let mut lowest = f64::INFINITY;
+        for j in 0..n {
+            for i in 0..n {
+                let (x, z) = (x0 + i as f64 * step, z0 + j as f64 * step);
+                let y = h(i, j);
+                lowest = lowest.min(y);
+                let dx = h((i + 1).min(cells), j) - h(i.saturating_sub(1), j);
+                let dz = h(i, (j + 1).min(cells)) - h(i, j.saturating_sub(1));
+                let span_x = step * ((i + 1).min(cells) - i.saturating_sub(1)) as f64;
+                let span_z = step * ((j + 1).min(cells) - j.saturating_sub(1)) as f64;
+                let normal = Vec3::new((-dx / span_x) as f32, 1.0, (-dz / span_z) as f32).normalize();
+                let slope = 1.0 - normal.y as f64;
+                let c = land.ground_color(x, z, y, (slope * 3.0).min(1.0));
+                m.vertex([x, y, z], [x / 6.5, z / 6.5]);
+                m.normals.push(normal.to_array());
+                m.colors.push([c[0], c[1], c[2], 1.0]);
+            }
+        }
+        for j in 0..cells as u32 {
+            for i in 0..cells as u32 {
+                let a = j * n as u32 + i;
+                let (b, c, d) = (a + 1, a + n as u32, a + n as u32 + 1);
+                // The same split as Land::ground: (a, b, c) and (b, d, c).
+                m.tri(a, c, b);
+                m.tri(b, c, d);
+            }
+        }
+        // Skirts: each edge hangs down 10 m.
+        let edges: [Vec<u32>; 4] = [
+            (0..n as u32).collect(),
+            (0..n as u32).map(|i| (n as u32 - 1) * n as u32 + i).collect(),
+            (0..n as u32).map(|j| j * n as u32).collect(),
+            (0..n as u32).map(|j| j * n as u32 + n as u32 - 1).collect(),
+        ];
+        for edge in edges {
+            for w in edge.windows(2) {
+                let (a, b) = (w[0] as usize, w[1] as usize);
+                let base = m.positions.len() as u32;
+                for &k in &[a, b] {
+                    let p = m.positions[k];
+                    m.positions.push([p[0], p[1] - 10.0, p[2]]);
+                    m.uvs.push(m.uvs[k]);
+                    m.normals.push(m.normals[k]);
+                    m.colors.push(m.colors[k]);
+                }
+                // Both sides, so the skirt shows whichever way it faces.
+                m.tri(a as u32, base, b as u32);
+                m.tri(b as u32, base, base + 1);
+                m.tri(a as u32, b as u32, base);
+                m.tri(b as u32, base + 1, base);
+            }
+        }
+        let water = (lowest < WATER).then(|| {
+            let mut w = MeshData::default();
+            let y = WATER;
+            let a = w.vertex([x0, y, z0], [0.0, 0.0]);
+            let b = w.vertex([x0 + CHUNK, y, z0], [1.0, 0.0]);
+            let c = w.vertex([x0, y, z0 + CHUNK], [0.0, 1.0]);
+            let d = w.vertex([x0 + CHUNK, y, z0 + CHUNK], [1.0, 1.0]);
+            w.normals = vec![[0.0, 1.0, 0.0]; 4];
+            w.tri(a, c, b);
+            w.tri(b, c, d);
+            w
+        });
+        (m, water)
+    }
+
+    /// A piece of highway: the asphalt ribbon, a little above the flat ground beside it.
+    fn road_piece(land: &crate::land::Land, road: usize, piece: usize) -> Option<MeshData> {
+        let r = &land.roads[road];
+        let start = piece * ROAD_PIECE;
+        if start + 1 >= r.points.len() {
+            return None;
+        }
+        let end = (start + ROAD_PIECE).min(r.points.len() - 1);
+        let (from, to) = (&land.towns[r.from], &land.towns[r.to]);
+        // A highway is one strip; an interstate, two carriageways either side of a median.
+        let strips: &[(f32, f32)] = if r.interstate {
+            &[(2.2, 11.8), (-11.8, -2.2)]
+        } else {
+            &[(-7.0, 7.0)]
+        };
+        let mut m = MeshData::default();
+        for &(inner, outer) in strips {
+            road_strip(&mut m, r, start, end, from, to, inner, outer);
+        }
+        (!m.is_empty()).then_some(m)
+    }
+
+    /// One strip of asphalt along points `start..=end`, from `inner` to `outer` meters right of the middle.
+    #[allow(clippy::too_many_arguments)]
+    fn road_strip(
+        m: &mut MeshData,
+        r: &crate::land::Road,
+        start: usize,
+        end: usize,
+        from: &crate::land::Town,
+        to: &crate::land::Town,
+        inner: f32,
+        outer: f32,
+    ) {
+        let mut last: Option<(u32, u32)> = None;
+        for p in &r.points[start..=end] {
+            // The towns draw their own streets (the highway reaches 8 m into
+            // them, more than a point's spacing, so there's never a gap).
+            if from.contains(p.x, p.z, -8.0) || to.contains(p.x, p.z, -8.0) {
+                last = None;
+                continue;
+            }
+            let (rx, rz) = (-p.dz as f32, p.dx as f32);
+            let (x, z) = (p.x as f32, p.z as f32);
+            let v = (p.along / 12.0) as f32;
+            let y = 0.06;
+            let l = m.positions.len() as u32;
+            m.positions.push([x + rx * outer, y, z + rz * outer]);
+            m.positions.push([x + rx * inner, y, z + rz * inner]);
+            m.uvs.push([0.0, v]);
+            m.uvs.push([1.0, v]);
+            m.normals.push([0.0, 1.0, 0.0]);
+            m.normals.push([0.0, 1.0, 0.0]);
+            if let Some((a, b)) = last {
+                m.tri(a, l, b);
+                m.tri(b, l, l + 1);
+            }
+            last = Some((l, l + 1));
+        }
+    }
+
+    /// Streams the open world's ground and highways in and out around the car.
+    #[allow(clippy::too_many_arguments)]
+    fn land_meshes(
+        world: Res<World>,
+        focus: Res<Focus>,
+        mats: Res<WorldMats>,
+        mut lm: ResMut<LandMeshes>,
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+    ) {
+        if lm.generation != world.generation {
+            // The old map's entities went with it.
+            lm.generation = world.generation;
+            lm.near.clear();
+            lm.far.clear();
+            lm.roads.clear();
+            lm.last = None;
+            lm.last_evict = None;
+        }
+        let (Some(land), Some(root)) = (world.land.as_deref(), world.root) else {
+            return;
+        };
+        if lm.mats.is_none() {
+            let ground = materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                perceptual_roughness: 1.0,
+                reflectance: 0.2,
+                ..default()
+            });
+            let water = materials.add(StandardMaterial {
+                base_color: hex_color(0x2f6f8f),
+                perceptual_roughness: 0.12,
+                reflectance: 0.6,
+                ..default()
+            });
+            let road = materials.add(StandardMaterial {
+                base_color_texture: Some(mats.road.clone()),
+                perceptual_roughness: 0.9,
+                ..default()
+            });
+            lm.mats = Some((ground, water, road));
+        }
+        let (ground_mat, water_mat, road_mat) = lm.mats.clone().unwrap();
+        let (x, z) = (focus.x, focus.z);
+        let moved = lm.last.is_none_or(|l| l.2 != land.version || (x - l.0).hypot(z - l.1) > 24.0);
+        let started = std::time::Instant::now();
+        let budget = std::time::Duration::from_millis(4);
+        let here = crate::land::chunk_of(x, z);
+        let size = crate::land::CHUNK;
+        let distance = |key: (i32, i32)| {
+            let (cx, cz) = ((key.0 as f64 + 0.5) * size, (key.1 as f64 + 0.5) * size);
+            ((cx - x).hypot(cz - z) - size * 0.7).max(0.0)
+        };
+        let despawn = |commands: &mut Commands, list: Vec<Entity>| {
+            for e in list {
+                if let Ok(mut ec) = commands.get_entity(e) {
+                    ec.despawn();
+                }
+            }
+        };
+        if lm.last_evict.is_none_or(|l| (x - l.0).hypot(z - l.1) > 24.0) {
+            lm.last_evict = Some((x, z));
+            let near_keys: Vec<_> = lm.near.keys().copied().collect();
+            for key in near_keys {
+                if distance(key) > LAND_NEAR + 250.0 {
+                    let list = lm.near.remove(&key).unwrap_or_default();
+                    despawn(&mut commands, list);
+                }
+            }
+            let far_keys: Vec<_> = lm.far.keys().copied().collect();
+            for key in far_keys {
+                if distance(key) > LAND_FAR + 400.0 || lm.near.contains_key(&key) {
+                    let list = lm.far.remove(&key).unwrap_or_default();
+                    despawn(&mut commands, list);
+                }
+            }
+        }
+        // Nearest first: detailed chunks close by, rough ones further out.
+        let r = (LAND_FAR / size).ceil() as i32 + 1;
+        let mut wanted = Vec::new();
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let key = (here.0 + dx, here.1 + dz);
+                let d = distance(key);
+                if d <= LAND_NEAR && !lm.near.contains_key(&key) && land.fine_chunk(key).is_some() {
+                    wanted.push((d, key, true));
+                } else if d <= LAND_FAR && !lm.near.contains_key(&key) && !lm.far.contains_key(&key) {
+                    wanted.push((d, key, false));
+                }
+            }
+        }
+        wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let spawn = |commands: &mut Commands, meshes: &mut Assets<Mesh>, data: (MeshData, Option<MeshData>)| {
+            let mut list = Vec::new();
+            let e = commands
+                .spawn((
+                    Mesh3d(meshes.add(data.0.build())),
+                    MeshMaterial3d(ground_mat.clone()),
+                    Transform::default(),
+                    Wet,
+                    ChildOf(root),
+                ))
+                .id();
+            list.push(e);
+            if let Some(w) = data.1 {
+                list.push(
+                    commands
+                        .spawn((
+                            Mesh3d(meshes.add(w.build())),
+                            MeshMaterial3d(water_mat.clone()),
+                            Transform::default(),
+                            NotShadowCaster,
+                            Water,
+                            ChildOf(root),
+                        ))
+                        .id(),
+                );
+            }
+            list
+        };
+        for (_, key, fine) in wanted {
+            if started.elapsed() > budget {
+                break;
+            }
+            if fine {
+                let Some(grid) = land.fine_chunk(key) else { continue };
+                let list = spawn(&mut commands, &mut meshes, ground_mesh(land, key, &grid, crate::land::FINE));
+                lm.near.insert(key, list);
+                if let Some(old) = lm.far.remove(&key) {
+                    despawn(&mut commands, old);
+                }
+            } else {
+                let Some(grid) = land.coarse_chunk(key) else { continue };
+                let list = spawn(&mut commands, &mut meshes, ground_mesh(land, key, &grid, crate::land::COARSE));
+                lm.far.insert(key, list);
+            }
+        }
+        if moved || started.elapsed() < budget {
+            lm.last = Some((x, z, land.version));
+            // Highways within 2.5 km; put away again past 3.2 km.
+            let far: Vec<(usize, usize)> = lm
+                .roads
+                .iter()
+                .filter(|(_, v)| (v.1 - x).hypot(v.2 - z) > 3200.0)
+                .map(|(k, _)| *k)
+                .collect();
+            for key in far {
+                if let Some((e, _, _)) = lm.roads.remove(&key)
+                    && let Ok(mut ec) = commands.get_entity(e)
+                {
+                    ec.despawn();
+                }
+            }
+            for road in land.roads_near(x, z, 2500.0) {
+                let r = &land.roads[road];
+                let pieces = r.points.len().div_ceil(ROAD_PIECE);
+                for piece in 0..pieces {
+                    if lm.roads.contains_key(&(road, piece)) {
+                        continue;
+                    }
+                    let p = r.points[(piece * ROAD_PIECE).min(r.points.len() - 1)];
+                    if (p.x - x).hypot(p.z - z) > 2500.0 {
+                        continue;
+                    }
+                    let e = match road_piece(land, road, piece) {
+                        Some(m) => commands
+                            .spawn((
+                                Mesh3d(meshes.add(m.build())),
+                                MeshMaterial3d(road_mat.clone()),
+                                Transform::default(),
+                                NotShadowCaster,
+                                Wet,
+                                ChildOf(root),
+                            ))
+                            .id(),
+                        None => commands.spawn((Transform::default(), ChildOf(root))).id(),
+                    };
+                    lm.roads.insert((road, piece), (e, p.x, p.z));
+                    if started.elapsed() > budget {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     /// Brightness of three.js's lights in Bevy's units: lux for the sun, lumens for lamps.
     pub const LUX: f32 = 3135.0;
     pub const LUMENS: f32 = 12540.0;
@@ -1875,14 +2834,22 @@ pub mod world_render {
         if world.generation != chunks.generation {
             chunks.generation = world.generation;
             chunks.shapes = world.prop_shapes();
-            chunks.distant_leaves = distant_foliage(&chunks.shapes.leaves);
+            chunks.known = 0;
             chunks.spawned.clear(); // their entities went with the old map
             chunks.members.clear();
             for (i, p) in world.props.iter().enumerate() {
                 chunks.members.entry(p.chunk).or_default().push(i);
             }
             chunks.dirty = chunks.members.keys().copied().collect();
+            chunks.known = world.props.len();
         }
+        // The open world adds trees and lamps as you go.
+        for i in chunks.known..world.props.len() {
+            let key = world.props[i].chunk;
+            chunks.members.entry(key).or_default().push(i);
+            chunks.dirty.insert(key);
+        }
+        chunks.known = world.props.len();
         let changes = std::mem::take(&mut world.changes);
         for change in changes {
             match change {
@@ -1963,20 +2930,55 @@ pub mod world_render {
         m.flat_shaded().build()
     }
 
+    /// How far from the car groups of trees and lamps are drawn in the open
+    /// world (they're put away a little further out, so they don't flicker).
+    const PROPS_SHOWN: f64 = 1300.0;
+    const PROPS_PUT_AWAY: f64 = 1500.0;
+
+    fn chunk_distance(key: (i32, i32), x: f64, z: f64) -> f64 {
+        let size = crate::world::CHUNK;
+        let (cx, cz) = ((key.0 as f64 + 0.5) * size, (key.1 as f64 + 0.5) * size);
+        (cx - x).hypot(cz - z)
+    }
+
     /// Draws each group of lamps and trees that changed as a few merged meshes.
     fn rebuild_chunks(
         world: Res<World>,
+        focus: Res<Focus>,
         mut chunks: ResMut<Chunks>,
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
         mats: Res<WorldMats>,
+        mut last: Local<Option<(f64, f64, u64)>>,
     ) {
+        let Some(root) = world.root else { return };
+        let open = world.is_open();
+        if open && last.is_none_or(|l| l.2 != world.generation || (focus.x - l.0).hypot(focus.z - l.1) > 40.0) {
+            *last = Some((focus.x, focus.z, world.generation));
+            let keys: Vec<(i32, i32)> = chunks.members.keys().copied().collect();
+            for key in keys {
+                let d = chunk_distance(key, focus.x, focus.z);
+                if d > PROPS_PUT_AWAY {
+                    if let Some(old) = chunks.spawned.remove(&key) {
+                        for e in old {
+                            if let Ok(mut ec) = commands.get_entity(e) {
+                                ec.despawn();
+                            }
+                        }
+                    }
+                } else if d < PROPS_SHOWN && !chunks.spawned.contains_key(&key) {
+                    chunks.dirty.insert(key);
+                }
+            }
+        }
         if chunks.dirty.is_empty() {
             return;
         }
-        let Some(root) = world.root else { return };
         let dirty: Vec<(i32, i32)> = chunks.dirty.drain().collect();
         for key in dirty {
+            if open && chunk_distance(key, focus.x, focus.z) > PROPS_SHOWN && !chunks.spawned.contains_key(&key) {
+                continue;
+            }
             if let Some(old) = chunks.spawned.remove(&key) {
                 for e in old {
                     if let Ok(mut ec) = commands.get_entity(e) {
@@ -2002,9 +3004,10 @@ pub mod world_render {
                     append_moved(&mut wood, &s.pole, &local, crate::meshes::linear(0x3a3d42));
                     append_moved(&mut heads, &s.head, &local, [1.0; 4]);
                 } else {
-                    append_moved(&mut wood, &s.trunk, &local, s.trunk_color);
-                    append_moved(&mut leaves, &s.leaves, &local, p.color);
-                    append_moved(&mut distant, &chunks.distant_leaves, &local, p.color);
+                    let (trunk, trunk_color, shape, far) = &s.trees[p.kind as usize];
+                    append_moved(&mut wood, trunk, &local, *trunk_color);
+                    append_moved(&mut leaves, shape, &local, p.color);
+                    append_moved(&mut distant, far, &local, p.color);
                 }
             }
             let mut spawned = Vec::new();
@@ -2041,7 +3044,7 @@ pub mod world_render {
     }
 
     /// Eight triangles retain the shape's height and spread at a distance.
-    fn distant_foliage(shape: &MeshData) -> MeshData {
+    pub fn distant_foliage(shape: &MeshData) -> MeshData {
         if shape.is_empty() {
             return MeshData::default();
         }
@@ -2103,18 +3106,24 @@ pub mod world_render {
         let Ok((cam_entity, cam_t, fog, ambient)) = camera.single_mut() else {
             return;
         };
-        let weather = if theme.is_some_and(|t| t.weather != Weather::Clear) {
-            0.6
-        } else {
-            1.0
-        };
+        let weather = if world.weather_kind() != Weather::Clear { 0.6 } else { 1.0 };
         let fog_color = if night {
             hex_color(0x0b1222)
         } else {
             hex_color(theme.map_or(0xc4dcef, |t| t.fog))
         };
-        let start = (60.0f32).min(graphics.view_distance * 0.2) * weather;
-        let end = graphics.view_distance * weather;
+        // The open world fades into a far haze, so the mountains show.
+        let (start, end) = if world.is_open() {
+            (
+                graphics.view_distance * 0.5 * weather,
+                (LAND_FAR as f32 - 150.0) * weather.max(0.75),
+            )
+        } else {
+            (
+                (60.0f32).min(graphics.view_distance * 0.2) * weather,
+                graphics.view_distance * weather,
+            )
+        };
         match fog {
             Some(mut f) => {
                 f.color = fog_color;
@@ -2179,7 +3188,11 @@ pub mod world_render {
         // The sky follows the camera, just inside the far end of the view.
         if let Ok((mesh, mut t)) = sky.single_mut() {
             t.translation = cam_t.translation;
-            t.scale = Vec3::splat(graphics.view_distance.max(200.0) + 150.0);
+            t.scale = Vec3::splat(if world.is_open() {
+                LAND_FAR as f32 + 300.0
+            } else {
+                graphics.view_distance.max(200.0) + 150.0
+            });
             let key = (night, world.generation, String::new(), String::new());
             if last.as_ref().map(|k| (k.0, k.1)) != Some((key.0, key.1))
                 && let Some(mut m) = meshes.get_mut(&mesh.0)

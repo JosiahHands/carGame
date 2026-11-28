@@ -1225,6 +1225,10 @@ fn rule_choose(p: &Person, moment: &Moment, situation: &Situation) -> Decision {
             return d;
         }
     }
+    // The curious go off to see another town now and then (in the daytime).
+    if mind.traits.curiosity > 0.5 && (8.0..16.0).contains(&moment.hour) && random() < 0.05 {
+        return rule_decision("take a trip out of town", "I fancy seeing somewhere new today.");
+    }
     // Mischief, now and then, for the prickly and the bored.
     if mind.traits.kindness < 0.4 && n.fun < 0.5 && random() < 0.15 {
         return rule_decision("get up to mischief", "Nobody is watching. Probably.");
@@ -1386,7 +1390,7 @@ pub mod protocol {
 
     /// What anyone can choose to do next. "something else" is anything at all,
     /// in their own words: the game shows what it can of it.
-    pub const ACTIONS: [&str; 16] = [
+    pub const ACTIONS: [&str; 17] = [
         "carry on",
         "go somewhere",
         "find someone",
@@ -1402,6 +1406,7 @@ pub mod protocol {
         "get up to mischief",
         "text the driver",
         "report the driver to the police",
+        "take a trip out of town",
         "something else",
     ];
 

@@ -392,11 +392,7 @@ impl RealisticDynamics {
                 s.spin = [u / sp.radius; 4];
             }
         }
-        let weather = if world.map == "city" {
-            Weather::Clear
-        } else {
-            world.theme().weather
-        };
+        let weather = world.weather_kind();
         let ambient = ambient_temperature(weather, world.is_night());
         let best = best_temperature(opts.grip);
         {

@@ -254,6 +254,12 @@ pub struct CarRig {
     pub shape: CarShape,
     pub mats: CarMaterials,
     pub flames: Vec<Entity>,
+    /// The exhaust pipes and their nitro flames, together (a pack that
+    /// draws a different body moves them onto it).
+    pub exhaust: Entity,
+    /// Where the pipes out the back end (y and z, in the body's space);
+    /// None for stacks standing on the body.
+    pub pipe_tip: Option<Vec2>,
     pub flag: Option<Entity>,
     pub beam: Option<Entity>,
     pub glow_light: Option<Entity>,
@@ -790,6 +796,8 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
 
     // ---------- exhausts ----------
     let mut tips: Vec<(f32, f32, f32, bool)> = Vec::new();
+    // Pipes out the back are their own mesh (see `CarRig::exhaust`).
+    let mut pipe_parts: BTreeMap<Mat, MeshData> = BTreeMap::new();
     let pipe_r = match config.exhaust.as_str() {
         "quad" => 0.038,
         "stacks" => 0.06,
@@ -817,7 +825,7 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
         };
         for x in xs {
             put(
-                &mut body_parts,
+                &mut pipe_parts,
                 Mat::Chrome,
                 &Cylinder::new(pipe_r, 0.3).mesh().resolution(14).build(),
                 at(x, spec.bottom_y + 0.06, rear_z + 0.06).with_rotation(Quat::from_rotation_x(PI / 2.0)),
@@ -1071,12 +1079,34 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
         alpha_mode: AlphaMode::Add,
         ..default()
     });
+    let exhaust = ctx
+        .commands
+        .spawn((Transform::default(), Visibility::default(), ChildOf(body)))
+        .id();
+    for (key, data) in pipe_parts {
+        let mat = mats[&key].clone();
+        let e = ctx
+            .commands
+            .spawn((
+                Mesh3d(ctx.meshes.add(data.build_editable())),
+                MeshMaterial3d(mat.clone()),
+                Transform::default(),
+                ChildOf(exhaust),
+            ))
+            .id();
+        lit_parts.push((e, mat));
+    }
+    let pipe_tip = tips.first().filter(|t| !t.3).map(|t| Vec2::new(t.1, t.2));
     let mut flames = Vec::new();
     for &(x, y, z, up) in &tips {
         let rot = if up { Quat::from_rotation_x(-PI / 2.0) } else { Quat::IDENTITY };
         let flame = ctx
             .commands
-            .spawn((Transform::from_xyz(x, y, z).with_rotation(rot), Visibility::Hidden, ChildOf(body)))
+            .spawn((
+                Transform::from_xyz(x, y, z).with_rotation(rot),
+                Visibility::Hidden,
+                ChildOf(exhaust),
+            ))
             .id();
         ctx.commands.spawn((
             Mesh3d(flame_mesh.clone()),
@@ -1269,6 +1299,8 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
             burned,
         },
         flames,
+        exhaust,
+        pipe_tip,
         flag,
         beam,
         glow_light,
@@ -1287,6 +1319,11 @@ pub fn build_car(ctx: &mut CarBuildCtx, config: &CarConfig, night: bool, with_li
 /// On every car's root: what it was built from, for packs that redraw cars.
 #[derive(Component, Clone, Debug)]
 pub struct CarLook(pub Box<CarRig>);
+
+/// How far a pack moved each car's exhaust (by the car's root entity), so
+/// the boost trails come out of the pipes where they are now.
+#[derive(Resource, Default)]
+pub struct ExhaustShift(pub std::collections::HashMap<Entity, Vec3>);
 
 /// On a car that mustn't be redrawn by packs (the see-through ghost).
 #[derive(Component)]

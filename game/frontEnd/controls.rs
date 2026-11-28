@@ -1,7 +1,10 @@
 //! The keyboard, mouse and controllers, and the camera that follows the car.
 
 pub mod input {
-    //! Keyboard, mouse and controller input.
+    //! Keyboard, mouse and controller input. Every key can be changed in
+    //! the garage's Controls tab (see `Bindings`); the controller layout is fixed.
+    use std::collections::{BTreeMap, HashMap};
+
     use bevy::input::gamepad::{Gamepad, GamepadAxis, GamepadButton};
     use bevy::prelude::*;
 
@@ -28,29 +31,292 @@ pub mod input {
         Horn,
         ShiftUp,
         ShiftDown,
+        EnterExit,
+        Map,
     }
 
-    const ACTION_KEYS: &[(KeyCode, Action)] = &[
-        (KeyCode::KeyC, Action::Camera),
-        (KeyCode::KeyG, Action::Garage),
-        (KeyCode::KeyN, Action::Night),
-        (KeyCode::KeyM, Action::Mute),
-        (KeyCode::KeyR, Action::Reset),
-        (KeyCode::KeyH, Action::Help),
-        (KeyCode::KeyF, Action::Fullscreen),
-        (KeyCode::Escape, Action::Settings),
-        (KeyCode::KeyP, Action::Photo),
-        (KeyCode::Enter, Action::Snapshot),
-        (KeyCode::KeyB, Action::SlowMo),
-        (KeyCode::KeyT, Action::Trial),
-        (KeyCode::KeyQ, Action::NextWeapon),
-        (KeyCode::Digit1, Action::Weapon1),
-        (KeyCode::Digit2, Action::Weapon2),
-        (KeyCode::Digit3, Action::Weapon3),
-        (KeyCode::KeyV, Action::Horn),
-        (KeyCode::KeyX, Action::ShiftUp),
-        (KeyCode::KeyZ, Action::ShiftDown),
+    /// Everything that can be put on a key: id (saved), what it does, its
+    /// group on the Controls tab, the keys it starts on, and the action it
+    /// sends when pressed (the driving controls are held instead).
+    pub struct Binding {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub group: &'static str,
+        pub keys: &'static [KeyCode],
+        pub action: Option<Action>,
+    }
+
+    const fn bind(id: &'static str, label: &'static str, group: &'static str, keys: &'static [KeyCode], action: Option<Action>) -> Binding {
+        Binding {
+            id,
+            label,
+            group,
+            keys,
+            action,
+        }
+    }
+
+    use KeyCode as K;
+    pub const BINDINGS: &[Binding] = &[
+        bind("accelerate", "Accelerate (on foot: walk)", "Driving", &[K::KeyW, K::ArrowUp], None),
+        bind(
+            "brake",
+            "Brake and reverse (on foot: back up)",
+            "Driving",
+            &[K::KeyS, K::ArrowDown],
+            None,
+        ),
+        bind("left", "Steer left (on foot: turn)", "Driving", &[K::KeyA, K::ArrowLeft], None),
+        bind("right", "Steer right (on foot: turn)", "Driving", &[K::KeyD, K::ArrowRight], None),
+        bind("handbrake", "Handbrake, drift (on foot: jump)", "Driving", &[K::Space], None),
+        bind("nitro", "Nitro (on foot: run)", "Driving", &[K::ShiftLeft, K::ShiftRight], None),
+        bind("jump", "Jump (if the car can)", "Driving", &[K::KeyJ], None),
+        bind("shiftUp", "Gear up (manual)", "Driving", &[K::KeyX], Some(Action::ShiftUp)),
+        bind("shiftDown", "Gear down (manual)", "Driving", &[K::KeyZ], Some(Action::ShiftDown)),
+        bind("horn", "Horn", "Driving", &[K::KeyV], Some(Action::Horn)),
+        bind(
+            "enterExit",
+            "Get in or out of a car",
+            "On foot and fighting",
+            &[K::KeyF],
+            Some(Action::EnterExit),
+        ),
+        bind(
+            "fire",
+            "Fire, punch or shoot (and left click)",
+            "On foot and fighting",
+            &[K::KeyE],
+            None,
+        ),
+        bind(
+            "nextWeapon",
+            "Next weapon",
+            "On foot and fighting",
+            &[K::KeyQ],
+            Some(Action::NextWeapon),
+        ),
+        bind(
+            "weapon1",
+            "Weapon 1 (on foot: fists)",
+            "On foot and fighting",
+            &[K::Digit1],
+            Some(Action::Weapon1),
+        ),
+        bind(
+            "weapon2",
+            "Weapon 2 (on foot: pistol)",
+            "On foot and fighting",
+            &[K::Digit2],
+            Some(Action::Weapon2),
+        ),
+        bind("weapon3", "Weapon 3", "On foot and fighting", &[K::Digit3], Some(Action::Weapon3)),
+        bind("map", "Map", "View", &[K::KeyM], Some(Action::Map)),
+        bind("camera", "Change camera", "View", &[K::KeyC], Some(Action::Camera)),
+        bind("photo", "Photo mode", "View", &[K::KeyP], Some(Action::Photo)),
+        bind("snapshot", "Save a photo (photo mode)", "View", &[K::Enter], Some(Action::Snapshot)),
+        bind("night", "Day or night", "View", &[K::KeyN], Some(Action::Night)),
+        bind("fullscreen", "Fullscreen", "View", &[K::F11], Some(Action::Fullscreen)),
+        bind("garage", "Garage", "Game", &[K::KeyG], Some(Action::Garage)),
+        bind("reset", "Reset the car", "Game", &[K::KeyR], Some(Action::Reset)),
+        bind("trial", "Time trial", "Game", &[K::KeyT], Some(Action::Trial)),
+        bind("slowmo", "Slow motion", "Game", &[K::KeyB], Some(Action::SlowMo)),
+        bind("mute", "Sound on or off", "Game", &[K::KeyU], Some(Action::Mute)),
+        bind("help", "Help", "Game", &[K::KeyH], Some(Action::Help)),
+        bind("talk", "Talk to someone (Living City)", "Living City", &[K::KeyK], None),
+        bind("journal", "City journal (Living City)", "Living City", &[K::KeyL], None),
     ];
+
+    /// The keys that can be used, with how they're saved and shown.
+    const KEYS: &[(KeyCode, &str, &str)] = &[
+        (K::KeyA, "KeyA", "A"),
+        (K::KeyB, "KeyB", "B"),
+        (K::KeyC, "KeyC", "C"),
+        (K::KeyD, "KeyD", "D"),
+        (K::KeyE, "KeyE", "E"),
+        (K::KeyF, "KeyF", "F"),
+        (K::KeyG, "KeyG", "G"),
+        (K::KeyH, "KeyH", "H"),
+        (K::KeyI, "KeyI", "I"),
+        (K::KeyJ, "KeyJ", "J"),
+        (K::KeyK, "KeyK", "K"),
+        (K::KeyL, "KeyL", "L"),
+        (K::KeyM, "KeyM", "M"),
+        (K::KeyN, "KeyN", "N"),
+        (K::KeyO, "KeyO", "O"),
+        (K::KeyP, "KeyP", "P"),
+        (K::KeyQ, "KeyQ", "Q"),
+        (K::KeyR, "KeyR", "R"),
+        (K::KeyS, "KeyS", "S"),
+        (K::KeyT, "KeyT", "T"),
+        (K::KeyU, "KeyU", "U"),
+        (K::KeyV, "KeyV", "V"),
+        (K::KeyW, "KeyW", "W"),
+        (K::KeyX, "KeyX", "X"),
+        (K::KeyY, "KeyY", "Y"),
+        (K::KeyZ, "KeyZ", "Z"),
+        (K::Digit0, "Digit0", "0"),
+        (K::Digit1, "Digit1", "1"),
+        (K::Digit2, "Digit2", "2"),
+        (K::Digit3, "Digit3", "3"),
+        (K::Digit4, "Digit4", "4"),
+        (K::Digit5, "Digit5", "5"),
+        (K::Digit6, "Digit6", "6"),
+        (K::Digit7, "Digit7", "7"),
+        (K::Digit8, "Digit8", "8"),
+        (K::Digit9, "Digit9", "9"),
+        (K::F1, "F1", "F1"),
+        (K::F2, "F2", "F2"),
+        (K::F3, "F3", "F3"),
+        (K::F4, "F4", "F4"),
+        (K::F5, "F5", "F5"),
+        (K::F6, "F6", "F6"),
+        (K::F7, "F7", "F7"),
+        (K::F8, "F8", "F8"),
+        (K::F9, "F9", "F9"),
+        (K::F10, "F10", "F10"),
+        (K::F11, "F11", "F11"),
+        (K::F12, "F12", "F12"),
+        (K::ArrowUp, "ArrowUp", "↑"),
+        (K::ArrowDown, "ArrowDown", "↓"),
+        (K::ArrowLeft, "ArrowLeft", "←"),
+        (K::ArrowRight, "ArrowRight", "→"),
+        (K::Space, "Space", "Space"),
+        (K::Enter, "Enter", "Enter"),
+        (K::Tab, "Tab", "Tab"),
+        (K::Backspace, "Backspace", "Backspace"),
+        (K::ShiftLeft, "ShiftLeft", "Left Shift"),
+        (K::ShiftRight, "ShiftRight", "Right Shift"),
+        (K::ControlLeft, "ControlLeft", "Left Ctrl"),
+        (K::ControlRight, "ControlRight", "Right Ctrl"),
+        (K::AltLeft, "AltLeft", "Left Alt"),
+        (K::AltRight, "AltRight", "Right Alt"),
+        (K::Comma, "Comma", ","),
+        (K::Period, "Period", "."),
+        (K::Slash, "Slash", "/"),
+        (K::Semicolon, "Semicolon", ";"),
+        (K::Quote, "Quote", "'"),
+        (K::BracketLeft, "BracketLeft", "["),
+        (K::BracketRight, "BracketRight", "]"),
+        (K::Backslash, "Backslash", "\\"),
+        (K::Minus, "Minus", "-"),
+        (K::Equal, "Equal", "="),
+        (K::Backquote, "Backquote", "`"),
+        (K::Home, "Home", "Home"),
+        (K::End, "End", "End"),
+        (K::PageUp, "PageUp", "Page Up"),
+        (K::PageDown, "PageDown", "Page Down"),
+        (K::Insert, "Insert", "Insert"),
+        (K::Delete, "Delete", "Delete"),
+        (K::Numpad0, "Numpad0", "Num 0"),
+        (K::Numpad1, "Numpad1", "Num 1"),
+        (K::Numpad2, "Numpad2", "Num 2"),
+        (K::Numpad3, "Numpad3", "Num 3"),
+        (K::Numpad4, "Numpad4", "Num 4"),
+        (K::Numpad5, "Numpad5", "Num 5"),
+        (K::Numpad6, "Numpad6", "Num 6"),
+        (K::Numpad7, "Numpad7", "Num 7"),
+        (K::Numpad8, "Numpad8", "Num 8"),
+        (K::Numpad9, "Numpad9", "Num 9"),
+    ];
+
+    pub fn key_id(key: KeyCode) -> Option<&'static str> {
+        KEYS.iter().find(|k| k.0 == key).map(|k| k.1)
+    }
+
+    pub fn key_from(id: &str) -> Option<KeyCode> {
+        KEYS.iter().find(|k| k.1 == id).map(|k| k.0)
+    }
+
+    pub fn key_label(key: KeyCode) -> &'static str {
+        KEYS.iter().find(|k| k.0 == key).map_or("?", |k| k.2)
+    }
+
+    /// Which keys do what now: the defaults, with the player's changes
+    /// (`Settings::controls`, binding id -> key ids) on top.
+    #[derive(Clone, Debug)]
+    pub struct Bindings(HashMap<&'static str, Vec<KeyCode>>);
+
+    impl Default for Bindings {
+        fn default() -> Self {
+            Bindings(BINDINGS.iter().map(|b| (b.id, b.keys.to_vec())).collect())
+        }
+    }
+
+    impl Bindings {
+        pub fn new(changes: &BTreeMap<String, Vec<String>>) -> Self {
+            let mut b = Bindings::default();
+            for (id, keys) in changes {
+                if let Some(binding) = BINDINGS.iter().find(|x| x.id == id) {
+                    b.0.insert(binding.id, keys.iter().filter_map(|k| key_from(k)).take(2).collect());
+                }
+            }
+            b
+        }
+
+        pub fn keys(&self, id: &str) -> &[KeyCode] {
+            self.0.get(id).map_or(&[], |v| v.as_slice())
+        }
+
+        pub fn pressed(&self, keys: &ButtonInput<KeyCode>, id: &str) -> bool {
+            self.keys(id).iter().any(|k| keys.pressed(*k))
+        }
+
+        pub fn just_pressed(&self, keys: &ButtonInput<KeyCode>, id: &str) -> bool {
+            self.keys(id).iter().any(|k| keys.just_pressed(*k))
+        }
+
+        /// The keys for `id`, as shown (like "W / ↑").
+        pub fn label(&self, id: &str) -> String {
+            let keys = self.keys(id);
+            if keys.is_empty() {
+                return "(none)".into();
+            }
+            keys.iter().map(|k| key_label(*k)).collect::<Vec<_>>().join(" / ")
+        }
+
+        /// Puts `key` on binding `id` (in place of its key number `slot`),
+        /// taking it off anything else that had it. Returns what lost it.
+        pub fn set(&mut self, id: &str, slot: usize, key: KeyCode) -> Vec<&'static str> {
+            let Some(binding) = BINDINGS.iter().find(|b| b.id == id) else {
+                return Vec::new();
+            };
+            let keys = self.0.entry(binding.id).or_default();
+            if let Some(old_slot) = keys.iter().position(|&k| k == key) {
+                if slot < keys.len() {
+                    keys.swap(old_slot, slot);
+                }
+                return Vec::new();
+            }
+            let mut moved = Vec::new();
+            for (other, keys) in &mut self.0 {
+                if *other != id && keys.contains(&key) {
+                    keys.retain(|k| *k != key);
+                    moved.push(*other);
+                }
+            }
+            let keys = self.0.entry(binding.id).or_default();
+            if let Some(current) = keys.get_mut(slot) {
+                *current = key;
+            } else if keys.len() < 2 {
+                keys.push(key);
+            }
+            moved
+        }
+
+        /// The changes from the defaults, for saving.
+        pub fn changes(&self) -> BTreeMap<String, Vec<String>> {
+            BINDINGS
+                .iter()
+                .filter(|b| self.keys(b.id) != b.keys)
+                .map(|b| {
+                    (
+                        b.id.to_string(),
+                        self.keys(b.id).iter().filter_map(|k| key_id(*k)).map(str::to_string).collect(),
+                    )
+                })
+                .collect()
+        }
+    }
 
     /// The driving controls this frame.
     #[derive(Clone, Copy, Debug, Default)]
@@ -60,16 +326,23 @@ pub mod input {
     }
 
     /// Reads keys and controllers. `typing` is true while a text box has the keyboard.
-    pub fn actions(keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>, typing: bool) -> Vec<Action> {
+    pub fn actions(keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>, typing: bool, bindings: &Bindings) -> Vec<Action> {
         let mut out = Vec::new();
-        for (key, action) in ACTION_KEYS {
-            if keys.just_pressed(*key) && (!typing || *key == KeyCode::Escape) {
-                out.push(*action);
+        if keys.just_pressed(KeyCode::Escape) {
+            out.push(Action::Settings);
+        }
+        if !typing {
+            for b in BINDINGS {
+                if let Some(action) = b.action
+                    && bindings.just_pressed(keys, b.id)
+                {
+                    out.push(action);
+                }
             }
         }
         // Standard layout: Y = camera, Start = garage, Back = reset, X = night,
         // LB = next weapon, D-pad down = slow motion, right stick click = horn,
-        // D-pad right / left = gear up / down.
+        // D-pad right / left = gear up / down, D-pad up = get in or out of a car.
         if let Some(pad) = pads.iter().next() {
             let map = [
                 (GamepadButton::North, Action::Camera),
@@ -81,6 +354,7 @@ pub mod input {
                 (GamepadButton::RightThumb, Action::Horn),
                 (GamepadButton::DPadRight, Action::ShiftUp),
                 (GamepadButton::DPadLeft, Action::ShiftDown),
+                (GamepadButton::DPadUp, Action::EnterExit),
             ];
             for (button, action) in map {
                 if pad.just_pressed(button) {
@@ -91,25 +365,34 @@ pub mod input {
         out
     }
 
+    /// The controller's layout, for the Controls tab.
+    pub const PAD_HELP: &[&str] = &[
+        "Right trigger accelerate · left trigger brake · left stick steer",
+        "A handbrake · B nitro · right bumper fire · left stick click jump",
+        "Y camera · X day/night · left bumper next weapon · right stick click horn",
+        "D-pad up get in or out · down slow motion · left/right change gear",
+        "Start garage · Back reset",
+    ];
+
     pub fn read(
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
         pads: &Query<&Gamepad>,
         typing: bool,
         mouse_on_game: bool,
+        bindings: &Bindings,
     ) -> Controls {
         if typing {
             return Controls::default();
         }
-        let k = |codes: &[KeyCode]| codes.iter().any(|c| keys.pressed(*c));
-        let mut throttle: f64 = if k(&[KeyCode::KeyW, KeyCode::ArrowUp]) { 1.0 } else { 0.0 };
-        let mut brake: f64 = if k(&[KeyCode::KeyS, KeyCode::ArrowDown]) { 1.0 } else { 0.0 };
-        let mut steer: f64 = (if k(&[KeyCode::KeyA, KeyCode::ArrowLeft]) { 1.0 } else { 0.0 })
-            - (if k(&[KeyCode::KeyD, KeyCode::ArrowRight]) { 1.0 } else { 0.0 });
-        let mut handbrake = k(&[KeyCode::Space]);
-        let mut boost = k(&[KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-        let mut fire = k(&[KeyCode::KeyE]) || (mouse_on_game && mouse.pressed(MouseButton::Left));
-        let mut jump = k(&[KeyCode::KeyJ]);
+        let k = |id: &str| bindings.pressed(keys, id);
+        let mut throttle: f64 = if k("accelerate") { 1.0 } else { 0.0 };
+        let mut brake: f64 = if k("brake") { 1.0 } else { 0.0 };
+        let mut steer: f64 = (if k("left") { 1.0 } else { 0.0 }) - (if k("right") { 1.0 } else { 0.0 });
+        let mut handbrake = k("handbrake");
+        let mut boost = k("nitro");
+        let mut fire = k("fire") || (mouse_on_game && mouse.pressed(MouseButton::Left));
+        let mut jump = k("jump");
         if let Some(pad) = pads.iter().next() {
             let stick = pad.get(GamepadAxis::LeftStickX).unwrap_or(0.0) as f64;
             if stick.abs() > 0.12 {
@@ -132,6 +415,38 @@ pub mod input {
                 jump,
             },
             fire,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_key_moves_from_one_control_to_another_and_is_saved() {
+            let mut b = Bindings::default();
+            assert_eq!(b.keys("map"), &[KeyCode::KeyM]);
+            let moved = b.set("mute", 0, KeyCode::KeyM);
+            assert_eq!(moved, vec!["map"]);
+            assert!(b.keys("map").is_empty());
+            let saved = b.changes();
+            assert_eq!(saved.get("mute"), Some(&vec!["KeyM".to_string()]));
+            let again = Bindings::new(&saved);
+            assert_eq!(again.keys("mute"), &[KeyCode::KeyM]);
+            assert!(again.keys("map").is_empty());
+            assert_eq!(again.keys("accelerate"), &[KeyCode::KeyW, KeyCode::ArrowUp]);
+            // Pressing the key a control already has, in its place, changes nothing.
+            let mut same = Bindings::default();
+            assert!(same.set("accelerate", 0, KeyCode::KeyW).is_empty());
+            assert_eq!(same.keys("accelerate"), &[KeyCode::KeyW, KeyCode::ArrowUp]);
+            assert!(same.set("accelerate", 0, KeyCode::ArrowUp).is_empty());
+            assert_eq!(same.keys("accelerate"), &[KeyCode::ArrowUp, KeyCode::KeyW]);
+            // Every default key has a name to be saved under.
+            for binding in BINDINGS {
+                for key in binding.keys {
+                    assert!(key_id(*key).is_some(), "{}", binding.id);
+                }
+            }
         }
     }
 }

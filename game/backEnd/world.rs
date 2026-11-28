@@ -12,7 +12,7 @@
 //! directly: it lists what changed (`changes`) and world_render.rs shows it.
 use std::collections::HashMap;
 
-use bevy::math::DVec3;
+use bevy::math::{DVec2, DVec3};
 use bevy::prelude::*;
 
 use crate::carmodel::CarRig;
@@ -88,6 +88,8 @@ pub struct BoxShape {
     pub height: f64,
     pub solid: bool,
     pub target: Option<usize>,
+    /// The ground under it (on a hillside in the open world; 0 elsewhere).
+    pub base: f64,
 }
 
 /// A post (lamp, tree trunk, rock): a circle on the ground, `height` tall.
@@ -101,6 +103,8 @@ pub struct Circle {
     pub hit_radius: f64,
     pub solid: bool,
     pub target: Option<usize>,
+    /// The ground under it.
+    pub base: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +170,8 @@ pub struct Target {
     pub spin: DVec3,
     pub burn_until: f64,
     pub traffic: bool,
+    /// A wreck sliding along the ground after being pushed.
+    pub slide: DVec3,
     // Lamps and trees
     pub prop: usize,
     pub size: f64,
@@ -202,6 +208,7 @@ impl Target {
             spin: DVec3::ZERO,
             burn_until: 0.0,
             traffic: false,
+            slide: DVec3::ZERO,
             prop: 0,
             size: 1.0,
         }
@@ -212,6 +219,8 @@ impl Target {
 #[derive(Clone, Debug)]
 pub struct Prop {
     pub lamp: bool,
+    /// What kind of tree (the open world has every kind).
+    pub kind: crate::venues::Trees,
     pub transform: Transform,
     /// The leaves' color (linear), for trees.
     pub color: [f32; 4],
@@ -360,6 +369,26 @@ pub struct World {
     pub root: Option<Entity>,
     pub(crate) rand: Seeded,
     cells: HashMap<(i64, i64), Cell>,
+    /// The open world around the city (free roam on the City map only).
+    pub land: Option<Box<crate::land::Land>>,
+    /// Build the City map as the open world (set before `load`).
+    pub open: bool,
+    /// The generative map: the open world never ends (set before `load`).
+    pub generative: bool,
+    /// The weather picked for this map in the garage, if not the venue's own.
+    pub weather_choice: Option<crate::venues::Weather>,
+    /// Boxes that never move, by 16 m square; the cars' boxes are in `car_boxes`.
+    box_cells: HashMap<(i64, i64), Vec<usize>>,
+    pub car_boxes: Vec<usize>,
+    /// Buildings with a rubble pile (they change the ground's height).
+    pub(crate) rubble: Vec<usize>,
+    /// Things that need looking at every frame: damaged, falling, rising,
+    /// burning or wrecked (so a big open world costs no more per frame).
+    pub(crate) watch: Vec<usize>,
+    /// How many circles, walls and boxes are in the lookup grids so far.
+    indexed: (usize, usize, usize),
+    /// Towns just built (indices into `land.towns`), for their people to move in.
+    pub built_towns: Vec<usize>,
 }
 
 impl World {
@@ -401,7 +430,31 @@ impl World {
             root: None,
             rand: Seeded::new(42.0),
             cells: HashMap::new(),
+            land: None,
+            open: false,
+            generative: false,
+            weather_choice: None,
+            box_cells: HashMap::new(),
+            car_boxes: Vec::new(),
+            rubble: Vec::new(),
+            watch: Vec::new(),
+            indexed: (0, 0, 0),
+            built_towns: Vec::new(),
         }
+    }
+
+    /// Rain, snow or clear: the garage's choice for this map, or the venue's own.
+    pub fn weather_kind(&self) -> crate::venues::Weather {
+        self.weather_choice.unwrap_or(if self.map == "city" {
+            crate::venues::Weather::Clear
+        } else {
+            self.theme().weather
+        })
+    }
+
+    /// The City map as the open world (free roam).
+    pub fn is_open(&self) -> bool {
+        self.land.is_some()
     }
 
     pub fn venue(&self) -> &'static Venue {
@@ -417,24 +470,72 @@ impl World {
         self.night || self.theme().night
     }
 
-    /// Fills the lookup grid of posts and walls. They never move, so this is done once per map.
+    /// Fills the lookup grids of posts, walls and boxes. They never move, so
+    /// each is added once (the open world adds more as you go: `index_new`).
     pub(crate) fn build_cells(&mut self) {
         self.cells.clear();
-        let add = |cells: &mut HashMap<(i64, i64), Cell>, min_x: f64, max_x: f64, min_z: f64, max_z: f64, put: &dyn Fn(&mut Cell)| {
-            for cx in (min_x / CELL).floor() as i64..=(max_x / CELL).floor() as i64 {
-                for cz in (min_z / CELL).floor() as i64..=(max_z / CELL).floor() as i64 {
-                    put(cells.entry((cx, cz)).or_default());
+        self.box_cells.clear();
+        self.car_boxes.clear();
+        self.indexed = (0, 0, 0);
+        self.index_new();
+    }
+
+    /// Adds the posts, walls and boxes made since last time to the lookup grids.
+    pub fn index_new(&mut self) {
+        let squares = |min_x: f64, max_x: f64, min_z: f64, max_z: f64| {
+            let xs = (min_x / CELL).floor() as i64..=(max_x / CELL).floor() as i64;
+            let zs = (min_z / CELL).floor() as i64..=(max_z / CELL).floor() as i64;
+            xs.flat_map(move |cx| zs.clone().map(move |cz| (cx, cz)))
+        };
+        for i in self.indexed.0..self.circles.len() {
+            let c = self.circles[i];
+            let r = c.r.max(c.hit_radius);
+            for key in squares(c.x - r, c.x + r, c.z - r, c.z + r) {
+                self.cells.entry(key).or_default().circles.push(i);
+            }
+        }
+        for i in self.indexed.1..self.walls.len() {
+            let w = self.walls[i];
+            for key in squares(w.min_x, w.max_x, w.min_z, w.max_z) {
+                self.cells.entry(key).or_default().walls.push(i);
+            }
+        }
+        for i in self.indexed.2..self.boxes.len() {
+            let b = self.boxes[i];
+            let moves = b
+                .target
+                .is_some_and(|t| self.targets.get(t).is_some_and(|t| t.kind == TargetKind::Car));
+            if moves || !b.min_x.is_finite() {
+                self.car_boxes.push(i);
+                continue;
+            }
+            for key in squares(b.min_x, b.max_x, b.min_z, b.max_z) {
+                self.box_cells.entry(key).or_default().push(i);
+            }
+        }
+        self.indexed = (self.circles.len(), self.walls.len(), self.boxes.len());
+        // Cars taken away for good (min_x is infinite) never come back.
+        let boxes = &self.boxes;
+        self.car_boxes.retain(|&i| boxes[i].min_x.is_finite());
+    }
+
+    /// The boxes that might be within `reach` meters of (x, z): the still
+    /// ones nearby, and every car.
+    pub fn boxes_near(&self, x: f64, z: f64, reach: f64) -> Vec<usize> {
+        let mut out = Vec::new();
+        for cx in ((x - reach) / CELL).floor() as i64..=((x + reach) / CELL).floor() as i64 {
+            for cz in ((z - reach) / CELL).floor() as i64..=((z + reach) / CELL).floor() as i64 {
+                if let Some(list) = self.box_cells.get(&(cx, cz)) {
+                    out.extend_from_slice(list);
                 }
             }
-        };
-        for (i, c) in self.circles.iter().enumerate() {
-            add(&mut self.cells, c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r, &|cell| {
-                cell.circles.push(i)
-            });
         }
-        for (i, w) in self.walls.iter().enumerate() {
-            add(&mut self.cells, w.min_x, w.max_x, w.min_z, w.max_z, &|cell| cell.walls.push(i));
-        }
+        out.sort_unstable();
+        out.dedup();
+        out.extend_from_slice(&self.car_boxes);
+        // Boxes made since the grids were last filled.
+        out.extend(self.indexed.2..self.boxes.len());
+        out
     }
 
     /// The posts and walls that might be within `reach` meters of (x, z), as indices.
@@ -453,14 +554,43 @@ impl World {
         circles.dedup();
         walls.sort_unstable();
         walls.dedup();
+        circles.extend(self.indexed.0..self.circles.len());
+        walls.extend(self.indexed.1..self.walls.len());
         (circles, walls)
+    }
+
+    /// Car targets, including cars added since the grids were last filled.
+    pub(crate) fn car_targets(&self) -> impl Iterator<Item = usize> + '_ {
+        self.car_boxes
+            .iter()
+            .copied()
+            .chain(self.indexed.2..self.boxes.len())
+            .filter_map(|i| self.boxes[i].target)
+            .filter(|&i| self.targets[i].kind == TargetKind::Car)
+    }
+
+    /// The closest live car the player can get into from this position.
+    pub(crate) fn enterable_car(&self, at: DVec2) -> Option<(f64, usize)> {
+        self.car_targets()
+            .filter_map(|i| {
+                let t = &self.targets[i];
+                let rig = t.rig.as_ref()?;
+                let distance = at.distance(DVec2::new(t.x, t.z));
+                (t.alive && !t.flying && distance < rig.length.max(rig.width) / 2.0 + 1.8).then_some((distance, i))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
     }
 
     // ---------- driving ----------
 
-    /// Ground height at a point: non-zero on banked track, ramps and rubble piles.
+    /// Ground height at a point: non-zero on banked track, ramps, rubble
+    /// piles and the open world's hills.
     pub fn height_at(&self, x: f64, z: f64) -> f64 {
-        let mut best = self.track.as_ref().map_or(0.0, |t| t.height_at(x, z));
+        let mut best = match (&self.track, &self.land) {
+            (Some(t), _) => t.height_at(x, z),
+            (None, Some(land)) => land.ground(x, z),
+            _ => 0.0,
+        };
         for r in &self.ramps {
             let (dx, dz) = (x - r.x, z - r.z);
             let (s, c) = r.angle.sin_cos();
@@ -478,23 +608,36 @@ impl World {
             };
             best = best.max(h);
         }
-        for t in &self.targets {
-            if t.kind != TargetKind::Building || t.rubble_height <= 0.0 {
+        for &i in &self.rubble {
+            let t = &self.targets[i];
+            let shape = rubble_shape(x - t.x, z - t.z, t.width, t.depth);
+            if t.rubble_height <= 0.0 || shape <= 0.0 {
                 continue;
             }
-            best = best.max(t.rubble_height * rubble_shape(x - t.x, z - t.z, t.width, t.depth));
+            best = best.max(t.rubble_height * shape);
         }
         best
     }
 
     /// How much grip the tires have at (x, z), compared to dry asphalt.
     pub fn grip_at(&self, x: f64, z: f64) -> f64 {
-        let weather = if self.map == "city" { 1.0 } else { self.theme().grip };
+        let weather = match self.weather_choice {
+            Some(crate::venues::Weather::Rain) => self.theme().grip.min(0.84),
+            Some(crate::venues::Weather::Snow) => self.theme().grip.min(0.72),
+            Some(crate::venues::Weather::Clear) => 1.0,
+            None if self.map == "city" => 1.0,
+            None => self.theme().grip,
+        };
         if self.off_road(x, z) { weather * 0.75 } else { weather }
     }
 
-    /// Whether (x, z) is grass that slows the car down: anywhere off the asphalt on the race tracks.
+    /// Whether (x, z) is grass that slows the car down: anywhere off the
+    /// asphalt on the race tracks, and off the roads and out of the towns in
+    /// the open world.
     pub fn off_road(&self, x: f64, z: f64) -> bool {
+        if let Some(land) = &self.land {
+            return !land.paved(x, z);
+        }
         match &self.track {
             None => false,
             Some(t) if t.is_paved(x, z) => false,
@@ -535,6 +678,57 @@ impl World {
         c.spin = DVec3::new(rng::centered() * 14.0, rng::centered() * 6.0, rng::centered() * 14.0);
     }
 
+    /// Whether target `t` is a wreck lying on the ground (it can be pushed about).
+    pub fn is_wreck(&self, t: usize) -> bool {
+        let w = &self.targets[t];
+        w.kind == TargetKind::Car && !w.alive && w.rig.is_some() && !w.flying && w.destroyed_at.is_finite()
+    }
+
+    /// Whether moving wreck `i` by (dx, dz) would run it into a building, a
+    /// car, a wall or a post.
+    fn wreck_blocked(&self, i: usize, dx: f64, dz: f64) -> bool {
+        let t = &self.targets[i];
+        let me = self.boxes[t.shape];
+        let (min_x, max_x, min_z, max_z) = (me.min_x + dx, me.max_x + dx, me.min_z + dz, me.max_z + dz);
+        if self.land.is_none() && (min_x < -self.half || max_x > self.half || min_z < -self.half || max_z > self.half) {
+            return true;
+        }
+        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
+        let reach = (max_x - min_x).max(max_z - min_z);
+        let boxes = self.boxes_near(cx, cz, reach).into_iter().any(|b| {
+            let o = &self.boxes[b];
+            b != t.shape && o.solid && min_x < o.max_x && max_x > o.min_x && min_z < o.max_z && max_z > o.min_z
+        });
+        let (circles, walls) = self.nearby(cx, cz, reach);
+        boxes
+            || circles.iter().any(|&c| {
+                let c = &self.circles[c];
+                c.solid && c.x + c.r > min_x && c.x - c.r < max_x && c.z + c.r > min_z && c.z - c.r < max_z
+            })
+            || walls.iter().any(|&w| {
+                let w = &self.walls[w];
+                crate::land::segment_distance(cx, cz, w.ax, w.az, w.bx, w.bz) < reach / 2.0
+            })
+    }
+
+    /// Pushes a wreck along (velocity, m/s); a hard shove flips it over.
+    pub fn shove(&mut self, t: usize, velocity: DVec3) {
+        if !self.is_wreck(t) {
+            return;
+        }
+        self.keep_watch(t);
+        let w = &mut self.targets[t];
+        if velocity.length() > 14.0 {
+            w.flying = true;
+            w.slide = DVec3::ZERO;
+            w.velocity = DVec3::new(velocity.x, 3.0 + velocity.length() * 0.15, velocity.z);
+            w.spin = DVec3::new(rng::centered() * 5.0, rng::centered() * 3.0, rng::centered() * 5.0);
+            self.boxes[w.shape].solid = false;
+        } else {
+            w.slide = DVec3::new(velocity.x, 0.0, velocity.z);
+        }
+    }
+
     /// A car driving into a lamp or tree fast enough (40 km/h) knocks it straight over.
     pub fn ram(&mut self, t: usize, speed: f64, direction: DVec3) -> bool {
         let target = &self.targets[t];
@@ -563,10 +757,10 @@ impl World {
                 });
             }
         };
-        if let Some(track) = &self.track {
+        if self.track.is_some() || self.land.is_some() {
             let below = |t: f64| {
                 let p = origin + direction * t;
-                (p.y <= track.height_at(p.x, p.z), p)
+                (p.y <= self.ground_only(p.x, p.z), p)
             };
             let mut t = 1.0;
             while t < max_distance + 1.0 {
@@ -591,20 +785,28 @@ impl World {
                 consider(origin + direction * t, None, None, true, None);
             }
         }
-        for b in &self.boxes {
+        let end = origin + direction * max_distance;
+        let midpoint = (origin + end) * 0.5;
+        let reach = (end.x - origin.x).abs().max((end.z - origin.z).abs()) * 0.5;
+        let mut boxes = self.boxes_near(midpoint.x, midpoint.z, reach);
+        boxes.sort_unstable();
+        let (circles, walls) = self.nearby(midpoint.x, midpoint.z, reach);
+        for i in boxes {
+            let b = &self.boxes[i];
             if !b.solid {
                 continue;
             }
             if let Some(p) = ray_box(
                 origin,
                 direction,
-                DVec3::new(b.min_x, 0.0, b.min_z),
-                DVec3::new(b.max_x, b.height, b.max_z),
+                DVec3::new(b.min_x, b.base, b.min_z),
+                DVec3::new(b.max_x, b.base + b.height, b.max_z),
             ) {
                 consider(p, b.target, None, false, None);
             }
         }
-        for w in &self.walls {
+        for i in walls {
+            let w = &self.walls[i];
             let sx = w.bx - w.ax;
             let sz = w.bz - w.az;
             let denom = direction.x * sz - direction.z * sx;
@@ -623,7 +825,8 @@ impl World {
                 consider(p, None, None, false, None);
             }
         }
-        for c in &self.circles {
+        for i in circles {
+            let c = &self.circles[i];
             if !c.solid {
                 continue;
             }
@@ -631,8 +834,8 @@ impl World {
             if let Some(p) = ray_box(
                 origin,
                 direction,
-                DVec3::new(c.x - r, 0.0, c.z - r),
-                DVec3::new(c.x + r, c.height, c.z + r),
+                DVec3::new(c.x - r, c.base, c.z - r),
+                DVec3::new(c.x + r, c.base + c.height, c.z + r),
             ) {
                 consider(p, c.target, None, false, None);
             }
@@ -666,6 +869,15 @@ impl World {
         best
     }
 
+    /// The ground itself (track or hills), without ramps or rubble.
+    pub fn ground_only(&self, x: f64, z: f64) -> f64 {
+        match (&self.track, &self.land) {
+            (Some(t), _) => t.height_at(x, z),
+            (None, Some(land)) => land.ground(x, z),
+            _ => 0.0,
+        }
+    }
+
     /// A bullet or rocket hit: damages what was hit, or knocks a cone flying.
     pub fn apply_hit(&mut self, hit: &RayHit, damage: f64, direction: DVec3) {
         if let Some(t) = hit.target {
@@ -690,13 +902,16 @@ impl World {
             let (min, max) = match t.kind {
                 TargetKind::Building | TargetKind::Car => {
                     let b = &self.boxes[t.shape];
-                    (DVec3::new(b.min_x, 0.0, b.min_z), DVec3::new(b.max_x, b.height, b.max_z))
+                    (
+                        DVec3::new(b.min_x, b.base, b.min_z),
+                        DVec3::new(b.max_x, b.base + b.height, b.max_z),
+                    )
                 }
                 _ => {
                     let c = &self.circles[t.shape];
                     (
-                        DVec3::new(t.x - c.r * 2.0, 0.0, t.z - c.r * 2.0),
-                        DVec3::new(t.x + c.r * 2.0, c.height, t.z + c.r * 2.0),
+                        DVec3::new(t.x - c.r * 2.0, c.base, t.z - c.r * 2.0),
+                        DVec3::new(t.x + c.r * 2.0, c.base + c.height, t.z + c.r * 2.0),
                     )
                 }
             };
@@ -741,6 +956,7 @@ impl World {
         if !self.targets[t].alive {
             return;
         }
+        self.keep_watch(t);
         self.targets[t].hp -= amount;
         if self.targets[t].hp <= 0.0 {
             self.destroy(t, direction);
@@ -762,6 +978,7 @@ impl World {
             let t = &mut self.targets[i];
             t.hp = t.max_hp;
         }
+        // Anything skipped (under the car) stays watched, to come back later.
         self.effects.clear();
     }
 
@@ -781,8 +998,15 @@ impl World {
         }
     }
 
+    fn keep_watch(&mut self, i: usize) {
+        if !self.watch.contains(&i) {
+            self.watch.push(i);
+        }
+    }
+
     /// Destroys something; `direction` is the way it was hit, so things fall away from you.
     fn destroy(&mut self, i: usize, direction: DVec3) {
+        self.keep_watch(i);
         let clock = self.clock;
         let t = &mut self.targets[i];
         t.alive = false;
@@ -793,6 +1017,9 @@ impl World {
                 t.state = BuildingState::Falling;
                 t.timer = 0.0;
                 self.boxes[t.shape].solid = false;
+                if !self.rubble.contains(&i) {
+                    self.rubble.push(i);
+                }
                 t.lean = (direction.z * 0.12, -direction.x * 0.12);
                 let (x, z, w, d, h, color) = (t.x, t.z, t.width, t.depth, t.height, t.color);
                 self.changes.push(Change::MakeRubble(i));
@@ -813,19 +1040,20 @@ impl World {
                 t.spin = DVec3::new(rng::centered() * 6.0, rng::centered() * 4.0, rng::centered() * 6.0);
                 let p = t.pos;
                 self.changes.push(Change::Wreck(i, true));
-                self.effects.explosion(DVec3::new(p.x, 0.8, p.z), 1.6);
+                self.effects.explosion(DVec3::new(p.x, p.y + 0.8, p.z), 1.6);
                 self.effects
-                    .shatter(DVec3::new(p.x, 0.8, p.z), 10, &[0x222222, 0x444444, 0x9cc3d9], 0.5, 8.0);
+                    .shatter(DVec3::new(p.x, p.y + 0.8, p.z), 10, &[0x222222, 0x444444, 0x9cc3d9], 0.5, 8.0);
             }
             TargetKind::Lamp | TargetKind::Tree => {
                 self.circles[t.shape].solid = false;
                 let lamp = t.kind == TargetKind::Lamp;
                 let (x, z, size, prop) = (t.x, t.z, t.size, t.prop);
+                let base = self.circles[t.shape].base;
                 self.set_prop_visible(prop, false);
                 let height = if lamp { 7.0 } else { 2.4 } * size;
                 let fx = &mut self.effects;
                 fx.add_debris(
-                    DVec3::new(x + direction.x, height / 2.0, z + direction.z),
+                    DVec3::new(x + direction.x, base + height / 2.0, z + direction.z),
                     DVec3::new(direction.x * 6.0, 3.0, direction.z * 6.0),
                     if lamp {
                         DVec3::new(0.24 * size, height, 0.24 * size)
@@ -836,9 +1064,15 @@ impl World {
                     4.0,
                 );
                 if lamp {
-                    fx.shatter(DVec3::new(x, height, z), 4, &[0xffffff, 0xcccccc], 0.3, 5.0);
+                    fx.shatter(DVec3::new(x, base + height, z), 4, &[0xffffff, 0xcccccc], 0.3, 5.0);
                 } else {
-                    fx.shatter(DVec3::new(x, 3.6 * size, z), 14, &[0x4f8a3a, 0x3f7a2d, 0x5f9a45], 0.9 * size, 5.0);
+                    fx.shatter(
+                        DVec3::new(x, base + 3.6 * size, z),
+                        14,
+                        &[0x4f8a3a, 0x3f7a2d, 0x5f9a45],
+                        0.9 * size,
+                        5.0,
+                    );
                 }
             }
         }
@@ -875,9 +1109,14 @@ impl World {
             }
             TargetKind::Car => {
                 t.flying = false;
+                t.slide = DVec3::ZERO;
                 t.burn_until = 0.0;
-                t.pos = DVec3::new(t.home.x, 0.0, t.home.z);
+                let (hx, hz) = (t.home.x, t.home.z);
+                let y = self.height_at(hx, hz);
+                let t = &mut self.targets[i];
+                t.pos = DVec3::new(hx, y, hz);
                 t.rot = DVec3::new(0.0, t.home.heading, 0.0);
+                self.boxes[t.shape].base = y;
                 self.changes.push(Change::Wreck(i, false));
                 self.fit_car_box(i);
                 let t = &self.targets[i];
@@ -930,8 +1169,14 @@ impl World {
 
     /// Moves a traffic car (and its collision box) to a new spot.
     pub fn move_car(&mut self, i: usize, x: f64, z: f64, heading: f64) {
+        let y = if self.land.is_some() || self.track.is_some() {
+            self.height_at(x, z)
+        } else {
+            0.0
+        };
         let t = &mut self.targets[i];
-        t.pos = DVec3::new(x, 0.0, z);
+        t.pos = DVec3::new(x, y, z);
+        self.boxes[t.shape].base = y;
         t.rot = DVec3::new(0.0, heading, 0.0);
         self.fit_car_box(i);
         self.push_car_transform(i);
@@ -968,7 +1213,8 @@ impl World {
         self.update_buildings(dt);
         self.update_wrecks(dt);
         self.update_cones(dt, car_x, car_z);
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &self.targets[i];
             if t.alive || (t.kind == TargetKind::Car && (t.flying || t.rig.is_none())) {
                 continue;
@@ -979,12 +1225,24 @@ impl World {
                 self.restore(i, true);
             }
         }
+        let clock = self.clock;
+        let targets = &self.targets;
+        self.watch.retain(|&i| {
+            let t = &targets[i];
+            t.destroyed_at.is_finite()
+                && (!t.alive
+                    || t.flying
+                    || t.slide.length_squared() > 0.01
+                    || clock < t.burn_until
+                    || (t.kind == TargetKind::Building && (t.state != BuildingState::Standing || t.hp < t.max_hp)))
+        });
         self.update_weather(dt, car_x, car_z);
         self.effects.update(dt);
     }
 
     fn update_buildings(&mut self, dt: f64) {
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &mut self.targets[i];
             if t.kind != TargetKind::Building {
                 continue;
@@ -1060,10 +1318,14 @@ impl World {
                 }
             }
         }
+        let targets = &self.targets;
+        self.rubble
+            .retain(|&i| targets[i].rubble_height > 0.0 || targets[i].state != BuildingState::Standing);
     }
 
     fn update_wrecks(&mut self, dt: f64) {
-        for i in 0..self.targets.len() {
+        for k in 0..self.watch.len() {
+            let i = self.watch[k];
             let t = &mut self.targets[i];
             if t.kind != TargetKind::Car || t.alive || t.rig.is_none() {
                 continue;
@@ -1072,8 +1334,12 @@ impl World {
                 t.velocity.y -= 16.0 * dt;
                 t.pos += t.velocity * dt;
                 t.rot += t.spin * dt;
-                if t.pos.y <= 0.0 && t.velocity.y < 0.0 {
-                    t.pos.y = 0.0;
+                let ground = match (&self.track, &self.land) {
+                    (None, Some(land)) => land.ground(t.pos.x, t.pos.z),
+                    _ => 0.0,
+                };
+                if t.pos.y <= ground && t.velocity.y < 0.0 {
+                    t.pos.y = ground;
                     if t.velocity.y < -5.0 {
                         t.velocity = DVec3::new(t.velocity.x * 0.5, -t.velocity.y * 0.3, t.velocity.z * 0.5);
                         t.spin *= 0.4;
@@ -1082,14 +1348,44 @@ impl World {
                     } else {
                         t.flying = false;
                         t.rot = DVec3::new(0.0, t.rot.y, 0.0);
-                        t.pos.x = t.pos.x.clamp(-self.half + 3.0, self.half - 3.0);
-                        t.pos.z = t.pos.z.clamp(-self.half + 3.0, self.half - 3.0);
+                        self.boxes[t.shape].base = t.pos.y;
+                        if self.land.is_none() {
+                            t.pos.x = t.pos.x.clamp(-self.half + 3.0, self.half - 3.0);
+                            t.pos.z = t.pos.z.clamp(-self.half + 3.0, self.half - 3.0);
+                        }
                         self.fit_car_box(i);
                         let t = &self.targets[i];
                         self.boxes[t.shape].solid = true;
                     }
                 }
                 self.push_car_transform(i);
+            }
+            // Pushed: it slides and scrapes to a stop.
+            let t = &self.targets[i];
+            if !t.flying && t.slide.length_squared() > 0.01 {
+                let speed = t.slide.length();
+                let slowed = (speed - 9.0 * dt).max(0.0) / speed;
+                let step = t.slide * dt;
+                let (x, z) = (t.pos.x + step.x, t.pos.z + step.z);
+                if self.wreck_blocked(i, step.x, step.z) {
+                    // It hits something solid: it stops there.
+                    self.targets[i].slide = DVec3::ZERO;
+                    continue;
+                }
+                let y = match &self.land {
+                    Some(land) => land.ground(x, z),
+                    None => self.track.as_ref().map_or(0.0, |tr| tr.height_at(x, z)),
+                };
+                let t = &mut self.targets[i];
+                t.pos = DVec3::new(x, y, z);
+                t.rot.y += speed * dt * 0.08;
+                t.slide *= slowed;
+                self.boxes[t.shape].base = y;
+                self.fit_car_box(i);
+                self.push_car_transform(i);
+                if rng::random() < dt * speed {
+                    self.effects.dust(x, z, 1.0, 1.0, 2, 0.4);
+                }
             }
             let t = &self.targets[i];
             if self.clock < t.burn_until {
@@ -1229,6 +1525,168 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rubble_only_raises_the_ground_under_its_own_pile() {
+        let mut world = World::empty();
+        world.land = Some(Box::new(crate::land::Land::new(false)));
+        let land = world.land.as_deref().unwrap();
+        // Somewhere in the lakes, under the water.
+        let low = (0..400)
+            .map(|k| (-1500.0 + (k % 20) as f64 * 150.0, -2600.0 - (k / 20) as f64 * 100.0))
+            .find(|&(x, z)| land.height(x, z) < -1.0)
+            .expect("a lake bed");
+        world.boxes.push(BoxShape {
+            min_x: -10.0,
+            max_x: 10.0,
+            min_z: -10.0,
+            max_z: 10.0,
+            height: 20.0,
+            solid: false,
+            target: Some(0),
+            base: 0.0,
+        });
+        let mut t = Target::new_public(TargetKind::Building, 0.0, 0.0, 100.0, 1000.0, 0);
+        (t.width, t.depth, t.rubble_height) = (20.0, 20.0, RUBBLE_HEIGHT);
+        world.targets.push(t);
+        world.rubble.push(0);
+        let ground = world.land.as_deref().unwrap().ground(low.0, low.1);
+        assert_eq!(world.height_at(low.0, low.1), ground);
+        assert!(world.height_at(0.0, 0.0) > 1.0);
+    }
+
+    #[test]
+    fn a_shoved_wreck_slides_and_stops() {
+        let mut world = World::empty();
+        world.boxes.push(BoxShape {
+            min_x: -1.0,
+            max_x: 1.0,
+            min_z: -2.0,
+            max_z: 2.0,
+            height: 1.4,
+            solid: true,
+            target: Some(0),
+            base: 0.0,
+        });
+        let mut t = Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0);
+        t.alive = false;
+        t.destroyed_at = 0.0;
+        world.targets.push(t);
+        // A wreck needs a model to be pushed about; without one it can't be.
+        assert!(!world.is_wreck(0));
+        world.targets[0].rig = None;
+        world.shove(0, DVec3::new(0.0, 0.0, 8.0));
+        assert_eq!(world.targets[0].slide, DVec3::ZERO);
+    }
+
+    fn solid(min_x: f64, max_x: f64, min_z: f64, max_z: f64, target: Option<usize>) -> BoxShape {
+        BoxShape {
+            min_x,
+            max_x,
+            min_z,
+            max_z,
+            height: 10.0,
+            solid: true,
+            target,
+            base: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_blast_reaches_cars_and_trees_at_their_ground_height() {
+        let mut world = World::empty();
+        world.boxes.push(BoxShape {
+            base: 40.0,
+            ..solid(-1.0, 1.0, -2.0, 2.0, Some(0))
+        });
+        world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 100.0, 1000.0, 0));
+        world.circles.push(Circle {
+            x: 4.0,
+            z: 0.0,
+            r: 0.5,
+            height: 4.0,
+            hit_radius: 1.5,
+            solid: true,
+            target: Some(1),
+            base: 40.0,
+        });
+        world.targets.push(Target::new_public(TargetKind::Tree, 4.0, 0.0, 100.0, 1000.0, 0));
+
+        world.explode(DVec3::new(0.0, 1.0, 0.0), 8.0, 50.0);
+        assert!(world.targets.iter().all(|t| t.hp == 100.0));
+        world.explode(DVec3::new(0.0, 40.5, 0.0), 8.0, 50.0);
+        assert!(world.targets.iter().all(|t| t.hp < 100.0));
+    }
+
+    #[test]
+    fn raycast_hits_canopies_across_cell_edges_and_new_boxes() {
+        let mut world = World::empty();
+        world.circles.push(Circle {
+            x: CELL + 0.6,
+            z: 10.0,
+            r: 0.2,
+            height: 4.0,
+            hit_radius: 1.2,
+            solid: true,
+            target: Some(0),
+            base: 40.0,
+        });
+        world.index_new();
+        let origin = DVec3::new(CELL - 0.4, 46.0, 10.0);
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(0));
+        assert!(world.raycast(origin, DVec3::NEG_Y, 1.0).is_none());
+
+        world.boxes.push(BoxShape {
+            base: 44.5,
+            height: 0.5,
+            ..solid(CELL - 1.0, CELL, 9.0, 11.0, Some(1))
+        });
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(1));
+        world.index_new();
+        assert_eq!(world.raycast(origin, DVec3::NEG_Y, 12.0).unwrap().target, Some(1));
+    }
+
+    #[test]
+    fn a_building_under_the_car_at_a_rebuild_still_comes_back_later() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-5.0, 5.0, -5.0, 5.0, Some(0)));
+        let mut t = Target::new_public(TargetKind::Building, 0.0, 0.0, 100.0, 1000.0, 0);
+        (t.width, t.depth, t.height) = (10.0, 10.0, 10.0);
+        world.targets.push(t);
+        world.damage(0, 1e6, DVec3::X);
+        world.rebuild_all(0.0, 0.0, 2.0);
+        assert!(!world.targets[0].alive, "skipped: the car is on it");
+        for _ in 0..120 {
+            world.update(1.0, 500.0, 500.0, 2.0);
+        }
+        assert!(world.targets[0].alive && world.targets[0].state == BuildingState::Standing);
+    }
+
+    #[test]
+    fn a_sliding_wreck_stops_at_a_wall() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-1.0, 1.0, -2.0, 2.0, Some(0)));
+        world.boxes.push(solid(-5.0, 5.0, 4.0, 5.0, None));
+        world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0));
+        world.index_new();
+        assert!(!world.wreck_blocked(0, 0.0, 1.0));
+        assert!(world.wreck_blocked(0, 0.0, 2.5));
+        assert!(world.wreck_blocked(0, world.half, 0.0));
+    }
+
+    #[test]
+    fn a_restored_car_loses_its_wreck_momentum() {
+        let mut world = World::empty();
+        world.boxes.push(solid(-1.0, 1.0, -2.0, 2.0, Some(0)));
+        let mut t = Target::new_public(TargetKind::Car, 0.0, 0.0, 70.0, 1000.0, 0);
+        t.alive = false;
+        t.destroyed_at = 0.0;
+        t.slide = DVec3::X * 5.0;
+        world.targets.push(t);
+        world.rebuild_all(100.0, 100.0, 2.0);
+        assert!(world.targets[0].alive);
+        assert_eq!(world.targets[0].slide, DVec3::ZERO);
+    }
+
+    #[test]
     fn same_map_event_reset_never_restores_removed_traffic() {
         let mut world = World::empty();
         world.boxes.push(BoxShape {
@@ -1239,6 +1697,7 @@ mod tests {
             height: 1.7,
             solid: true,
             target: Some(0),
+            base: 0.0,
         });
         world.targets.push(Target::new_public(TargetKind::Car, 0.0, 0.0, 100.0, 500.0, 0));
         world.targets[0].traffic = true;
@@ -2291,7 +2750,7 @@ pub mod venues {
                 Venue {
                     value: "city",
                     label: "City",
-                    about: "Streets, parks, a parking lot and a stunt park, all destroyable.",
+                    about: "A huge open world: the city, then highways out to towns, mountains, desert, lakes and forest. Get out and walk with F.",
                     theme: Theme {
                         scenery: Scenery::City,
                         ..DAY
