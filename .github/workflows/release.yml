@@ -43,11 +43,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-15, platform: mac-arm, binary: car-game }
-          - { os: macos-15-intel, platform: mac-intel, binary: car-game }
-          - { os: windows-2025, platform: windows, binary: car-game.exe }
-          - { os: ubuntu-22.04, platform: linux, binary: car-game }
+          - { os: macos-15, platform: mac-arm, out: builds/release, binary: car-game }
+          # Built on the Apple Silicon runners, which are far faster than the Intel ones.
+          - { os: macos-15, platform: mac-intel, target: x86_64-apple-darwin, out: builds/x86_64-apple-darwin/release, binary: car-game }
+          - { os: windows-2025, platform: windows, out: builds/release, binary: car-game.exe }
+          - { os: ubuntu-22.04, platform: linux, out: builds/release, binary: car-game }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -64,29 +66,46 @@ jobs:
         run: |
           "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_ENV
       - run: rustup show active-toolchain || rustup toolchain install
-      # Preserve Cargo's cached path-dependency builds across fresh checkouts.
+      - name: Add the cross-compilation target
+        if: matrix.target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup target add "$TARGET"
+      # A fresh checkout gives every file the current time, and Cargo rebuilds
+      # any library whose build script watches a file newer than its last
+      # build (proc-macro2, quote, serde and everything that uses them).
+      # Old fixed times keep the cached libraries up to date.
       - name: Fix the stored libraries' file times
-        run: find packs/living_city/libs -type f -exec touch -t 200001010000 {} +
+        run: find libs packs/*/libs -type f -exec touch -t 200001010000 {} +
       - name: Identify vendored dependencies
         id: vendor
         run: echo "tree=$(git ls-tree HEAD libs packs/living_city/libs | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
-      # Keep the compiled vendored dependencies and their Cargo fingerprints.
+      # Keep the compiled vendored dependencies and their Cargo fingerprints
+      # (a cross-compiled build keeps its own under builds/<target>/release).
       - uses: actions/cache@v5
         with:
           path: |
             builds/release/.fingerprint
             builds/release/build
             builds/release/deps
-          key: cargo-release-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
-          restore-keys: cargo-release-${{ matrix.os }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
+            builds/*/release/.fingerprint
+            builds/*/release/build
+            builds/*/release/deps
+          key: cargo-release-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: cargo-release-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.vendor.outputs.tree }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml') }}-
       - name: Build the game
-        run: cargo build --release --package car_game --locked --offline
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --package car_game --locked --offline ${TARGET:+--target "$TARGET"}
+      - name: Check the Intel Mac build
+        if: matrix.platform == 'mac-intel'
+        run: test "$(lipo -archs builds/x86_64-apple-darwin/release/car-game)" = x86_64
       - name: Create archives and installers
         env:
           GAME_VERSION: ${{ needs.version.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
-          BINARY: ${{ matrix.binary }}
-        run: bash tools/packaging/package.sh "$PLATFORM" "$GAME_VERSION" "builds/release/$BINARY" upload
+          BINARY: ${{ matrix.out }}/${{ matrix.binary }}
+        run: bash tools/packaging/package.sh "$PLATFORM" "$GAME_VERSION" "$BINARY" upload
       - uses: actions/upload-artifact@v4
         with:
           name: game-${{ matrix.platform }}
@@ -98,37 +117,7 @@ jobs:
       - name: Verify Windows installer contents and shortcut upgrade
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $install = Join-Path $env:RUNNER_TEMP 'Car Game update test'
-          # An update over older versions: 1.2.x's shortcuts (Start menu and
-          # Desktop) and 1.3.0/1.3.1's Start menu folder must be replaced, not duplicated.
-          $shell = New-Object -ComObject WScript.Shell
-          $programs = [Environment]::GetFolderPath('Programs')
-          $desktop = [Environment]::GetFolderPath('Desktop')
-          New-Item -ItemType Directory -Force (Join-Path $programs 'Car Game') | Out-Null
-          foreach ($old in @((Join-Path $programs 'Car Game.lnk'), (Join-Path $desktop 'Car Game.lnk'), (Join-Path $programs 'Car Game\Car Game.lnk'))) {
-            $link = $shell.CreateShortcut($old)
-            $link.TargetPath = "$env:WINDIR\notepad.exe"
-            $link.Save()
-          }
-          # Match the extended drive path passed by the v1.4.0 in-game updater.
-          $installer = Start-Process -Wait -PassThru -FilePath 'upload/Car-Game-Windows-Setup.exe' -ArgumentList @(
-            '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "`"/DIR=\\?\$install`""
-          )
-          if ($installer.ExitCode -ne 0) { throw "Installer returned $($installer.ExitCode)" }
-          Expand-Archive 'upload/Car-Game-Windows.zip' -DestinationPath (Join-Path $env:RUNNER_TEMP 'car-game-portable')
-          $exe = Join-Path $install 'car-game.exe'
-          $portable = Join-Path $env:RUNNER_TEMP 'car-game-portable/Car Game/car-game.exe'
-          if ((Get-FileHash $exe).Hash -ne (Get-FileHash $portable).Hash) { throw 'Installed and portable executables differ' }
-          if (!(Test-Path "$install/assets/packs/photo_real/libs/car-models/cars.glb")) { throw 'Installer omitted Photo Real assets' }
-          if (Test-Path (Join-Path $programs 'Car Game')) { throw 'The 1.3.0/1.3.1 Start menu folder is still there' }
-          foreach ($path in @((Join-Path $programs 'Car Game.lnk'), (Join-Path $desktop 'Car Game.lnk'))) {
-            $link = $shell.CreateShortcut($path)
-            if ($link.TargetPath -ne (Resolve-Path $exe).Path) { throw "$path points at $($link.TargetPath)" }
-            if ($link.IconLocation -notlike '*icon.ico*') { throw "$path has no icon ($($link.IconLocation))" }
-          }
-          $found = @(Get-ChildItem $programs -Recurse -Filter 'Car Game*.lnk')
-          if ($found.Count -ne 1) { throw "Expected one Start menu shortcut, found: $($found.FullName -join ', ')" }
+        run: ./tools/packaging/verify-windows.ps1
 
   release:
     name: Publish the release
