@@ -34,3 +34,24 @@ jobs:
             (Resolve-Path 'tools/install.ps1').Path, [ref]$null, [ref]$errors
           ) | Out-Null
           if ($errors) { throw ($errors -join "`n") }
+
+  windows-installer:
+    # Compiles and installs the real installer script around a stand-in game,
+    # so an installer error shows up here instead of after the release merge.
+    name: Windows installer
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package a stand-in game
+        run: |
+          mkdir -p builds
+          printf 'Car Game stand-in\n' > builds/car-game.exe
+          version=$(sed -n '/^\[workspace.package\]$/,/^\[/s/^version = "\([^"]*\)".*/\1/p' Cargo.toml)
+          bash tools/packaging/package.sh windows "$version" builds/car-game.exe upload
+      - name: Install it as an update
+        shell: pwsh
+        run: ./tools/packaging/verify-windows.ps1

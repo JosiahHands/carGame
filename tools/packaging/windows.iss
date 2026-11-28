@@ -47,6 +47,12 @@ Filename: "{app}\car-game.exe"; Description: "Play Car Game"; Flags: nowait post
 Filename: "{app}\car-game.exe"; Flags: nowait; Check: LaunchAfterUpdate
 
 [Code]
+// Inno Setup's Pascal Script only allows constants at the top level.
+const
+  Synchronize = $00100000;
+  ErrorInvalidParameter = 87;
+  WaitObject0 = 0;
+
 function OpenGameProcess(Access: Cardinal; InheritHandle: LongBool; ProcessId: Cardinal): THandle;
   external 'OpenProcess@kernel32.dll stdcall setuponly';
 function WaitForGameProcess(Handle: THandle; Milliseconds: Cardinal): Cardinal;
@@ -66,10 +72,6 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-const
-  Synchronize = $00100000;
-  ErrorInvalidParameter = 87;
-  WaitObject0 = 0;
 var
   ProcessParam: String;
   ProcessId: Int64;
